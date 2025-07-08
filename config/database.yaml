@@ -1,0 +1,9 @@
+# 数据库配置
+database:
+  engine: "postgresql"
+  host: "localhost"
+  port: 5432
+  name: "file_tools"
+  user: "postgres"
+  password: "postgres"
+  pool_size: 10

@@ -1,0 +1,21 @@
+# 应用配置
+app:
+  name: "File-tools"
+  version: "1.0.0"
+  debug: false  # 生产环境应设为false
+  secret_key: "${APP_SECRET_KEY}"  # 从环境变量获取
+  env: "production"
+  cors_origins: "*"
+
+# 日志配置
+logging:
+  level: "INFO"
+  path: "logs/app.log"
+  rotation: "10 MB"  # 日志轮转大小
+  retention: "7 days"  # 日志保留时间
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+
+# 性能监控
+monitoring:
+  enabled: true
+  port: 9090
