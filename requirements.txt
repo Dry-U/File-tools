@@ -1,39 +1,33 @@
 # 核心依赖
-fastapi==0.95.2
-uvicorn==0.22.0
-streamlit==1.28.0
+fastapi>=0.95.2
+uvicorn>=0.22.0
+streamlit>=1.28.0
 
 # 数据库
-sqlalchemy==2.0.15
-psycopg2-binary==2.9.6
+sqlalchemy
+psycopg2-binary>=2.9.9
 
 # 文件监控
-watchdog==3.0.0
-pyinotify==0.9.6
+watchdog>=3.0.0
 
 # 文档解析
-tika==2.6.0
-pypdf2==3.0.1
-pandoc==2.3.0
-unstructured==0.12.4  # 支持docx解析
+tika>=2.6.0
+pypdf2>=3.0.1
+unstructured>=0.12.4
 
 # NLP处理
-sentence-transformers==2.2.2
-transformers==4.33.3
+sentence-transformers>=2.6.1
+transformers>=4.33.3
 
 # LangChain生态
-langchain==0.0.346
-langchain-community==0.0.10
-langchain-core==0.1.7
+langchain>=0.1.21
+langchain-community>=0.0.21
+langchain-core>=0.1.34
 
 # 向量检索
-faiss-cpu==1.7.4
-rank-bm25==0.2.2
-
-# LLM推理
-llama-cpp-python==0.2.23
-vllm==0.2.5
+faiss-cpu
+rank-bm25>=0.2.2
 
 # 工具类
-python-dotenv==1.0.0
-pyyaml==6.0
+python-dotenv>=1.0.0
+pyyaml>=6.0
