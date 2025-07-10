@@ -1,33 +1,30 @@
 # 核心依赖
-fastapi>=0.95.2
-uvicorn>=0.22.0
-streamlit>=1.28.0
+langchain==0.0.348  # RAG管道和链
+langchain-community==0.0.38  # LangChain社区扩展（自定义LLM等）
+faiss-cpu==1.7.4  # FAISS向量检索（CPU版；GPU版用faiss-gpu）
+streamlit==1.29.0  # 前端UI
+pyyaml==6.0.1  # 配置加载
+pypdf2==3.0.1  # PDF解析
+pandas==2.1.4  # XLSX表格处理
+sentence-transformers==2.2.2  # Sentence-BERT嵌入和Cross-Encoder
+llama-cpp-python==0.2.20  # 本地LLM推理（需预编译支持GPU）
+psutil==5.9.6  # 资源监控（内存/CPU）
+gputil==1.4.0  # GPU显存监控
+rank-bm25==0.2.2  # BM25关键词检索
+python-docx==1.1.0  # DOCX解析
+pypandoc==1.12  # Pandoc集成（Markdown等；需系统安装pandoc）
+pytesseract==0.3.10  # OCR图像解析（需系统安装Tesseract）
+pillow==10.1.0  # 图像处理（PIL）
+watchdog==3.0.0  # 文件监控
+cryptography==41.0.7  # AES加密
+spacy==3.7.2  # NER实体识别（运行后下载模型：python -m spacy download zh_core_web_sm && python -m spacy download en_core_web_sm）
+pytest==7.4.3  # 测试框架
+numpy==1.26.2  # 性能统计和数组操作
+fastapi==0.104.1  # API服务器
+uvicorn==0.24.0  # ASGI服务器
+python-jose[cryptography]==3.3.0  # JWT鉴权
+pydantic==2.5.2  # API模型验证
 
-# 数据库
-sqlalchemy
-psycopg2-binary>=2.9.9
-
-# 文件监控
-watchdog>=3.0.0
-
-# 文档解析
-tika>=2.6.0
-pypdf2>=3.0.1
-unstructured>=0.12.4
-
-# NLP处理
-sentence-transformers>=2.6.1
-transformers>=4.33.3
-
-# LangChain生态
-langchain>=0.1.21
-langchain-community>=0.0.21
-langchain-core>=0.1.34
-
-# 向量检索
-faiss-cpu
-rank-bm25>=0.2.2
-
-# 工具类
-python-dotenv>=1.0.0
-pyyaml>=6.0
+# 可选依赖（根据硬件/环境）
+faiss-gpu==1.7.4  # 如果有NVIDIA GPU
+torch==2.1.1  # sentence-transformers依赖（GPU加速需torch+cuda）

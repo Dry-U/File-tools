@@ -1,0 +1,96 @@
+# src/core/rag_pipeline.py
+from typing import Dict, List, Any
+from langchain.chains import RetrievalQA
+from langchain.prompts import PromptTemplate
+from langchain.llms.base import LLM
+from langchain.schema import Document as LangDocument  # LangChain的Document
+from src.utils.logger import setup_logger
+from src.utils.config_loader import ConfigLoader
+from src.core.hybrid_retriever import HybridRetriever
+from src.core.model_manager import ModelManager
+from src.core.universal_parser import Document  # 项目Document to LangDocument
+
+logger = setup_logger()
+
+class CustomLLM(LLM):
+    """自定义LangChain LLM：包装ModelManager的generate"""
+    model_manager: ModelManager
+
+    def __init__(self, model_manager: ModelManager):
+        super().__init__()
+        self.model_manager = model_manager
+        self.privacy_filter = PrivacyFilter(config)
+        self.security = SecurityManager(config)
+
+    def _call(self, prompt: str, stop: List[str] = None) -> str:
+        """同步调用（LangChain默认）"""
+        response = ''.join(self.model_manager.generate(prompt))
+        return response
+
+    @property
+    def _llm_type(self) -> str:
+        return "custom_llm"
+
+class RAGPipeline:
+    """RAG问答管道：使用LangChain实现数据感知和主动性（基于文档3.3）"""
+
+    def __init__(self, model_manager: ModelManager, config: ConfigLoader, retriever: HybridRetriever):
+        self.model_manager = model_manager
+        self.config = config
+        self.retriever = retriever
+        self.llm = CustomLLM(model_manager)
+        self.qa_chain = self._build_qa_chain()
+
+    def _build_qa_chain(self) -> RetrievalQA:
+        """构建LangChain RetrievalQA链"""
+        prompt_template = """
+        使用以下上下文回答问题。如果不知道答案，就说不知道。
+
+        上下文:
+        {context}
+
+        问题: {question}
+
+        回答:
+        """
+        prompt = PromptTemplate(template=prompt_template, input_variables=["context", "question"])
+
+        def lang_retriever(query: str) -> List[LangDocument]:
+            """适配LangChain检索器：从HybridRetriever获取"""
+            docs = self.retriever.search(query)
+            return [LangDocument(page_content=doc.content, metadata=doc.metadata) for doc in docs]
+
+        qa = RetrievalQA.from_chain_type(
+            llm=self.llm,
+            chain_type="stuff",
+            retriever=lang_retriever.as_retriever(search_kwargs={"k": 5}),
+            return_source_documents=True,
+            chain_type_kwargs={"prompt": prompt}
+        )
+        return qa
+
+    def query(self, query: str) -> Dict[str, Any]:
+        """执行RAG查询：检索+生成，返回answer和sources"""
+        if not self.security.check_permission('query'):
+             return {"answer": "权限不足。", "sources": []}
+        try:
+            result = self.qa_chain({"query": query})
+            answer = result["result"]
+            sources = [doc.metadata.get('file_path', '未知') for doc in result["source_documents"]]
+            
+            # 主动性：如果检索结果为空，触发文件重新扫描（环境交互示例）
+            if not sources:
+                logger.info("无相关文档，触发主动扫描")
+                # 调用FileScanner（假设注入或全局访问；实际可通过事件）
+                from src.core.file_scanner import FileScanner  # 延迟导入避免循环
+                scanner = FileScanner(self.config)
+                scanner.scan_and_index()  # 主动更新索引
+                # 重新查询
+                result = self.qa_chain({"query": query})
+                answer = self.privacy_filter.sanitize(result["result"])
+                self.security.log_audit("query_executed", {"query": query, "user_role": self.security.current_user_role})
+    
+                return {"answer": answer, "sources": sources}
+        except Exception as e:
+            logger.error(f"RAG查询失败: {e}")
+            return {"answer": "错误：无法处理查询。", "sources": []}

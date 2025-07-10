@@ -1,0 +1,31 @@
+# config.yaml (基于文档8.1)
+system:
+  data_dir: "./data"
+  log_level: "INFO"
+  wsl_model_path: "/path/to/llama.cpp/in/wsl"  # WSL中llama.cpp路径
+
+file_scanner:
+  scan_paths:
+    - "~/Documents"
+    - "~/Downloads"
+  exclude_patterns:
+    - ".*\\.git"
+    - ".*node_modules"
+  file_types:
+    documents: [".pdf", ".doc", ".docx", ".txt", ".md"]
+    spreadsheets: [".xls", ".xlsx", ".csv"]
+    code: [".py", ".js", ".java"]
+  max_file_size: 100  # MB
+
+model:
+  model_dir: "./models"
+  default_model: "auto"
+  inference:
+    max_context_length: 4096
+    temperature: 0.7
+    use_gpu: true
+
+performance:
+  max_cpu_threads: 8
+  cache_size: 1000
+  batch_size: 32
