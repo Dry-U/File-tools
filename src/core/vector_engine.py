@@ -63,7 +63,7 @@ class VectorEngine:
         return results
 
     def _save_index(self):
-    # 假设index_data = {'faiss': self.index} 但FAISS有write_index；这里加密元数据
-    metadata = {}  # e.g., self.doc_store metadata
-    self.security.save_encrypted_index(metadata, self.index_path + '.meta')
-    faiss.write_index(self.index, self.index_path)
+    #假设index_data = {'faiss': self.index} 但FAISS有write_index；这里加密元数据
+      metadata = {}  # e.g., self.doc_store metadata
+      self.security.save_encrypted_index(metadata, self.index_path + '.meta')
+      faiss.write_index(self.index, self.index_path)
