@@ -1,0 +1,75 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+# 必需字段
+name = "file-tools"  # 项目名称（小写字母、下划线、无空格）
+version = "0.1.0"    # 项目版本号
+requires-python = "==3.9.13"  # 指定支持的Python版本
+
+# 可选但推荐的字段
+description = "智能文件处理工具"
+authors = [ { name = "Darian", email = "Dar1an@126.com" }]
+license = {text = "MIT"}  # 或使用其他许可证
+
+# 项目依赖项配置
+dependencies = [
+    # RAG管道和链
+    "langchain>=0.1.0",
+    # LangChain社区扩展（自定义LLM等）
+    "langchain-community==0.0.38",
+    # FAISS向量检索（CPU版；GPU版用faiss-gpu）
+    "faiss-cpu==1.7.4",
+    # 前端UI框架
+    "streamlit==1.29.0",
+    # 配置加载工具
+    "pyyaml==6.0.1",
+    # PDF解析库
+    "pypdf2==3.0.1",
+    # 表格数据处理
+    "pandas==2.1.4",
+    # Sentence-BERT嵌入和Cross-Encoder
+    "sentence-transformers==2.2.2",
+    # 本地LLM推理（需预编译支持GPU）
+    "llama-cpp-python==0.2.20",
+    # 资源监控（内存/CPU）
+    "psutil==5.9.6",
+    # GPU显存监控
+    "gputil==1.4.0",
+    # BM25关键词检索
+    "rank-bm25==0.2.2",
+    # DOCX文档解析
+    "python-docx==1.1.0",
+    # Pandoc集成（Markdown等；需系统安装pandoc）
+    "pypandoc==1.12",
+    # OCR图像解析（需系统安装Tesseract）
+    "pytesseract==0.3.10",
+    # 图像处理库
+    "pillow==10.1.0",
+    # 文件监控工具
+    "watchdog==3.0.0",
+    # AES加密库
+    "cryptography==41.0.7",
+    # NER实体识别
+    "spacy==3.7.2",
+    # 测试框架
+    "pytest==7.4.3",
+    # 数值计算和数组操作
+    "numpy==1.26.2",
+    # API服务器框架
+    "fastapi==0.104.1",
+    # ASGI服务器
+    "uvicorn==0.24.0",
+    # JWT鉴权工具
+    "python-jose[cryptography]==3.3.0",
+    # API模型验证
+    "pydantic==2.5.2"
+]
+
+# 可选依赖（根据硬件/环境）
+[project.optional-dependencies]
+gpu = [
+    "faiss-gpu",  # 如果有NVIDIA GPU
+    "torch==2.1.1"       # sentence-transformers依赖（GPU加速需torch+cuda）
+]

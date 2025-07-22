@@ -1,7 +1,7 @@
 # src/api/routes.py
 from fastapi import APIRouter, Depends, HTTPException
 from src.api.models import QueryRequest, QueryResponse
-from src.api.auth import verify_token
+from src.api.auth import verify_token, create_access_token
 from src.core.rag_pipeline import RAGPipeline
 from src.core.security_manager import SecurityManager
 from src.utils.config_loader import ConfigLoader
