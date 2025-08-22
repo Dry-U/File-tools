@@ -16,7 +16,7 @@ def start_wsl_model():
     config = ConfigLoader()
     wsl_path = config.get('system', 'wsl_model_path')
     try:
-        subprocess.Popen(['wsl', '-d', 'Ubuntu', 'bash', '-c', f'cd {wsl_path} && ./server --model models/nous-hermes-2-7b.Q4_K_M.gguf --host 0.0.0.0 --port 8000'])
+        subprocess.Popen(['wsl', '-d', 'Ubuntu', 'bash', '-c', f'cd {wsl_path} && ~/my-projects/repo_llama.cpp/bin/llama-server --model ~/models/YiLin.gguf --host 0.0.0.0 --port 9090'])
         time.sleep(5)
         logger.info("WSL model server started successfully.")
     except Exception as e:
@@ -66,22 +66,6 @@ def main():
         with st.chat_message(message["role"]):
             st.markdown(message["content"])
     
-    # 新增：简单登录获取JWT token（示例；实际可扩展为完整登录页面）
-    if 'jwt_token' not in st.session_state:
-        st.sidebar.header("登录")
-        username = st.sidebar.text_input("用户名")
-        password = st.sidebar.text_input("密码", type="password")
-        if st.sidebar.button("登录"):
-            try:
-                login_url = "http://localhost:8080/api/v1/token"  # 假设API有/token端点（从Part 9）
-                login_response = requests.post(login_url, json={"username": username, "password": password})
-                if login_response.status_code == 200:
-                    st.session_state.jwt_token = login_response.json()["access_token"]
-                    st.sidebar.success("登录成功！")
-                else:
-                    st.sidebar.error("登录失败")
-            except Exception as e:
-                st.sidebar.error(f"登录错误: {e}")
     
     if prompt := st.chat_input("输入您的查询"):
         st.session_state.messages.append({"role": "user", "content": prompt})
@@ -91,7 +75,7 @@ def main():
         with st.chat_message("assistant"):
             with st.spinner("思考中..."):
                 # 修改：调用API代替直接rag.query (您的代码片段)
-                api_url = "http://localhost:8080/api/v1/query"
+                api_url = "http://localhost:9090/api/v1/query"
                 token = st.session_state.get('jwt_token', "your-jwt-token")  # 从session_state获取；fallback到默认（测试用）
                 response = requests.post(
                     api_url,

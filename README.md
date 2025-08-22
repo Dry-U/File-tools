@@ -1,77 +1,111 @@
 # File-tools
-本地文件助手
+本地文件智能助手 - 高效管理、检索与分析本地文件
 
-## 项目结构说明
+## 项目概述
+File-tools是一个本地文件智能管理工具，提供文件扫描、内容解析、语义检索和AI增强分析功能。通过结合本地LLM模型，帮助用户更高效地管理和利用本地文档资源。
 
+## 项目结构
 ```
 File-tools/
-├── backend/                    # 后端代码
-│   ├── core/                   # 核心业务逻辑
-│   │   ├── __init__.py         # Python包初始化文件
-│   │   └── service.py          # 核心服务实现
-│   ├── api/                    # API接口层
-│   │   ├── __init__.py         # Python包初始化文件
-│   │   └── routes.py           # API路由定义
-│   ├── models/                 # 数据模型
-│   │   ├── __init__.py         # Python包初始化文件
-│   │   └── base.py             # 基础模型定义
-│   └── utils/                 # 工具函数
-│       ├── __init__.py         # Python包初始化文件
-│       └── helpers.py          # 辅助工具函数
-├── frontend/                  # 前端代码
-│   └── src/                   # 前端源代码
-│       ├── components/        # Vue/React组件
-│       │   └── HelloWorld.vue # 示例组件
-│       ├── views/             # 页面视图
-│       │   └── Home.vue       # 首页视图
-│       ├── assets/            # 静态资源
-│       ├── main.js            # 前端入口文件
-│       └── App.vue            # 根组件
-├── config/                    # 配置文件
-│   ├── settings.yaml          # 应用配置
-│   └── database.yaml          # 数据库配置
-├── docs/                      # 项目文档
-│   └── architecture.md        # 架构设计文档
-├── tests/                     # 测试代码
-│   ├── unit/                  # 单元测试
-│   │   └── test_core.py       # 核心业务测试
-│   └── integration/           # 集成测试
-│       └── test_api.py        # API接口测试
 ├── .gitignore                # Git忽略规则
-├── requirements.txt          # Python依赖
-├── setup.py                  # 项目安装配置
+├── .idea/                    # IDE配置文件
 ├── Dockerfile                # Docker构建文件
-└── docker-compose.yaml       # Docker编排配置
+├── LICENSE                   # 许可证文件
+├── README.md                 # 项目说明文档
+├── app.py                    # 应用入口
+├── config.yaml               # 项目配置文件
+├── docker-compose.yaml       # Docker编排配置
+├── docs/                     # 项目文档
+│   └── 需求文档v3(最终版).md   # 需求规格说明书
+├── pyproject.toml            # Python项目配置
+├── src/                      # 源代码
+│   ├── api/                  # API接口层
+│   │   ├── app.py            # API应用
+│   │   ├── auth.py           # 认证相关
+│   │   ├── models.py         # 数据模型
+│   │   └── routes.py         # 路由定义
+│   ├── core/                 # 核心业务逻辑
+│   │   ├── file_scanner.py   # 文件扫描器
+│   │   ├── inference_optimizer.py # 推理优化器
+│   │   ├── model_manager.py  # 模型管理器
+│   │   ├── privacy_filter.py # 隐私过滤器
+│   │   ├── rag_pipeline.py   # RAG流水线
+│   │   ├── security_manager.py # 安全管理器
+│   │   ├── smart_indexer.py  # 智能索引器
+│   │   ├── universal_parser.py # 通用解析器
+│   │   ├── vector_engine.py  # 向量引擎
+│   │   └── vram_manager.py   # 显存管理器
+│   └── utils/                # 工具函数
+│       ├── config_loader.py  # 配置加载器
+│       └── logger.py         # 日志系统
+├── tests/                    # 测试代码
+│   ├── conftest.py           # 测试配置
+│   ├── test_file_scanner.py  # 文件扫描器测试
+│   ├── test_performance.py   # 性能测试
+│   └── test_rag_workflow.py  # RAG工作流测试
+└── uv.lock                   # 依赖锁文件
 ```
 
-### 各目录功能说明
+## 核心功能模块
 
-1. **backend**: 包含所有后端相关代码，采用模块化设计
-   - core/: 核心业务逻辑实现
-   - api/: RESTful API接口定义
-   - models/: 数据模型定义
-   - utils/: 公共工具函数
+### 1. 文件处理模块
+- **文件扫描器**：实时监控文件系统变化，支持增量扫描
+- **通用解析器**：支持多种文档格式解析（PDF、Word、Excel等）
+- **智能索引器**：高效构建文件索引，支持上下文感知
 
-2. **frontend**: 前端项目代码，采用Vue/React结构
-   - src/: 前端源代码目录
-     - components/: 可复用组件
-     - views/: 页面级组件
-     - assets/: 静态资源
+### 2. AI增强模块
+- **模型管理器**：本地LLM模型加载与管理
+- **RAG流水线**：检索增强生成，提升回答准确性
+- **推理优化器**：优化模型推理性能
+- **显存管理器**：智能管理GPU显存，支持多模型切换
 
-3. **config**: 项目配置文件
-   - settings.yaml: 应用运行时配置
-   - database.yaml: 数据库连接配置
+### 3. 系统安全模块
+- **隐私过滤器**：自动识别和过滤敏感信息
+- **安全管理器**：访问控制和数据保护
 
-4. **docs**: 项目文档
-   - architecture.md: 系统架构设计文档
+### 4. 基础设施
+- **配置加载器**：灵活的配置管理
+- **日志系统**：企业级日志记录与分析
 
-5. **tests**: 自动化测试
-   - unit/: 单元测试
-   - integration/: 集成测试
+## 快速开始
 
-6. **根目录文件**:
-   - .gitignore: 版本控制忽略规则
-   - requirements.txt: Python依赖包列表
-   - setup.py: 项目安装配置
-   - Dockerfile: 容器化构建配置
-   - docker-compose.yaml: 多容器服务编排
+### 环境要求
+- Python 3.9+
+- 推荐配置：16GB内存，NVIDIA显卡(可选，用于加速LLM推理)
+
+### 安装依赖
+```bash
+# 使用uv包管理器
+uv sync
+
+# 或使用pip
+pip install -r requirements.txt
+```
+
+### 配置
+编辑`config.yaml`文件设置相关参数，包括：
+- 文件扫描路径
+- 模型配置
+- 向量存储设置
+
+### 运行
+```bash
+python app.py
+```
+
+## 容器化部署
+```bash
+docker-compose up -d
+```
+
+## 技术栈
+- **后端**：Python, FastAPI
+- **AI模型**：llama.cpp, llama-cpp-python
+- **向量存储**：FAISS
+- **文档处理**：PyPDF2, python-docx
+
+
+## 测试
+```bash
+pytest tests/
+```
