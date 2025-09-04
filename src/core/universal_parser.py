@@ -3,12 +3,12 @@ import re
 from pathlib import Path
 from typing import Optional, List
 import mimetypes
-import pypdf2
+import PyPDF2
 from docx import Document as DocxDocument
 import pandas as pd
 import pytesseract
 from PIL import Image
-from sentence_transformers import SentenceTransformer, util  # Sentence-BERT
+# from sentence_transformers import SentenceTransformer, util  # Sentence-BERT (暂时禁用，解决sqlite3 DLL问题)
 from src.utils.logger import setup_logger
 
 logger = setup_logger()
@@ -34,7 +34,8 @@ class UniversalParser:
     }
 
     def __init__(self):
-        self.sentence_model = SentenceTransformer('all-MiniLM-L6-v2')  # Sentence-BERT for 分块
+        # 暂时禁用SentenceTransformer，解决sqlite3 DLL问题
+        self.sentence_model = None  # 原: SentenceTransformer('all-MiniLM-L6-v2')
 
     def detect_mime_type(self, file_path: str) -> str:
         """检测文件MIME类型"""
@@ -67,7 +68,7 @@ class UniversalParser:
     def _parse_pdf(self, file_path: str) -> str:
         """PDF解析（使用PyPDF2）"""
         with open(file_path, 'rb') as f:
-            reader = pypdf2.PdfReader(f)
+            reader = PyPDF2.PdfReader(f)
             return ' '.join(page.extract_text() for page in reader.pages if page.extract_text())
 
     def _parse_docx(self, file_path: str) -> str:
@@ -132,33 +133,37 @@ class UniversalParser:
         return '\n'.join(preserved)
 
     def semantic_chunk(self, content: str, chunk_size: int = 512, overlap: int = 128) -> List[str]:
-        """语义分块引擎：使用Sentence-BERT上下文感知分块（基于文档2.2）"""
-        sentences = re.split(r'(?<!\w\.\w.)(?<![A-Z][a-z]\.)(?<=\.|\?)\s', content)
-        embeddings = self.sentence_model.encode(sentences, convert_to_tensor=True)
-        
+        """简化版分块引擎：在SentenceTransformer不可用时提供基础功能"""
+        # 基础版本：简单基于字符数分块，不使用语义相似度
         chunks = []
         current_chunk = []
         current_length = 0
         
-        for i, sent in enumerate(sentences):
+        # 简单地按句子分割
+        sentences = re.split(r'(?<!\w\.\w.)(?<![A-Z][a-z]\.)(?<=\.|\?)\s', content)
+        
+        for sent in sentences:
             sent_len = len(sent)
             if current_length + sent_len > chunk_size:
-                # 检查语义相似度决定是否拆分
-                if current_chunk and i > 0:
-                    similarity = util.pytorch_cos_sim(embeddings[i-1], embeddings[i]).item()
-                    if similarity < 0.6:  # 阈值：低相似度则新chunk
-                        chunks.append(' '.join(current_chunk))
-                        current_chunk = [sent]
-                        current_length = sent_len
-                        continue
-                
-                # 否则添加并重叠
+                # 到达大小限制，创建新块
                 chunks.append(' '.join(current_chunk))
-                current_chunk = current_chunk[-overlap//len(current_chunk):] + [sent] if overlap else [sent]
-                current_length = sum(len(s) for s in current_chunk)
-            else:
-                current_chunk.append(sent)
-                current_length += sent_len
+                # 实现重叠（如果设置了）
+                if overlap > 0 and current_chunk:
+                    # 计算重叠句子数量
+                    overlap_chars = 0
+                    overlap_sents = []
+                    for i in range(len(current_chunk)-1, -1, -1):
+                        overlap_sents.insert(0, current_chunk[i])
+                        overlap_chars += len(current_chunk[i]) + 1  # +1 for space
+                        if overlap_chars >= overlap:
+                            break
+                    current_chunk = overlap_sents
+                else:
+                    current_chunk = []
+                current_length = sum(len(s) for s in current_chunk) + 1  # +1 for space
+            
+            current_chunk.append(sent)
+            current_length += sent_len + 1  # +1 for space
         
         if current_chunk:
             chunks.append(' '.join(current_chunk))

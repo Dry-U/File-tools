@@ -22,7 +22,14 @@ from PyQt5.QtWidgets import (
     QFileDialog,
     QMessageBox,
     QProgressDialog,
-    QTreeView
+    QTreeView,
+    QDialog,
+    QComboBox,
+    QLineEdit,
+    QGroupBox,
+    QFormLayout,
+    QCheckBox,
+    QGridLayout
 )
 from PyQt5.QtGui import (
     QIcon,
@@ -46,18 +53,18 @@ from src.ui.components import (
     SearchResultView,
     SearchResultModel,
     FilePreviewer,
-    AdvancedFilterWidget,
     ProgressIndicator,
     StatusLabel,
+    AdvancedFilterWidget,
     ThemeManager,
     IconManager
 )
+from src.utils.logger import setup_logger, info, debug, error
 from src.core.file_scanner import FileScanner
 from src.core.search_engine import SearchEngine
 from src.core.file_monitor import FileMonitor
 from src.core.index_manager import IndexManager
 from src.utils.config_loader import ConfigLoader
-from src.utils.logger import setup_logger, info, debug, error
 
 class ScanThread(QThread):
     """文件扫描线程"""
@@ -105,7 +112,8 @@ class SearchThread(QThread):
     def run(self):
         """运行搜索任务"""
         try:
-            results = self.search_engine.search(self.query, **self.filters)
+            # 修复：将filters作为单个参数传递，而不是展开为关键字参数
+            results = self.search_engine.search(self.query, self.filters)
             self.search_completed.emit(results)
         except Exception as e:
             self.search_failed.emit(str(e))
@@ -115,29 +123,44 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         # 初始化配置和日志
-        self.config_loader = ConfigLoader()
-        self.config = self.config_loader.get_all()
-        self.logger = setup_logger(config=self.config)
-        
-        # 初始化核心组件
-        self.index_manager = IndexManager(self.config)
-        self.search_engine = SearchEngine(self.index_manager, self.config)
-        self.file_scanner = FileScanner(self.index_manager, self.config)
-        self.file_monitor = FileMonitor(self.index_manager, self.config)
-        
-        # 初始化UI组件
-        self.theme_manager = ThemeManager(self)
-        self.icon_manager = IconManager()
-        
-        # 设置中文字体
-        self.set_font()
-        
-        # 初始化UI
-        self.init_ui()
-        
-        # 启动文件监控（如果启用）
-        if self.config.get('monitor', {}).get('enabled', False):
-            self.start_monitoring()
+        try:
+            self.config_loader = ConfigLoader()
+            # 不直接存储config字典，始终通过config_loader访问配置
+            self.logger = setup_logger(config=self.config_loader)
+            
+            # 初始化核心组件 - 确保所有组件都接收ConfigLoader对象
+            self.index_manager = IndexManager(self.config_loader)
+            self.search_engine = SearchEngine(self.index_manager, self.config_loader)  # 正确顺序：index_manager, config_loader
+            self.file_scanner = FileScanner(self.config_loader, None, self.index_manager)  # 正确顺序：config_loader, document_parser(None), index_manager
+            self.file_monitor = FileMonitor(self.config_loader, self.index_manager)  # 正确参数：config_loader, index_manager
+            
+            # 初始化UI组件
+            try:
+                self.theme_manager = ThemeManager(self)
+                self.icon_manager = IconManager()
+                # 应用配置的主题 - 通过config_loader获取配置
+                theme_name = self.config_loader.get('interface', 'theme', 'light')
+                self.theme_manager.apply_theme(theme_name)
+                self.logger.info(f"已应用主题: {theme_name}")
+            except Exception as e:
+                self.logger.warning(f"初始化UI组件失败: {str(e)}，使用默认设置")
+            
+            # 设置中文字体
+            self.set_font()
+            
+            # 初始化UI
+            self.init_ui()
+            
+            # 启动文件监控（如果启用）
+            if self.config_loader.get('monitor', 'enabled', False):
+                self.start_monitoring()
+        except Exception as e:
+            # 全局异常捕获，确保程序不会崩溃
+            error_message = f"程序初始化失败: {str(e)}"
+            print(error_message)
+            # 显示错误信息并退出
+            QMessageBox.critical(None, "初始化失败", error_message)
+            sys.exit(1)
     
     def set_font(self):
         """设置中文字体支持"""
@@ -158,7 +181,7 @@ class MainWindow(QMainWindow):
     def init_ui(self):
         """初始化用户界面"""
         # 设置窗口标题和大小
-        app_name = self.config.get('system', {}).get('app_name', '智能文件检索与问答系统')
+        app_name = self.config_loader.get('system', 'app_name', '智能文件检索与问答系统')
         self.setWindowTitle(app_name)
         self.resize(1200, 800)
         
@@ -262,7 +285,7 @@ class MainWindow(QMainWindow):
         self.create_menu_bar()
         
         # 应用主题
-        theme = self.config.get('interface', {}).get('theme', 'light')
+        theme = self.config_loader.get('interface', 'theme', 'light')
         self.theme_manager.apply_theme(theme)
     
     def create_menu_bar(self):
@@ -329,6 +352,14 @@ class MainWindow(QMainWindow):
         filter_action.setShortcut("Ctrl+F")
         filter_action.triggered.connect(self.toggle_advanced_filter)
         view_menu.addAction(filter_action)
+        
+        # 设置菜单
+        settings_menu = menu_bar.addMenu("设置")
+        
+        # AI接口配置操作
+        ai_config_action = QAction("AI接口配置", self)
+        ai_config_action.triggered.connect(self.show_ai_config_dialog)
+        settings_menu.addAction(ai_config_action)
         
         # 帮助菜单
         help_menu = menu_bar.addMenu("帮助")
@@ -471,7 +502,8 @@ class MainWindow(QMainWindow):
         try:
             # 获取文件大小
             file_size = os.path.getsize(file_path)
-            max_preview_size = self.config.get('interface', {}).get('max_preview_size', 5 * 1024 * 1024)  # 默认5MB
+            # 读取最大预览大小配置
+            max_preview_size = self.config_loader.get('interface', 'max_preview_size', 5 * 1024 * 1024)  # 默认5MB
             
             # 检查文件大小
             if file_size > max_preview_size:
@@ -735,7 +767,7 @@ class MainWindow(QMainWindow):
             self.search_engine.clear_cache()
             
             # 清除临时文件目录
-            temp_dir = Path(self.config.get('system', {}).get('temp_dir', './data/temp'))
+            temp_dir = Path(self.config_loader.get('system', 'temp_dir', './data/temp'))
             if temp_dir.exists():
                 for file_path in temp_dir.glob('*'):
                     if file_path.is_file():
@@ -772,20 +804,37 @@ class MainWindow(QMainWindow):
     
     def show_about(self):
         """显示关于信息"""
-        app_name = self.config.get('system', {}).get('app_name', '智能文件检索与问答系统')
-        app_version = self.config.get('system', {}).get('version', '1.0.0')
+        app_name = self.config_loader.get('system', 'app_name', '智能文件检索与问答系统')
+        app_version = self.config_loader.get('system', 'version', '1.0.0')
         
         QMessageBox.about(
             self,
             "关于",
-            f"{app_name}\n"\
-            f"版本: {app_version}\n"\
-            "\n"\
-            "智能文件检索与问答系统\n"\
-            "基于Python的本地文件智能管理工具\n"\
-            "\n"\
+            f"{app_name}\n"
+            f"版本: {app_version}\n"
+            "\n"
+            "智能文件检索与问答系统\n"
+            "基于Python的本地文件智能管理工具\n"
+            "\n"
             "© 2023 版权所有"
         )
+        
+    def show_ai_config_dialog(self):
+        """显示AI接口配置对话框"""
+        dialog = AIConfigDialog(self.config, self)
+        if dialog.exec_() == QDialog.Accepted:
+            # 保存配置
+            self.config_loader.save()
+            # 更新状态
+            self.status_label.update_status("AI接口配置已更新")
+            # 重新初始化ModelManager以应用新配置
+            try:
+                from src.core.model_manager import ModelManager
+                self.model_manager = ModelManager(self.config_loader)
+                self.logger.info("模型管理器已重新初始化")
+            except Exception as e:
+                self.logger.error(f"重新初始化模型管理器失败: {e}")
+                QMessageBox.critical(self, "错误", f"重新初始化模型管理器失败: {str(e)}")
     
     def closeEvent(self, event):
         """窗口关闭事件处理"""
@@ -797,3 +846,110 @@ class MainWindow(QMainWindow):
         
         # 接受关闭事件
         event.accept()
+
+class AIConfigDialog(QDialog):
+    """AI接口配置对话框"""
+    def __init__(self, config, parent=None):
+        super().__init__(parent)
+        self.config = config
+        self.setWindowTitle("AI接口配置")
+        self.resize(500, 300)
+        self.init_ui()
+    
+    def init_ui(self):
+        """初始化UI"""
+        # 创建主布局
+        main_layout = QVBoxLayout(self)
+        
+        # 创建设置组
+        settings_group = QGroupBox("AI接口设置")
+        settings_layout = QFormLayout()
+        
+        # 启用AI模型复选框
+        self.enable_checkbox = QCheckBox()
+        self.enable_checkbox.setChecked(self.config_loader.get('model', 'enabled', False))
+        settings_layout.addRow("启用AI模型:", self.enable_checkbox)
+        
+        # AI接口类型下拉框
+        self.interface_combo = QComboBox()
+        self.interface_combo.addItems(["local", "wsl", "api"])
+        current_interface = self.config_loader.get('model', 'interface_type', 'local')
+        if current_interface in ["local", "wsl", "api"]:
+            self.interface_combo.setCurrentText(current_interface)
+        settings_layout.addRow("接口类型:", self.interface_combo)
+        
+        # API URL输入框
+        self.api_url_edit = QLineEdit()
+        self.api_url_edit.setText(self.config_loader.get('model', 'api_url', 'http://localhost:8000/v1/completions'))
+        settings_layout.addRow("API URL:", self.api_url_edit)
+        
+        # API密钥输入框
+        self.api_key_edit = QLineEdit()
+        self.api_key_edit.setText(self.config_loader.get('model', 'api_key', ''))
+        self.api_key_edit.setEchoMode(QLineEdit.Password)
+        settings_layout.addRow("API密钥:", self.api_key_edit)
+        
+        # 嵌入模型输入框
+        self.embedding_model_edit = QLineEdit()
+        self.embedding_model_edit.setText(self.config_loader.get('model', 'embedding_model', 'all-MiniLM-L6-v2'))
+        settings_layout.addRow("嵌入模型:", self.embedding_model_edit)
+        
+        # 最大令牌数输入框
+        self.max_tokens_edit = QLineEdit()
+        self.max_tokens_edit.setText(str(self.config_loader.get('model', 'max_tokens', 2048)))
+        settings_layout.addRow("最大令牌数:", self.max_tokens_edit)
+        
+        # 温度参数输入框
+        self.temperature_edit = QLineEdit()
+        self.temperature_edit.setText(str(self.config.get('model', {}).get('temperature', 0.7)))
+        settings_layout.addRow("温度参数:", self.temperature_edit)
+        
+        # 将设置布局添加到设置组
+        settings_group.setLayout(settings_layout)
+        
+        # 创建按钮区域
+        button_layout = QHBoxLayout()
+        
+        # 保存按钮
+        save_button = QPushButton("保存")
+        save_button.clicked.connect(self.accept)
+        
+        # 取消按钮
+        cancel_button = QPushButton("取消")
+        cancel_button.clicked.connect(self.reject)
+        
+        # 添加按钮到按钮布局
+        button_layout.addStretch()
+        button_layout.addWidget(save_button)
+        button_layout.addWidget(cancel_button)
+        
+        # 添加设置组和按钮区域到主布局
+        main_layout.addWidget(settings_group)
+        main_layout.addLayout(button_layout)
+    
+    def accept(self):
+        """接受对话框，保存配置"""
+        # 保存配置
+        if 'model' not in self.config:
+            self.config['model'] = {}
+        
+        self.config['model']['enabled'] = self.enable_checkbox.isChecked()
+        self.config['model']['interface_type'] = self.interface_combo.currentText()
+        self.config['model']['api_url'] = self.api_url_edit.text()
+        self.config['model']['api_key'] = self.api_key_edit.text()
+        self.config['model']['embedding_model'] = self.embedding_model_edit.text()
+        
+        # 验证并保存数值设置
+        try:
+            self.config['model']['max_tokens'] = int(self.max_tokens_edit.text())
+        except ValueError:
+            QMessageBox.warning(self, "警告", "最大令牌数必须是整数")
+            return
+        
+        try:
+            self.config['model']['temperature'] = float(self.temperature_edit.text())
+        except ValueError:
+            QMessageBox.warning(self, "警告", "温度参数必须是数字")
+            return
+        
+        super().accept()

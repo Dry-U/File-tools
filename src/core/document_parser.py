@@ -10,15 +10,19 @@ import pdfminer.layout
 from docx import Document as DocxDocument
 import pandas as pd
 import markdown
-import textract
+# 尝试导入textract，如果失败则设置为None
+try:
+    import textract
+except ImportError:
+    textract = None
 from PIL import Image
 import exifread
 import datetime
 
 class DocumentParser:
     """文档解析器类，用于提取各种格式文档的内容和元数据"""
-    def __init__(self, config):
-        self.config = config
+    def __init__(self, config_loader):
+        self.config_loader = config_loader
         self.logger = logging.getLogger(__name__)
         
         # 支持的文件类型映射到对应的解析函数
@@ -119,10 +123,13 @@ class DocumentParser:
         except Exception as e:
             self.logger.error(f"PDF解析失败 {file_path}: {str(e)}")
             # 尝试使用textract作为后备
-            try:
-                return textract.process(file_path).decode('utf-8', errors='ignore')
-            except:
-                return f"错误: 无法解析PDF内容\n{str(e)}"
+            if textract:
+                try:
+                    return textract.process(file_path).decode('utf-8', errors='ignore')
+                except Exception as te:
+                    self.logger.warning(f"无法使用textract解析PDF文件 {file_path}: {str(te)}")
+            # 如果没有textract或解析失败，返回错误信息
+            return f"错误: 无法解析PDF内容\n{str(e)}"
     
     def _parse_docx(self, file_path):
         """解析Word文档"""
@@ -135,10 +142,13 @@ class DocumentParser:
         except Exception as e:
             self.logger.error(f"DOCX解析失败 {file_path}: {str(e)}")
             # 尝试使用textract作为后备
-            try:
-                return textract.process(file_path).decode('utf-8', errors='ignore')
-            except:
-                return f"错误: 无法解析Word内容\n{str(e)}"
+            if textract:
+                try:
+                    return textract.process(file_path).decode('utf-8', errors='ignore')
+                except Exception as te:
+                    self.logger.warning(f"无法使用textract解析Word文档 {file_path}: {str(te)}")
+            # 如果没有textract或解析失败，返回错误信息
+            return f"错误: 无法解析Word内容\n{str(e)}"
     
     def _parse_text(self, file_path):
         """解析文本文件"""
@@ -189,10 +199,13 @@ class DocumentParser:
         except Exception as e:
             self.logger.error(f"Excel解析失败 {file_path}: {str(e)}")
             # 尝试使用textract作为后备
-            try:
-                return textract.process(file_path).decode('utf-8', errors='ignore')
-            except:
-                return f"错误: 无法解析Excel内容\n{str(e)}"
+            if textract:
+                try:
+                    return textract.process(file_path).decode('utf-8', errors='ignore')
+                except Exception as te:
+                    self.logger.warning(f"无法使用textract解析Excel文件 {file_path}: {str(te)}")
+            # 如果没有textract或解析失败，返回错误信息
+            return f"错误: 无法解析Excel内容\n{str(e)}"
     
     def _parse_image(self, file_path):
         """解析图像文件"""
@@ -229,12 +242,15 @@ class DocumentParser:
     
     def _parse_generic(self, file_path):
         """通用解析器，用于处理不支持的文件格式"""
-        try:
-            # 使用textract尝试提取内容
-            return textract.process(file_path).decode('utf-8', errors='ignore')
-        except Exception as e:
-            self.logger.error(f"通用解析失败 {file_path}: {str(e)}")
-            return f"错误: 无法解析文件内容（不支持的格式）\n{str(e)}"
+        # 使用textract尝试提取内容
+        if textract:
+            try:
+                return textract.process(file_path).decode('utf-8', errors='ignore')
+            except Exception as te:
+                self.logger.warning(f"无法使用textract解析文件 {file_path}: {str(te)}")
+        # 如果没有textract或解析失败，返回错误信息
+        self.logger.error(f"通用解析失败 {file_path}: 不支持的格式或缺少textract依赖")
+        return f"错误: 无法解析文件内容（不支持的格式）"
     
     def _extract_pdf_metadata(self, file_path):
         """提取PDF文件特定的元数据"""

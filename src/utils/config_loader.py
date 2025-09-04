@@ -6,17 +6,23 @@ import yaml
 from typing import Dict, Any, Optional
 from pathlib import Path
 import os
+import datetime
 
 class ConfigLoader:
     """配置加载器类，负责加载、验证和管理配置文件"""
-    def __init__(self, config_path: str = 'config.yaml'):
-        self.config_path = Path(config_path).resolve()
+    def __init__(self, config_path: str = None):
+        # 默认配置路径，如果未指定则使用当前目录下的config.yaml
+        default_path = Path('config.yaml')
+        self.config_path = Path(config_path).resolve() if config_path else default_path.resolve()
         self.config: Dict[str, Any] = {}  # 初始化空配置
         
         # 尝试加载配置文件，如果不存在则创建默认配置
         try:
             self.config = self._load_config()
         except FileNotFoundError:
+            self.config = self._create_default_config()
+        except Exception as e:
+            print(f"配置加载失败: {str(e)}")
             self.config = self._create_default_config()
         
         # 验证配置
@@ -78,7 +84,10 @@ class ConfigLoader:
                 'model_path': '',
                 'embedding_model': 'all-MiniLM-L6-v2',
                 'max_tokens': 2048,
-                'temperature': 0.7
+                'temperature': 0.7,
+                'interface_type': 'local',  # 可选值: local, wsl, api
+                'api_url': 'http://localhost:8000/v1/completions',
+                'api_key': ''
             },
             'interface': {
                 'theme': 'light',
@@ -128,8 +137,13 @@ class ConfigLoader:
         temp_dir = Path(self.get('system', 'temp_dir', './data/temp'))
         temp_dir.mkdir(parents=True, exist_ok=True)
     
-    def get(self, section: str, key: Optional[str] = None, default: Any = None) -> Any:
+    def get(self, section, key: Optional[str] = None, default: Any = None) -> Any:
         """获取配置值"""
+        # 添加类型检查，防止section为dict等不可哈希类型
+        if not isinstance(section, (str, int)):
+            print(f"配置section必须是可哈希类型，收到类型: {type(section)}")
+            return default
+            
         if section not in self.config:
             return default
         
@@ -185,9 +199,58 @@ class ConfigLoader:
         
         self.config[section][key] = value
     
-    def save(self) -> bool:
-        """保存配置到文件"""
+    def _backup_config(self) -> None:
+        """备份当前配置文件"""
+        if not self.config_path.exists():
+            return
+        
+        # 创建备份文件名，添加时间戳
+        timestamp = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
+        backup_path = self.config_path.parent / f"{self.config_path.stem}_{timestamp}.{self.config_path.suffix}"
+        
         try:
+            # 复制当前配置文件到备份文件
+            import shutil
+            shutil.copy2(self.config_path, backup_path)
+            print(f"已创建配置备份: {backup_path}")
+            
+            # 清理旧备份，保留最近5个
+            self._cleanup_old_backups()
+        except Exception as e:
+            print(f"创建配置备份失败: {str(e)}")
+    
+    def _cleanup_old_backups(self) -> None:
+        """清理旧的配置备份文件，保留最近5个"""
+        try:
+            config_dir = self.config_path.parent
+            stem = self.config_path.stem
+            suffix = self.config_path.suffix
+            
+            # 查找所有备份文件
+            backups = []
+            for file in config_dir.iterdir():
+                if file.is_file() and file.name.startswith(f"{stem}_") and file.name.endswith(suffix):
+                    backups.append((file.stat().st_mtime, file))
+            
+            # 按修改时间排序（最新的在前）
+            backups.sort(reverse=True)
+            
+            # 删除超过5个的旧备份
+            for _, file in backups[5:]:
+                try:
+                    file.unlink()
+                    print(f"已删除旧备份: {file}")
+                except Exception as e:
+                    print(f"删除旧备份失败: {str(e)}")
+        except Exception as e:
+            print(f"清理旧备份失败: {str(e)}")
+    
+    def save(self) -> bool:
+        """保存配置到文件，自动创建备份"""
+        try:
+            # 先创建备份
+            self._backup_config()
+            
             # 确保配置目录存在
             config_dir = self.config_path.parent
             config_dir.mkdir(parents=True, exist_ok=True)

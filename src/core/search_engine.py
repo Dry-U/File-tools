@@ -9,15 +9,20 @@ import numpy as np
 
 class SearchEngine:
     """搜索引擎类，负责执行文件搜索和结果排序"""
-    def __init__(self, index_manager, config):
+    def __init__(self, index_manager, config_loader):
+        # 添加调试信息，查看参数类型
+        print(f"SearchEngine初始化 - index_manager类型: {type(index_manager)}, config_loader类型: {type(config_loader)}")
         self.index_manager = index_manager
-        self.config = config
+        self.config_loader = config_loader
         self.logger = logging.getLogger(__name__)
         
-        # 搜索配置
-        self.text_weight = config.getfloat('search', 'text_weight', fallback=0.5)
-        self.vector_weight = config.getfloat('search', 'vector_weight', fallback=0.5)
-        self.max_results = config.getint('search', 'max_results', fallback=50)
+        # 搜索配置 - 使用ConfigLoader获取配置
+        search_config = config_loader.get('search')
+        if search_config is None:
+            search_config = {}
+        self.text_weight = float(search_config.get('text_weight', 0.5))
+        self.vector_weight = float(search_config.get('vector_weight', 0.5))
+        self.max_results = int(search_config.get('max_results', 50))
         
         # 确保权重之和为1
         total_weight = self.text_weight + self.vector_weight
@@ -59,10 +64,10 @@ class SearchEngine:
         
         return limited_results
     
-    def _search_text(self, query, filters):
+    def _search_text(self, query, filters=None):
         """执行文本搜索"""
         try:
-            # 调用索引管理器的文本搜索功能
+            # 调用索引管理器的文本搜索功能，不传递filters参数
             results = self.index_manager.search_text(query, limit=self.max_results * 2)  # 获取更多结果以确保过滤后有足够数量
             
             # 为每个结果添加搜索类型标识
@@ -74,10 +79,10 @@ class SearchEngine:
             self.logger.error(f"文本搜索失败: {str(e)}")
             return []
     
-    def _search_vector(self, query, filters):
+    def _search_vector(self, query, filters=None):
         """执行向量搜索"""
         try:
-            # 调用索引管理器的向量搜索功能
+            # 调用索引管理器的向量搜索功能，不传递filters参数
             results = self.index_manager.search_vector(query, limit=self.max_results * 2)  # 获取更多结果以确保过滤后有足够数量
             
             # 为每个结果添加搜索类型标识

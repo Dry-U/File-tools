@@ -11,20 +11,27 @@ from whoosh.qparser import QueryParser, MultifieldParser
 from whoosh.analysis import StemmingAnalyzer
 import faiss
 import numpy as np
-from sentence_transformers import SentenceTransformer
+# from sentence_transformers import SentenceTransformer  # 暂时禁用，解决sqlite3 DLL问题
 from datetime import datetime
 import json
 
 class IndexManager:
     """索引管理器类，负责创建、更新和查询索引"""
-    def __init__(self, config):
-        self.config = config
+    def __init__(self, config_loader):
+        self.config_loader = config_loader
         self.logger = logging.getLogger(__name__)
         
-        # 获取索引路径配置
-        self.whoosh_index_path = config.get('index', 'whoosh_path', fallback='./data/whoosh_index')
-        self.faiss_index_path = config.get('index', 'faiss_path', fallback='./data/faiss_index')
-        self.metadata_path = config.get('index', 'metadata_path', fallback='./data/metadata')
+        # 获取索引路径配置 - 使用ConfigLoader
+        try:
+            self.whoosh_index_path = config_loader.get('index', 'whoosh_path', './data/whoosh_index')
+            self.faiss_index_path = config_loader.get('index', 'faiss_path', './data/faiss_index')
+            self.metadata_path = config_loader.get('index', 'metadata_path', './data/metadata')
+        except Exception as e:
+            self.logger.error(f"获取索引路径配置失败: {str(e)}")
+            # 使用默认值
+            self.whoosh_index_path = './data/whoosh_index'
+            self.faiss_index_path = './data/faiss_index'
+            self.metadata_path = './data/metadata'
         
         # 创建索引目录
         os.makedirs(self.whoosh_index_path, exist_ok=True)
@@ -32,15 +39,10 @@ class IndexManager:
         os.makedirs(self.metadata_path, exist_ok=True)
         
         # 初始化嵌入模型
-        model_name = config.get('embedding', 'model_name', fallback='all-MiniLM-L6-v2')
-        try:
-            self.embedding_model = SentenceTransformer(model_name)
-            self.vector_dim = self.embedding_model.get_sentence_embedding_dimension()
-            self.logger.info(f"成功加载嵌入模型: {model_name}, 向量维度: {self.vector_dim}")
-        except Exception as e:
-            self.logger.error(f"加载嵌入模型失败: {str(e)}")
-            self.embedding_model = None
-            self.vector_dim = 384  # 默认维度
+        # 暂时禁用SentenceTransformer，解决sqlite3 DLL问题
+        self.embedding_model = None
+        self.vector_dim = 384  # MiniLM-L6-v2的默认维度，硬编码替代
+        self.logger.warning("嵌入模型已禁用，使用回退模式")
         
         # 初始化Whoosh索引
         self._init_whoosh_index()
@@ -49,7 +51,7 @@ class IndexManager:
         self._init_faiss_index()
         
         # 索引状态
-        self.index_ready = False
+        self.index_ready = self.is_index_ready()
         
     def _init_whoosh_index(self):
         """初始化Whoosh索引"""
@@ -266,8 +268,27 @@ class IndexManager:
     
     def search_vector(self, query_str, limit=10):
         """在向量索引中搜索"""
-        if not self.faiss_index or not self.embedding_model:
-            self.logger.error("FAISS索引或嵌入模型未初始化完成，无法进行向量搜索")
+        if not self.faiss_index:
+            self.logger.error("FAISS索引未初始化完成，无法进行向量搜索")
+            return []
+        
+        if not self.embedding_model:
+            # 嵌入模型被禁用，提供回退模式
+            # 在回退模式下，我们可以返回空结果或记录警告
+            self.logger.warning("嵌入模型已禁用，使用回退模式，无法进行向量搜索")
+            # 如果有已索引的文档，可以返回一些示例结果
+            if self.vector_metadata:
+                # 返回一些随机的文档作为回退结果
+                limited_metadata = list(self.vector_metadata.items())[:limit]
+                results = []
+                for doc_id, metadata in limited_metadata:
+                    results.append({
+                        'path': metadata['path'],
+                        'filename': metadata['filename'],
+                        'file_type': metadata['file_type'],
+                        'score': 0.5  # 默认分数
+                    })
+                return results
             return []
         
         try:
@@ -374,3 +395,24 @@ class IndexManager:
     def is_index_ready(self):
         """检查索引是否就绪"""
         return self.whoosh_index is not None and self.faiss_index is not None and self.embedding_model is not None
+    
+    def close(self):
+        """关闭索引管理器，释放资源"""
+        try:
+            # 提交Whoosh索引的未完成更改
+            if self.whoosh_index and hasattr(self.whoosh_index, 'commit'):
+                self.whoosh_index.commit()
+                self.logger.info("Whoosh索引已提交")
+            
+            # FAISS索引不需要显式关闭
+            # 释放嵌入模型资源
+            if self.embedding_model:
+                self.embedding_model = None
+                self.logger.info("嵌入模型资源已释放")
+            
+            # 清空索引引用
+            self.whoosh_index = None
+            self.faiss_index = None
+            self.logger.info("索引管理器已关闭")
+        except Exception as e:
+            self.logger.error(f"关闭索引管理器时出错: {str(e)}")

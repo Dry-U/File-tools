@@ -10,8 +10,8 @@ from src.core.model_manager import ModelManager
 
 # 临时定义缺失的类，实际项目中应创建对应的文件
 class HybridRetriever:
-    def __init__(self, config, vector_engine):
-        self.config = config
+    def __init__(self, config_loader, vector_engine):
+        self.config_loader = config_loader
         self.vector_engine = vector_engine
     def search(self, query):
         return []
@@ -45,8 +45,9 @@ class CustomLLM(LLM):
     def __init__(self, model_manager: ModelManager):
         super().__init__()
         self.model_manager = model_manager
-        self.privacy_filter = PrivacyFilter(config)
-        self.security = SecurityManager(config)
+        # 使用model_manager的config_loader
+        self.privacy_filter = PrivacyFilter(model_manager.config_loader)
+        self.security = SecurityManager(model_manager.config_loader)
 
     def _call(self, prompt: str, stop: List[str] = None) -> str:
         """同步调用（LangChain默认）"""
@@ -60,9 +61,9 @@ class CustomLLM(LLM):
 class RAGPipeline:
     """RAG问答管道：使用LangChain实现数据感知和主动性（基于文档3.3）"""
 
-    def __init__(self, model_manager: ModelManager, config: ConfigLoader, retriever: HybridRetriever):
+    def __init__(self, model_manager: ModelManager, config_loader: ConfigLoader, retriever: HybridRetriever):
         self.model_manager = model_manager
-        self.config = config
+        self.config_loader = config_loader
         self.retriever = retriever
         self.llm = CustomLLM(model_manager)
         self.qa_chain = self._build_qa_chain()

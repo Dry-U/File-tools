@@ -55,7 +55,8 @@ from PyQt5.QtCore import (
     QSettings,
     QFile,
     QTextStream,
-    QDateTime
+    QDateTime,
+    QTimer
 )
 
 class SearchBox(QLineEdit):
@@ -328,13 +329,13 @@ class AdvancedFilterWidget(QWidget):
 
 class ToolTip(QWidget):
     """自定义工具提示组件"""
-    def __init__(self, parent=None, text="", x=0, y=0, timeout=2000):
+    def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowFlags(Qt.ToolTip | Qt.FramelessWindowHint)
         self.setAttribute(Qt.WA_TranslucentBackground)
         
         # 创建标签
-        self.label = QLabel(text, self)
+        self.label = QLabel("", self)
         self.label.setStyleSheet("""
             background-color: rgba(0, 0, 0, 0.8);
             color: white;
@@ -343,24 +344,28 @@ class ToolTip(QWidget):
             font-size: 12px;
         """)
         
-        # 设置位置和大小
-        self.setGeometry(x, y, self.label.sizeHint().width(), self.label.sizeHint().height())
+        # 创建定时器
+        self.timer = QTimer(self)
+        self.timer.setSingleShot(True)
+        self.timer.timeout.connect(self.hide)
         
-        # 设置定时器自动隐藏
-        self.timer = QThread.sleep(timeout / 1000)  # 转换为秒
+        # 初始隐藏
         self.hide()
         
-    def show_at(self, x, y, text=None):
+    def show_at(self, x, y, text, timeout=2000):
         """在指定位置显示工具提示"""
         if text:
             self.label.setText(text)
         
-        self.setGeometry(x, y, self.label.sizeHint().width(), self.label.sizeHint().height())
-        self.show()
+        # 更新大小
+        self.adjustSize()
         
-        # 启动定时器
-        self.timer = QThread.sleep(2)  # 2秒后隐藏
-        self.hide()
+        # 设置位置
+        self.move(x, y)
+        
+        # 显示并启动定时器
+        self.show()
+        self.timer.start(timeout)
 
 class ThemeManager:
     """主题管理器"""

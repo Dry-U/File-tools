@@ -13,12 +13,22 @@ from typing import Optional, Dict, Any, Union
 class LoggerConfig:
     """日志配置类"""
     
-    def __init__(self, config: Dict[str, Any]):
-        self.log_level = config.get('system', {}).get('log_level', 'INFO')
-        self.log_dir = config.get('system', {}).get('data_dir', './data') + '/logs'
-        self.log_max_size = config.get('system', {}).get('log_max_size', 10)  # MB
-        self.log_backup_count = config.get('system', {}).get('log_backup_count', 5)
-        self.log_rotation = config.get('system', {}).get('log_rotation', 'midnight')  # 或 'size'
+    def __init__(self, config):
+        # 支持ConfigLoader实例或字典
+        if hasattr(config, 'get'):
+            # ConfigLoader实例
+            self.log_level = config.get('system', 'log_level', 'INFO')
+            self.log_dir = config.get('system', 'data_dir', './data') + '/logs'
+            self.log_max_size = config.get('system', 'log_max_size', 10)  # MB
+            self.log_backup_count = config.get('system', 'log_backup_count', 5)
+            self.log_rotation = config.get('system', 'log_rotation', 'midnight')  # 或 'size'
+        else:
+            # 字典类型
+            self.log_level = config.get('system', {}).get('log_level', 'INFO')
+            self.log_dir = config.get('system', {}).get('data_dir', './data') + '/logs'
+            self.log_max_size = config.get('system', {}).get('log_max_size', 10)  # MB
+            self.log_backup_count = config.get('system', {}).get('log_backup_count', 5)
+            self.log_rotation = config.get('system', {}).get('log_rotation', 'midnight')  # 或 'size'
     
     def get_log_level(self) -> int:
         """获取日志级别"""
@@ -71,7 +81,7 @@ def setup_logger(
     log_level: Optional[int] = None,
     log_file: Optional[str] = None,
     log_dir: Optional[str] = None,
-    config: Optional[Dict[str, Any]] = None,
+    config = None,
     console: bool = True,
     file: bool = True,
     rotating: bool = True,

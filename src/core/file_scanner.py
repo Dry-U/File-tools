@@ -11,20 +11,31 @@ import logging
 
 class FileScanner:
     """文件扫描器类，负责扫描文件系统并识别可索引文件"""
-    def __init__(self, config, document_parser=None, index_manager=None):
-        self.config = config
+    def __init__(self, config_loader, document_parser=None, index_manager=None):
+        self.config_loader = config_loader
         self.logger = logging.getLogger(__name__)
         
         # 配置参数
         self.scan_paths: List[str] = self._get_scan_paths()
         self.exclude_patterns: List[str] = self._get_exclude_patterns()
-        self.max_file_size: int = config.getint('file_scanner', 'max_file_size', fallback=100) * 1024 * 1024  # MB to bytes
+        # 从配置获取并转换为整数，增加健壮性检查
+        try:
+            max_file_size_value = config_loader.get('file_scanner', 'max_file_size', 100)
+            max_file_size_mb = int(max_file_size_value)
+        except Exception as e:
+            self.logger.error(f"获取最大文件大小配置失败: {str(e)}")
+            max_file_size_mb = 100
+        self.max_file_size: int = max_file_size_mb * 1024 * 1024  # MB to bytes
+        
         self.target_extensions: Dict[str, List[str]] = self._get_target_extensions()
         self.all_extensions: List[str] = [ext for exts in self.target_extensions.values() for ext in exts]
         
         # 依赖组件
         self.document_parser = document_parser
         self.index_manager = index_manager
+        
+        # 进度回调
+        self.progress_callback = None
         
         # 扫描统计信息
         self.scan_stats = {
@@ -37,10 +48,27 @@ class FileScanner:
         }
         
         self.logger.info(f"文件扫描器初始化完成，配置: 扫描路径 {len(self.scan_paths)} 个, 排除模式 {len(self.exclude_patterns)} 个")
+        
+    def set_progress_callback(self, callback):
+        """设置进度回调函数"""
+        self.progress_callback = callback
+        return self
     
     def _get_scan_paths(self) -> List[str]:
         """从配置中获取扫描路径"""
-        scan_paths = self.config.get('file_scanner', 'scan_paths', fallback='').split(';')
+        scan_paths_str = ""
+        try:
+            scan_paths_value = self.config_loader.get('file_scanner', 'scan_paths', "")
+            scan_paths_str = str(scan_paths_value)
+        except Exception as e:
+            self.logger.error(f"获取扫描路径配置失败: {str(e)}")
+            scan_paths_str = ""
+        
+        # 确保scan_paths_str是字符串类型
+        if not isinstance(scan_paths_str, str):
+            scan_paths_str = str(scan_paths_str)
+        
+        scan_paths = scan_paths_str.split(';')
         # 过滤空路径和不存在的路径
         valid_paths = []
         for path in scan_paths:
@@ -62,7 +90,19 @@ class FileScanner:
     
     def _get_exclude_patterns(self) -> List[str]:
         """从配置中获取排除模式"""
-        exclude_patterns = self.config.get('file_scanner', 'exclude_patterns', fallback='').split(';')
+        exclude_patterns_str = ""
+        try:
+            exclude_patterns_value = self.config_loader.get('file_scanner', 'exclude_patterns', "")
+            exclude_patterns_str = str(exclude_patterns_value)
+        except Exception as e:
+            self.logger.error(f"获取排除模式配置失败: {str(e)}")
+            exclude_patterns_str = ""
+        
+        # 确保exclude_patterns_str是字符串类型
+        if not isinstance(exclude_patterns_str, str):
+            exclude_patterns_str = str(exclude_patterns_str)
+        
+        exclude_patterns = exclude_patterns_str.split(';')
         # 过滤空模式
         return [pattern.strip() for pattern in exclude_patterns if pattern.strip()]
     
@@ -76,11 +116,14 @@ class FileScanner:
             'video': ['.mp4', '.avi', '.mov', '.mkv']
         }
         
-        # 从配置中获取自定义文件类型
-        config_extensions = self.config.get('file_scanner', 'file_types', fallback='')
-        if config_extensions:
-            try:
-                # 这里简化处理，实际应用中可能需要更复杂的解析
+        # 从配置中获取自定义文件类型 - 增加健壮性处理
+        try:
+            config_extensions = ""
+            config_extensions_value = self.config_loader.get('file_scanner', 'file_types', "")
+            config_extensions = str(config_extensions_value)
+            
+            # 检查config_extensions的类型，确保是字符串
+            if isinstance(config_extensions, str) and config_extensions:
                 # 假设配置格式为: document=.txt,.md,.pdf;image=.jpg,.png
                 result = {}
                 for type_entry in config_extensions.split(';'):
@@ -89,10 +132,10 @@ class FileScanner:
                         type_name = type_name.strip()
                         exts = [ext.strip() for ext in ext_list.split(',')]
                         result[type_name] = exts
-                return result
-            except Exception as e:
-                self.logger.error(f"解析配置文件类型失败: {str(e)}")
-                return default_extensions
+                return result if result else default_extensions
+        except Exception as e:
+            print(f"解析配置文件类型失败: {str(e)}")
+            self.logger.error(f"解析配置文件类型失败: {str(e)}")
         
         return default_extensions
     
@@ -141,6 +184,13 @@ class FileScanner:
         """处理单个文件，检查是否应索引并执行索引操作"""
         file_path_str = str(file_path)
         self.scan_stats['total_files_scanned'] += 1
+        
+        # 每处理10个文件就更新一次进度
+        if self.progress_callback and self.scan_stats['total_files_scanned'] % 10 == 0:
+            try:
+                self.progress_callback(self.scan_stats['total_files_scanned'])
+            except Exception as e:
+                self.logger.warning(f"更新进度回调失败: {str(e)}")
         
         # 检查是否应索引该文件
         if self._should_index(file_path_str):

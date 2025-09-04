@@ -7,16 +7,16 @@ from src.utils.config_loader import ConfigLoader
 
 # 临时定义缺失的类
 class VectorEngine:
-    def __init__(self, config):
-        self.config = config
+    def __init__(self, config_loader):
+        self.config_loader = config_loader
     def add_documents(self, docs):
         pass
     def remove_by_path(self, path):
         pass
 
 class HybridRetriever:
-    def __init__(self, config, vector_engine):
-        self.config = config
+    def __init__(self, config_loader, vector_engine):
+        self.config_loader = config_loader
         self.vector_engine = vector_engine
 
 logger = setup_logger()
@@ -24,12 +24,12 @@ logger = setup_logger()
 class SmartIndexer:
     """智能增量索引器：缓冲变化并批量处理（基于文档3.1.2，优化）"""
 
-    def __init__(self, config: ConfigLoader):
-        self.config = config
+    def __init__(self, config_loader: ConfigLoader):
+        self.config_loader = config_loader
         self.change_buffer: deque[Dict[str, str]] = deque(maxlen=1000)  # { 'type': 'update/delete', 'path': str }
         self.last_index_time: float = time.time()
-        self.vector_engine = VectorEngine(ConfigLoader())
-        self.retriever = HybridRetriever(ConfigLoader(), self.vector_engine)
+        self.vector_engine = VectorEngine(self.config_loader)
+        self.retriever = HybridRetriever(self.config_loader, self.vector_engine)
         # 后续：self.parser = UniversalParser()
         # self.vector_engine = VectorEngine(config)
 
