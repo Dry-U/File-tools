@@ -4,8 +4,20 @@ from collections import deque
 from typing import Dict
 from src.utils.logger import setup_logger
 from src.utils.config_loader import ConfigLoader
-# 后续集成：from src.core.universal_parser import UniversalParser
-# from src.core.vector_engine import VectorEngine
+
+# 临时定义缺失的类
+class VectorEngine:
+    def __init__(self, config):
+        self.config = config
+    def add_documents(self, docs):
+        pass
+    def remove_by_path(self, path):
+        pass
+
+class HybridRetriever:
+    def __init__(self, config, vector_engine):
+        self.config = config
+        self.vector_engine = vector_engine
 
 logger = setup_logger()
 

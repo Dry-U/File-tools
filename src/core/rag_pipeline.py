@@ -6,9 +6,35 @@ from langchain.llms.base import LLM
 from langchain.schema import Document as LangDocument  # LangChain的Document
 from src.utils.logger import setup_logger
 from src.utils.config_loader import ConfigLoader
-from src.core.hybrid_retriever import HybridRetriever
 from src.core.model_manager import ModelManager
-from src.core.universal_parser import Document  # 项目Document to LangDocument
+
+# 临时定义缺失的类，实际项目中应创建对应的文件
+class HybridRetriever:
+    def __init__(self, config, vector_engine):
+        self.config = config
+        self.vector_engine = vector_engine
+    def search(self, query):
+        return []
+
+class Document:
+    def __init__(self, content="", metadata={}):
+        self.content = content
+        self.metadata = metadata
+
+class PrivacyFilter:
+    def __init__(self, config):
+        self.config = config
+    def sanitize(self, text):
+        return text
+
+class SecurityManager:
+    def __init__(self, config):
+        self.config = config
+        self.current_user_role = "user"
+    def check_permission(self, permission):
+        return True
+    def log_audit(self, action, details):
+        pass
 
 logger = setup_logger()
 

@@ -1,31 +1,75 @@
 # config.yaml (基于文档8.1)
+# 智能文件检索与问答系统配置文件
+# ===================================================
+
+# 系统设置
 system:
-  data_dir: "./data"
-  log_level: "INFO"
-  wsl_model_path: "/path/to/llama.cpp/in/wsl"  # WSL中llama.cpp路径
+  app_name: "智能文件检索与问答系统"
+  version: "1.0.0"
+  data_dir: "./data"      # 数据存储目录
+  log_level: "INFO"       # 日志级别：DEBUG, INFO, WARNING, ERROR, CRITICAL
+  log_dir: "./data/logs"  # 日志存储目录
+  log_max_size: 10        # 单个日志文件最大大小(MB)
+  log_backup_count: 5     # 保留的日志文件数量
+  log_rotation: "midnight"  # 日志轮转方式：midnight, size
+  index_dir: "./data/index" # 索引存储目录
+  cache_dir: "./data/cache" # 缓存存储目录
+  temp_dir: "./data/temp"   # 临时文件目录
 
+# 文件扫描设置
 file_scanner:
-  scan_paths:
-    - "~/Documents"
-    - "~/Downloads"
-  exclude_patterns:
-    - ".*\\.git"
-    - ".*node_modules"
-  file_types:
-    documents: [".pdf", ".doc", ".docx", ".txt", ".md"]
-    spreadsheets: [".xls", ".xlsx", ".csv"]
-    code: [".py", ".js", ".java"]
-  max_file_size: 100  # MB
+  scan_paths: "~"  # 要扫描的目录路径，多个路径用分号分隔
+  exclude_patterns: ".git;.svn;.hg;__pycache__;.idea;.vscode;node_modules;venv;env;.DS_Store;Thumbs.db"  # 排除的目录和文件模式
+  max_file_size: 100  # 最大文件大小(MB)
+  file_types: 
+    document: ".txt,.md,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.csv,.json,.xml"
+    image: ".jpg,.jpeg,.png,.gif,.bmp,.tiff,.svg"
+    audio: ".mp3,.wav,.flac,.ogg,.m4a"
+    video: ".mp4,.avi,.mov,.mkv,.wmv"
+    archive: ".zip,.rar,.7z,.tar,.gz"
+  scan_threads: 4  # 扫描线程数量
+  recursive: true  # 是否递归扫描子目录
 
+# 搜索设置
+search:
+  text_weight: 0.5     # 文本搜索权重
+  vector_weight: 0.5   # 向量搜索权重
+  max_results: 50      # 最大搜索结果数量
+  highlight: true      # 是否高亮匹配文本
+  cache_ttl: 3600      # 搜索缓存过期时间(秒)
+  min_score: 0.3       # 最小匹配分数
+
+# 文件监控设置
+monitor:
+  enabled: false       # 是否启用文件监控
+  directories: "~"     # 要监控的目录
+  ignored_patterns: ".git;.svn;.hg;__pycache__;.idea;.vscode;node_modules;venv;env;.DS_Store;Thumbs.db"  # 忽略的模式
+  refresh_interval: 1  # 刷新间隔(秒)
+  debounce_time: 0.5   # 防抖时间(秒)
+
+# 模型设置（预留）
 model:
-  model_dir: "./models"
-  default_model: "auto"
-  inference:
-    max_context_length: 4096
-    temperature: 0.7
-    use_gpu: true
+  enabled: false            # 是否启用AI模型
+  model_path: ""            # 模型路径
+  embedding_model: "all-MiniLM-L6-v2"  # 嵌入模型名称
+  max_tokens: 2048          # 最大令牌数量
+  temperature: 0.7          # 温度参数
+  use_gpu: false            # 是否使用GPU
 
-performance:
-  max_cpu_threads: 8
-  cache_size: 1000
-  batch_size: 32
+# 界面设置
+interface:
+  theme: "light"            # 主题：light, dark
+  font_size: 12             # 字体大小
+  max_preview_size: 5242880 # 最大预览文件大小(字节，5MB)
+  auto_save_settings: true  # 是否自动保存设置
+  splitter_pos: 300         # 分割器位置
+  result_columns: ["文件名", "路径", "匹配度", "修改时间"]  # 结果表格列
+  language: "zh_CN"         # 界面语言
+
+# 高级设置
+advanced:
+  whoosh_mem_limit: 512     # Whoosh内存限制(MB)
+  index_refresh_interval: 3600  # 索引刷新间隔(秒)
+  max_cached_results: 1000  # 最大缓存结果数量
+  auto_optimize_index: true  # 是否自动优化索引
+  optimize_interval: 86400  # 索引优化间隔(秒，24小时)
