@@ -3,55 +3,34 @@ requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
-# 必需字段
-name = "file-tools"  # 项目名称（小写字母、下划线、无空格）
-version = "0.1.0"    # 项目版本号
-requires-python = ">=3.8,<4.0"  # 指定支持的Python版本范围
-
-# 可选但推荐的字段
+name = "file-tools"
+version = "0.1.0"
+requires-python = ">=3.9,<4.0"
 description = "智能文件检索与问答系统 - 基于Python的本地文件智能管理工具"
-authors = [ { name = "Darian", email = "Dar1an@126.com" }]
-license = {text = "MIT"}  # 或使用其他许可证
+authors = [{name = "Darian", email = "Dar1an@126.com"}]
+license = {text = "MIT"}
 
-# 项目依赖项配置
 dependencies = [
-    # GUI框架（需求文档要求PyQt5）
-    "PyQt5>=5.15.0",
-    # 文件监控（需求文档要求）
+    "PyQt5==5.15.11",
     "watchdog>=3.0.0",
-    # 全文搜索引擎（需求文档要求Whoosh）
     "Whoosh>=2.7.4",
-    # 向量搜索（需求文档要求FAISS）
     "faiss-cpu>=1.9.0",
-    # 配置加载工具
-    "pyyaml==6.0.1",
-    # PDF解析库（需求文档要求）
-    "PyPDF2==3.0.1",
-    "pdfminer.six==20221105",
-    # 表格数据处理
-    "pandas==2.1.4",
-    "openpyxl==3.1.2",
-    # 嵌入模型
-    "sentence-transformers==2.2.2",
-    # 本地LLM推理
-    "llama-cpp-python==0.2.20",
-    # 资源监控
-    "psutil==5.9.6",
-    # Word文档解析
-    "python-docx==1.1.0",
-    # Markdown处理
-    "markdown==3.4.4",
-    # 文本提取（作为后备）
-    # "textract>=1.6.3,<1.7.0",  # 注释掉，待后续解决
-    # 图像处理
-    "Pillow==10.1.0",
-    # 数据库
-    "diskcache==5.6.3"
+    "pyyaml>=6.0",
+    "PyPDF2>=3.0.0",
+    "pdfminer.six>=20221105",
+    "pandas>=2.0.0",
+    "openpyxl>=3.1.0",
+    "sentence-transformers>=2.2.0",
+    "llama-cpp-python>=0.2.0",
+    "psutil>=5.9.0",
+    "python-docx>=1.1.0",
+    "markdown>=3.4.0",
+    "Pillow>=10.0.0",
+    "diskcache>=5.6.0"
 ]
 
-# 可选依赖（根据硬件/环境）
 [project.optional-dependencies]
 gpu = [
-    "faiss-gpu",  # 如果有NVIDIA GPU
-    "torch==2.1.1"       # sentence-transformers依赖（GPU加速需torch+cuda）
+    "faiss-gpu",
+    "torch>=2.0.0"
 ]
