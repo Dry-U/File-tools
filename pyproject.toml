@@ -22,7 +22,7 @@ dependencies = [
     # 全文搜索引擎（需求文档要求Whoosh）
     "Whoosh>=2.7.4",
     # 向量搜索（需求文档要求FAISS）
-    "faiss-cpu==1.7.4",
+    "faiss-cpu>=1.9.0",
     # 配置加载工具
     "pyyaml==6.0.1",
     # PDF解析库（需求文档要求）
