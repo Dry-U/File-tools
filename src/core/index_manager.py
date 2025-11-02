@@ -11,7 +11,7 @@ from whoosh.qparser import QueryParser, MultifieldParser
 from whoosh.analysis import StemmingAnalyzer
 import faiss
 import numpy as np
-# from sentence_transformers import SentenceTransformer  # 暂时禁用，解决sqlite3 DLL问题
+from sentence_transformers import SentenceTransformer
 from datetime import datetime
 import json
 
@@ -39,10 +39,23 @@ class IndexManager:
         os.makedirs(self.metadata_path, exist_ok=True)
         
         # 初始化嵌入模型
-        # 暂时禁用SentenceTransformer，解决sqlite3 DLL问题
-        self.embedding_model = None
-        self.vector_dim = 384  # MiniLM-L6-v2的默认维度，硬编码替代
-        self.logger.warning("嵌入模型已禁用，使用回退模式")
+        model_enabled = config_loader.get('model', 'enabled', False)
+        if model_enabled:
+            try:
+                # 从配置获取嵌入模型名称
+                embedding_model_name = config_loader.get('model', 'embedding_model', 'all-MiniLM-L6-v2')
+                self.embedding_model = SentenceTransformer(embedding_model_name)
+                self.vector_dim = self.embedding_model.get_sentence_embedding_dimension()
+                self.logger.info(f"成功加载嵌入模型: {embedding_model_name}, 向量维度: {self.vector_dim}")
+            except Exception as e:
+                self.logger.warning(f"加载嵌入模型失败: {str(e)}")
+                self.embedding_model = None
+                self.vector_dim = 384  # MiniLM-L6-v2的默认维度
+                self.logger.info("嵌入模型已禁用，仅支持文本索引和搜索")
+        else:
+            self.embedding_model = None
+            self.vector_dim = 384
+            self.logger.info("嵌入模型未启用（配置中禁用），仅支持文本索引和搜索")
         
         # 初始化Whoosh索引
         self._init_whoosh_index()
@@ -115,7 +128,7 @@ class IndexManager:
     
     def add_document(self, document):
         """添加文档到索引"""
-        if not self.whoosh_index or not self.faiss_index or not self.embedding_model:
+        if not self.whoosh_index or not self.faiss_index:
             self.logger.error("索引组件未初始化完成，无法添加文档")
             return False
         
@@ -133,23 +146,24 @@ class IndexManager:
                     keywords=document['keywords']
                 )
             
-            # 生成向量嵌入
-            vector = self.embedding_model.encode(document['content'][:5000])  # 限制内容长度以提高效率
-            vector = np.array([vector], dtype=np.float32)
-            
-            # 获取当前索引的ID
-            doc_id = len(self.vector_metadata)
-            
-            # 添加到FAISS索引
-            self.faiss_index.add(vector)
-            
-            # 保存元数据
-            self.vector_metadata[str(doc_id)] = {
-                'path': document['path'],
-                'filename': document['filename'],
-                'file_type': document['file_type'],
-                'modified': document['modified'].strftime('%Y-%m-%d %H:%M:%S')
-            }
+            # 如果嵌入模型可用，生成向量嵌入
+            if self.embedding_model:
+                vector = self.embedding_model.encode(document['content'][:5000])  # 限制内容长度以提高效率
+                vector = np.array([vector], dtype=np.float32)
+                
+                # 获取当前索引的ID
+                doc_id = len(self.vector_metadata)
+                
+                # 添加到FAISS索引
+                self.faiss_index.add(vector)
+                
+                # 保存元数据
+                self.vector_metadata[str(doc_id)] = {
+                    'path': document['path'],
+                    'filename': document['filename'],
+                    'file_type': document['file_type'],
+                    'modified': document['modified'].strftime('%Y-%m-%d %H:%M:%S')
+                }
             
             return True
         except Exception as e:
@@ -158,17 +172,22 @@ class IndexManager:
     
     def update_document(self, document):
         """更新文档在索引中的信息"""
+        # 类型检查：确保 document 是字典
+        if not isinstance(document, dict):
+            self.logger.error(f"无效的文档格式，期望字典但得到 {type(document)}")
+            return False
+        
         # 对于Whoosh，update_document方法已经支持更新
         # 对于FAISS，我们需要先删除旧向量，再添加新向量
         
         # 首先尝试查找并删除旧向量
         old_doc_id = None
         for doc_id, metadata in self.vector_metadata.items():
-            if metadata['path'] == document['path']:
+            if metadata.get('path') == document.get('path'):
                 old_doc_id = int(doc_id)
                 break
         
-        if old_doc_id is not None:
+        if old_doc_id is not None and self.embedding_model:
             # 创建一个新的索引，排除要删除的向量
             new_index = faiss.IndexFlatL2(self.vector_dim)
             new_metadata = {}
@@ -393,8 +412,8 @@ class IndexManager:
         return stats
     
     def is_index_ready(self):
-        """检查索引是否就绪"""
-        return self.whoosh_index is not None and self.faiss_index is not None and self.embedding_model is not None
+        """检查索引是否就绪(文本索引必须就绪,向量索引可选)"""
+        return self.whoosh_index is not None and self.faiss_index is not None
     
     def close(self):
         """关闭索引管理器，释放资源"""

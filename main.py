@@ -3,6 +3,20 @@
 """智能文件检索与问答系统 - 主入口文件"""
 import sys
 import os
+
+# 修复 torch DLL 加载问题：将 torch lib 目录添加到 PATH
+try:
+    venv_path = os.path.dirname(sys.executable)
+    torch_lib_path = os.path.join(venv_path, 'Lib', 'site-packages', 'torch', 'lib')
+    if os.path.exists(torch_lib_path):
+        # 添加到 PATH 环境变量
+        os.environ['PATH'] = torch_lib_path + os.pathsep + os.environ.get('PATH', '')
+        # 如果支持，也添加到 DLL 目录
+        if hasattr(os, 'add_dll_directory'):
+            os.add_dll_directory(torch_lib_path)
+except Exception as e:
+    print(f"警告：无法添加 torch DLL 目录：{e}")
+
 from PyQt5.QtWidgets import QApplication
 from PyQt5.QtGui import QFont
 

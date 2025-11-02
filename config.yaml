@@ -9,12 +9,13 @@ file_scanner:
   file_types:
     archive: .zip,.rar,.7z,.tar,.gz
     audio: .mp3,.wav,.flac,.ogg,.m4a
+    code: .py,.js,.java,.cpp,.c,.h,.cs,.go,.rs,.php,.rb,.swift
     document: .txt,.md,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.csv,.json,.xml
     image: .jpg,.jpeg,.png,.gif,.bmp,.tiff,.svg
     video: .mp4,.avi,.mov,.mkv,.wmv
   max_file_size: 100
   recursive: true
-  scan_paths: '~'
+  scan_paths: 'd:\\python_work\\File-tools\\src'
   scan_threads: 4
 interface:
   auto_save_settings: true
@@ -32,7 +33,7 @@ model:
   api_key: ''
   api_url: http://localhost:8000/v1/completions
   embedding_model: all-MiniLM-L6-v2
-  enabled: true
+  enabled: false
   interface_type: api
   max_tokens: 2048
   model_path: ''

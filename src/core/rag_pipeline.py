@@ -1,9 +1,34 @@
 # src/core/rag_pipeline.py
+import os
+import sys
 from typing import Dict, List, Any
-from langchain.chains import RetrievalQA
-from langchain.prompts import PromptTemplate
-from langchain.llms.base import LLM
-from langchain.schema import Document as LangDocument  # LangChain的Document
+
+# 修复 torch DLL 加载问题：添加 torch lib 目录到 DLL 搜索路径
+try:
+    import torch
+    torch_lib_path = os.path.join(os.path.dirname(torch.__file__), 'lib')
+    if os.path.exists(torch_lib_path) and hasattr(os, 'add_dll_directory'):
+        os.add_dll_directory(torch_lib_path)
+except Exception:
+    pass
+
+try:
+    from langchain.chains import RetrievalQA
+except ImportError:
+    # 新版本 langchain 没有这个类，先设置为 None
+    RetrievalQA = None
+try:
+    from langchain.prompts import PromptTemplate
+except ImportError:
+    from langchain_core.prompts import PromptTemplate
+try:
+    from langchain.llms.base import LLM
+except ImportError:
+    from langchain_core.language_models.llms import LLM
+try:
+    from langchain.schema import Document as LangDocument  # LangChain的Document
+except ImportError:
+    from langchain_core.documents import Document as LangDocument
 from src.utils.logger import setup_logger
 from src.utils.config_loader import ConfigLoader
 from src.core.model_manager import ModelManager

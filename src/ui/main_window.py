@@ -82,7 +82,7 @@ class ScanThread(QThread):
         """运行扫描任务"""
         self.running = True
         try:
-            stats = self.scanner.scan()
+            stats = self.scanner.scan_and_index()
             self.scan_completed.emit(stats)
         except Exception as e:
             self.scan_failed.emit(str(e))
@@ -112,10 +112,15 @@ class SearchThread(QThread):
     def run(self):
         """运行搜索任务"""
         try:
+            print(f"开始搜索: {self.query}")
             # 修复：将filters作为单个参数传递，而不是展开为关键字参数
             results = self.search_engine.search(self.query, self.filters)
+            print(f"搜索完成，找到 {len(results)} 条结果")
             self.search_completed.emit(results)
         except Exception as e:
+            print(f"搜索失败: {str(e)}")
+            import traceback
+            traceback.print_exc()
             self.search_failed.emit(str(e))
 
 class MainWindow(QMainWindow):
@@ -382,7 +387,10 @@ class MainWindow(QMainWindow):
         """执行搜索操作"""
         query = self.search_box.text().strip()
         if not query:
+            self.status_label.update_status("请输入搜索关键词")
             return
+        
+        print(f"准备搜索: {query}")
         
         # 更新状态栏
         self.status_label.update_status(f"正在搜索: {query}")
@@ -402,6 +410,7 @@ class MainWindow(QMainWindow):
         self.search_thread = SearchThread(self.search_engine, query, filters)
         self.search_thread.search_completed.connect(self.on_search_completed)
         self.search_thread.search_failed.connect(self.on_search_failed)
+        print("启动搜索线程")
         self.search_thread.start()
     
     def get_filter_options(self):
@@ -451,6 +460,8 @@ class MainWindow(QMainWindow):
     
     def on_search_completed(self, results):
         """搜索完成回调"""
+        print(f"搜索完成回调，结果数: {len(results)}")
+        
         # 启用搜索按钮
         self.search_button.setEnabled(True)
         self.search_button.setText("搜索")
@@ -458,20 +469,29 @@ class MainWindow(QMainWindow):
         # 更新状态栏
         self.status_label.update_status(f"找到 {len(results)} 个结果")
         
+        if len(results) == 0:
+            # 显示提示信息
+            QMessageBox.information(self, "搜索结果", "未找到匹配的文件。\n\n请尝试：\n1. 检查关键词拼写\n2. 使用不同的关键词\n3. 先点击'重建索引'扫描文件")
+            return
+        
         # 显示搜索结果
         for result in results:
-            file_path = Path(result["path"])
-            file_name = file_path.name
-            score = result.get("score", 0) * 100  # 转换为百分比
-            
-            # 获取文件修改时间
             try:
-                modified_time = datetime.datetime.fromtimestamp(file_path.stat().st_mtime)
-            except Exception:
-                modified_time = None
-            
-            # 添加到结果模型
-            self.results_model.add_result(file_name, file_path, score, modified_time)
+                file_path = Path(result["path"])
+                file_name = file_path.name
+                score = result.get("score", 0) * 100  # 转换为百分比
+                
+                # 获取文件修改时间
+                try:
+                    modified_time = datetime.datetime.fromtimestamp(file_path.stat().st_mtime)
+                except Exception:
+                    modified_time = None
+                
+                # 添加到结果模型
+                self.results_model.add_result(file_name, str(file_path), score, modified_time)
+            except Exception as e:
+                print(f"处理结果失败: {str(e)}")
+                continue
     
     def on_search_failed(self, error_msg):
         """搜索失败回调"""
@@ -821,7 +841,7 @@ class MainWindow(QMainWindow):
         
     def show_ai_config_dialog(self):
         """显示AI接口配置对话框"""
-        dialog = AIConfigDialog(self.config, self)
+        dialog = AIConfigDialog(self.config_loader, self)
         if dialog.exec_() == QDialog.Accepted:
             # 保存配置
             self.config_loader.save()
@@ -849,9 +869,9 @@ class MainWindow(QMainWindow):
 
 class AIConfigDialog(QDialog):
     """AI接口配置对话框"""
-    def __init__(self, config, parent=None):
+    def __init__(self, config_loader, parent=None):
         super().__init__(parent)
-        self.config = config
+        self.config_loader = config_loader
         self.setWindowTitle("AI接口配置")
         self.resize(500, 300)
         self.init_ui()
@@ -901,7 +921,7 @@ class AIConfigDialog(QDialog):
         
         # 温度参数输入框
         self.temperature_edit = QLineEdit()
-        self.temperature_edit.setText(str(self.config.get('model', {}).get('temperature', 0.7)))
+        self.temperature_edit.setText(str(self.config_loader.get('model', 'temperature', 0.7)))
         settings_layout.addRow("温度参数:", self.temperature_edit)
         
         # 将设置布局添加到设置组
@@ -929,27 +949,26 @@ class AIConfigDialog(QDialog):
     
     def accept(self):
         """接受对话框，保存配置"""
-        # 保存配置
-        if 'model' not in self.config:
-            self.config['model'] = {}
-        
-        self.config['model']['enabled'] = self.enable_checkbox.isChecked()
-        self.config['model']['interface_type'] = self.interface_combo.currentText()
-        self.config['model']['api_url'] = self.api_url_edit.text()
-        self.config['model']['api_key'] = self.api_key_edit.text()
-        self.config['model']['embedding_model'] = self.embedding_model_edit.text()
-        
         # 验证并保存数值设置
         try:
-            self.config['model']['max_tokens'] = int(self.max_tokens_edit.text())
+            max_tokens = int(self.max_tokens_edit.text())
         except ValueError:
             QMessageBox.warning(self, "警告", "最大令牌数必须是整数")
             return
         
         try:
-            self.config['model']['temperature'] = float(self.temperature_edit.text())
+            temperature = float(self.temperature_edit.text())
         except ValueError:
             QMessageBox.warning(self, "警告", "温度参数必须是数字")
             return
+        
+        # 保存配置
+        self.config_loader.set('model', 'enabled', self.enable_checkbox.isChecked())
+        self.config_loader.set('model', 'interface_type', self.interface_combo.currentText())
+        self.config_loader.set('model', 'api_url', self.api_url_edit.text())
+        self.config_loader.set('model', 'api_key', self.api_key_edit.text())
+        self.config_loader.set('model', 'embedding_model', self.embedding_model_edit.text())
+        self.config_loader.set('model', 'max_tokens', max_tokens)
+        self.config_loader.set('model', 'temperature', temperature)
         
         super().accept()

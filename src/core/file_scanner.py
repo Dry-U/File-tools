@@ -5,6 +5,7 @@
 import re
 import platform
 import time
+from datetime import datetime
 from pathlib import Path
 from typing import List, Dict, Set, Optional
 import logging
@@ -37,6 +38,9 @@ class FileScanner:
         # 进度回调
         self.progress_callback = None
         
+        # 扫描控制标志
+        self._stop_flag = False
+        
         # 扫描统计信息
         self.scan_stats = {
             'total_files_scanned': 0,
@@ -60,6 +64,7 @@ class FileScanner:
         try:
             scan_paths_value = self.config_loader.get('file_scanner', 'scan_paths', "")
             scan_paths_str = str(scan_paths_value)
+            self.logger.info(f"配置的扫描路径字符串: {scan_paths_str}")
         except Exception as e:
             self.logger.error(f"获取扫描路径配置失败: {str(e)}")
             scan_paths_str = ""
@@ -74,11 +79,14 @@ class FileScanner:
         for path in scan_paths:
             path = path.strip()
             if path:
+                # 处理Windows路径
                 expanded_path = Path(path).expanduser()
+                self.logger.info(f"检查路径: {path} -> {expanded_path}")
                 if expanded_path.exists() and expanded_path.is_dir():
                     valid_paths.append(str(expanded_path))
+                    self.logger.info(f"✓ 有效路径: {expanded_path}")
                 else:
-                    self.logger.warning(f"扫描路径不存在或不是目录: {path}")
+                    self.logger.warning(f"✗ 扫描路径不存在或不是目录: {path}")
         
         # 如果没有有效路径，使用默认路径
         if not valid_paths:
@@ -86,6 +94,7 @@ class FileScanner:
             valid_paths.append(str(default_path))
             self.logger.warning(f"未配置有效的扫描路径，使用默认路径: {default_path}")
         
+        self.logger.info(f"最终扫描路径列表: {valid_paths}")
         return valid_paths
     
     def _get_exclude_patterns(self) -> List[str]:
@@ -116,33 +125,47 @@ class FileScanner:
             'video': ['.mp4', '.avi', '.mov', '.mkv']
         }
         
-        # 从配置中获取自定义文件类型 - 增加健壮性处理
+        # 从配置中获取自定义文件类型
         try:
-            config_extensions = ""
-            config_extensions_value = self.config_loader.get('file_scanner', 'file_types', "")
-            config_extensions = str(config_extensions_value)
+            config_extensions_value = self.config_loader.get('file_scanner', 'file_types', None)
             
-            # 检查config_extensions的类型，确保是字符串
-            if isinstance(config_extensions, str) and config_extensions:
-                # 假设配置格式为: document=.txt,.md,.pdf;image=.jpg,.png
+            # 如果配置返回的是字典，直接使用
+            if isinstance(config_extensions_value, dict):
                 result = {}
-                for type_entry in config_extensions.split(';'):
+                for type_name, ext_str in config_extensions_value.items():
+                    # ext_str 可能是 '.txt,.md,.pdf' 格式
+                    if isinstance(ext_str, str):
+                        exts = [ext.strip() for ext in ext_str.split(',')]
+                        result[type_name] = exts
+                    elif isinstance(ext_str, list):
+                        result[type_name] = ext_str
+                self.logger.info(f"从配置加载文件类型: {result}")
+                return result if result else default_extensions
+            
+            # 如果是字符串格式: document=.txt,.md,.pdf;image=.jpg,.png
+            elif isinstance(config_extensions_value, str) and config_extensions_value:
+                result = {}
+                for type_entry in config_extensions_value.split(';'):
                     if '=' in type_entry:
                         type_name, ext_list = type_entry.split('=', 1)
                         type_name = type_name.strip()
                         exts = [ext.strip() for ext in ext_list.split(',')]
                         result[type_name] = exts
+                self.logger.info(f"从配置加载文件类型: {result}")
                 return result if result else default_extensions
         except Exception as e:
-            print(f"解析配置文件类型失败: {str(e)}")
             self.logger.error(f"解析配置文件类型失败: {str(e)}")
         
+        self.logger.info(f"使用默认文件类型: {default_extensions}")
         return default_extensions
     
     def scan_and_index(self) -> Dict:
         """扫描所有配置的路径并索引文件"""
         start_time = time.time()
         self.logger.info("开始扫描并索引文件")
+        
+        # 重置停止标志
+        self._stop_flag = False
         
         # 重置扫描统计信息
         self.scan_stats = {
@@ -154,9 +177,26 @@ class FileScanner:
             'last_scan_time': None
         }
         
+        # 初始化进度
+        if self.progress_callback:
+            try:
+                self.progress_callback(0)
+            except Exception as e:
+                self.logger.warning(f"初始化进度回调失败: {str(e)}")
+        
         # 扫描每个配置的路径
         for path in self.scan_paths:
+            if self._stop_flag:
+                self.logger.info("扫描已被停止")
+                break
             self._scan_directory(Path(path))
+        
+        # 设置完成进度
+        if self.progress_callback:
+            try:
+                self.progress_callback(100)
+            except Exception as e:
+                self.logger.warning(f"完成进度回调失败: {str(e)}")
         
         # 计算扫描时间
         self.scan_stats['scan_time'] = time.time() - start_time
@@ -173,6 +213,8 @@ class FileScanner:
         try:
             # 使用生成器模式，避免一次性加载所有文件路径到内存
             for file_path in dir_path.rglob('*'):
+                if self._stop_flag:
+                    break
                 if file_path.is_file():
                     self._process_file(file_path)
         except PermissionError:
@@ -188,7 +230,9 @@ class FileScanner:
         # 每处理10个文件就更新一次进度
         if self.progress_callback and self.scan_stats['total_files_scanned'] % 10 == 0:
             try:
-                self.progress_callback(self.scan_stats['total_files_scanned'])
+                # 计算进度百分比 (简单估算,每100个文件增加1%)
+                progress = min(99, self.scan_stats['total_files_scanned'] // 100)
+                self.progress_callback(progress)
             except Exception as e:
                 self.logger.warning(f"更新进度回调失败: {str(e)}")
         
@@ -276,13 +320,69 @@ class FileScanner:
             return False
         
         try:
+            # 构建文档对象
+            file_path_obj = Path(file_path)
+            
+            # 获取文件基本信息
+            stat_info = file_path_obj.stat()
+            file_size = stat_info.st_size
+            created_time = datetime.fromtimestamp(stat_info.st_ctime)
+            modified_time = datetime.fromtimestamp(stat_info.st_mtime)
+            
+            # 获取文件类型
+            file_ext = file_path_obj.suffix.lower()
+            file_type = 'unknown'
+            for type_name, extensions in self.target_extensions.items():
+                if file_ext in extensions:
+                    file_type = type_name
+                    break
+            
+            # 读取文件内容
+            content = self._read_file_content(file_path, file_ext)
+            
+            # 构建文档字典
+            document = {
+                'path': str(file_path),
+                'filename': file_path_obj.name,
+                'content': content,
+                'file_type': file_type,
+                'size': file_size,
+                'created': created_time,
+                'modified': modified_time,
+                'keywords': ''  # 可以后续扩展关键词提取
+            }
+            
             # 调用索引管理器更新文档
-            self.index_manager.update_document(file_path)
+            self.index_manager.update_document(document)
             self.logger.debug(f"已索引文件: {file_path}")
             return True
         except Exception as e:
             self.logger.error(f"索引文件失败 {file_path}: {str(e)}")
             return False
+    
+    def _read_file_content(self, file_path: str, file_ext: str) -> str:
+        """读取文件内容"""
+        try:
+            # 对于文本类文件，直接读取
+            if file_ext in ['.txt', '.md', '.json', '.xml', '.csv', '.log', '.py', '.js', '.java', '.cpp', '.c', '.h']:
+                try:
+                    with open(file_path, 'r', encoding='utf-8') as f:
+                        return f.read()
+                except UnicodeDecodeError:
+                    # 尝试其他编码
+                    with open(file_path, 'r', encoding='gbk', errors='ignore') as f:
+                        return f.read()
+            
+            # 对于其他类型，返回文件名作为内容(后续可以扩展支持PDF、Word等)
+            return Path(file_path).name
+        except Exception as e:
+            self.logger.warning(f"读取文件内容失败 {file_path}: {str(e)}")
+            return Path(file_path).name
+    
+    def stop_scan(self):
+        """停止扫描操作"""
+        self.logger.info("正在停止扫描...")
+        self._stop_flag = True
     
     def get_supported_file_types(self) -> Dict[str, List[str]]:
         """获取支持的文件类型及其扩展名"""
