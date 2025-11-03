@@ -57,7 +57,10 @@ class VectorEngine:
         
         try:
             embeddings = self.embedding_model.encode(all_chunks, convert_to_tensor=False)
-            self.index.add(np.array(embeddings).astype('float32'))
+            embeddings_array = np.array(embeddings).astype('float32')
+            if len(embeddings_array.shape) == 1:
+                embeddings_array = embeddings_array.reshape(1, -1)
+            self.index.add(embeddings_array)  # type: ignore
             
             # 更新doc_store
             self.doc_store.extend(chunk_to_doc)
@@ -80,8 +83,11 @@ class VectorEngine:
             return []
         
         try:
-            query_emb = self.embedding_model.encode([query], convert_to_tensor=False).astype('float32')
-            distances, indices = self.index.search(query_emb, top_k)
+            query_emb = self.embedding_model.encode([query], convert_to_tensor=False)
+            query_emb = np.array(query_emb).astype('float32')
+            if len(query_emb.shape) == 1:
+                query_emb = query_emb.reshape(1, -1)
+            distances, indices = self.index.search(query_emb, top_k)  # type: ignore
             
             results = []
             for idx in indices[0]:

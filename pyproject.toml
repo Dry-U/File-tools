@@ -31,7 +31,8 @@ dependencies = [
     "exifread>=3.0.0",
     "pytesseract>=0.3.10",
     "langchain>=0.1.0",
-    "langchain-community>=0.0.10"
+    "langchain-community>=0.0.10",
+    "pywin32>=306; sys_platform == 'win32'"
 ]
 
 [project.optional-dependencies]
@@ -44,3 +45,4 @@ gpu = [
 typeCheckingMode = "basic"
 reportMissingImports = false
 reportMissingTypeStubs = false
+reportMissingModuleSource = false

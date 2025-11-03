@@ -14,8 +14,8 @@ from src.utils.logger import setup_logger
 logger = setup_logger()
 
 class Document:
-    """文档对象：内容和元数据"""
-    def __init__(self, content: str, metadata: dict = None):
+    """文档对象:内容和元数据"""
+    def __init__(self, content: str, metadata: Optional[dict] = None):
         self.content = content
         self.metadata = metadata or {}
 
@@ -92,7 +92,8 @@ class UniversalParser:
     def _parse_xlsx(self, file_path: str) -> str:
         """XLSX解析（保留表格结构）"""
         df = pd.read_excel(file_path)
-        return df.to_markdown(index=False)  # 转换为Markdown表格
+        result = df.to_markdown(index=False)  # 转换为Markdown表格
+        return result if result is not None else ""
 
     def _fallback_parse(self, file_path: str) -> Optional[Document]:
         """回退解析（简单文本）"""

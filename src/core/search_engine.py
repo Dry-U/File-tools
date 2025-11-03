@@ -38,7 +38,7 @@ class SearchEngine:
     def search(self, query, filters=None):
         """执行搜索，整合文本搜索和向量搜索结果"""
         start_time = time.time()
-        self.logger.info(f"执行搜索: {query}")
+        self.logger.info(f"执行搜索: {query}, 过滤器: {filters}")
         
         # 如果没有提供过滤器，使用默认空字典
         if filters is None:
@@ -46,15 +46,19 @@ class SearchEngine:
         
         # 执行文本搜索
         text_results = self._search_text(query, filters)
+        self.logger.info(f"文本搜索返回 {len(text_results)} 条结果")
         
         # 执行向量搜索
         vector_results = self._search_vector(query, filters)
+        self.logger.info(f"向量搜索返回 {len(vector_results)} 条结果")
         
         # 合并和排序结果
         combined_results = self._combine_results(text_results, vector_results)
+        self.logger.info(f"合并后 {len(combined_results)} 条结果")
         
         # 应用过滤器
         filtered_results = self._apply_filters(combined_results, filters)
+        self.logger.info(f"过滤后 {len(filtered_results)} 条结果")
         
         # 限制结果数量
         limited_results = filtered_results[:self.max_results]
@@ -145,8 +149,9 @@ class SearchEngine:
         """检查结果是否匹配所有过滤器条件"""
         # 文件类型过滤
         if 'file_types' in filters and filters['file_types']:
-            file_ext = os.path.splitext(result['path'])[1].lower()[1:]  # 获取文件扩展名
-            if file_ext not in filters['file_types']:
+            file_ext = os.path.splitext(result['path'])[1].lower()  # 获取文件扩展名（包含点）
+            normalized_types = [ft if ft.startswith('.') else f'.{ft}' for ft in filters['file_types']]
+            if file_ext not in normalized_types:
                 return False
         
         # 日期范围过滤

@@ -29,7 +29,8 @@ from PyQt5.QtWidgets import (
     QGroupBox,
     QFormLayout,
     QCheckBox,
-    QGridLayout
+    QGridLayout,
+    QApplication
 )
 from PyQt5.QtGui import (
     QIcon,
@@ -113,9 +114,12 @@ class SearchThread(QThread):
         """运行搜索任务"""
         try:
             print(f"开始搜索: {self.query}")
+            print(f"过滤器: {self.filters}")
             # 修复：将filters作为单个参数传递，而不是展开为关键字参数
             results = self.search_engine.search(self.query, self.filters)
             print(f"搜索完成，找到 {len(results)} 条结果")
+            if results:
+                print(f"第一条结果: {results[0]}")
             self.search_completed.emit(results)
         except Exception as e:
             print(f"搜索失败: {str(e)}")
@@ -179,8 +183,8 @@ class MainWindow(QMainWindow):
                 break
         
         # 设置全局字体
-        app = self.parent()
-        if app:
+        app = QApplication.instance()
+        if app and isinstance(app, QApplication):
             app.setFont(font)
     
     def init_ui(self):
@@ -229,7 +233,7 @@ class MainWindow(QMainWindow):
         main_layout.addLayout(search_layout)
         
         # 创建分割器
-        self.splitter = QSplitter(Qt.Vertical)
+        self.splitter = QSplitter(Qt.Vertical)  # type: ignore[attr-defined]
         
         # 创建搜索结果区域
         results_widget = QWidget()
@@ -299,85 +303,85 @@ class MainWindow(QMainWindow):
         menu_bar = self.menuBar()
         
         # 文件菜单
-        file_menu = menu_bar.addMenu("文件")
+        file_menu = menu_bar.addMenu("文件")  # type: ignore[union-attr]
         
         # 打开文件操作
         open_action = QAction("打开文件", self)
         open_action.setShortcut("Ctrl+O")
         open_action.triggered.connect(self.open_file)
-        file_menu.addAction(open_action)
+        file_menu.addAction(open_action)  # type: ignore[union-attr]
         
         # 打开目录操作
         open_dir_action = QAction("打开目录", self)
         open_dir_action.setShortcut("Ctrl+D")
         open_dir_action.triggered.connect(self.open_directory)
-        file_menu.addAction(open_dir_action)
+        file_menu.addAction(open_dir_action)  # type: ignore[union-attr]
         
         # 导出搜索结果
         export_action = QAction("导出搜索结果", self)
         export_action.setShortcut("Ctrl+E")
         export_action.triggered.connect(self.export_results)
-        file_menu.addAction(export_action)
+        file_menu.addAction(export_action)  # type: ignore[union-attr]
         
         # 分隔符
-        file_menu.addSeparator()
+        file_menu.addSeparator()  # type: ignore[union-attr]
         
         # 退出操作
         exit_action = QAction("退出", self)
         exit_action.setShortcut("Ctrl+Q")
-        exit_action.triggered.connect(self.close)
-        file_menu.addAction(exit_action)
+        exit_action.triggered.connect(self.close)  # type: ignore[arg-type]
+        file_menu.addAction(exit_action)  # type: ignore[union-attr]
         
         # 搜索菜单
-        search_menu = menu_bar.addMenu("搜索")
+        search_menu = menu_bar.addMenu("搜索")  # type: ignore[union-attr]
         
         # 重建索引操作
         rebuild_index_action = QAction("重建索引", self)
         rebuild_index_action.setShortcut("Ctrl+R")
         rebuild_index_action.triggered.connect(self.rebuild_index)
-        search_menu.addAction(rebuild_index_action)
+        search_menu.addAction(rebuild_index_action)  # type: ignore[union-attr]
         
         # 清除缓存操作
         clear_cache_action = QAction("清除缓存", self)
         clear_cache_action.setShortcut("Ctrl+L")
         clear_cache_action.triggered.connect(self.clear_cache)
-        search_menu.addAction(clear_cache_action)
+        search_menu.addAction(clear_cache_action)  # type: ignore[union-attr]
         
         # 视图菜单
-        view_menu = menu_bar.addMenu("视图")
+        view_menu = menu_bar.addMenu("视图")  # type: ignore[union-attr]
         
         # 切换主题操作
         theme_action = QAction("切换主题", self)
         theme_action.setShortcut("Ctrl+T")
         theme_action.triggered.connect(self.toggle_theme)
-        view_menu.addAction(theme_action)
+        view_menu.addAction(theme_action)  # type: ignore[union-attr]
         
         # 高级筛选操作
         filter_action = QAction("高级筛选", self)
         filter_action.setShortcut("Ctrl+F")
         filter_action.triggered.connect(self.toggle_advanced_filter)
-        view_menu.addAction(filter_action)
+        view_menu.addAction(filter_action)  # type: ignore[union-attr]
         
         # 设置菜单
-        settings_menu = menu_bar.addMenu("设置")
+        settings_menu = menu_bar.addMenu("设置")  # type: ignore[union-attr]
         
         # AI接口配置操作
         ai_config_action = QAction("AI接口配置", self)
         ai_config_action.triggered.connect(self.show_ai_config_dialog)
-        settings_menu.addAction(ai_config_action)
+        settings_menu.addAction(ai_config_action)  # type: ignore[union-attr]
         
         # 帮助菜单
-        help_menu = menu_bar.addMenu("帮助")
+        help_menu = menu_bar.addMenu("帮助")  # type: ignore[union-attr]
         
         # 使用帮助操作
         help_action = QAction("使用帮助", self)
         help_action.triggered.connect(self.show_help)
-        help_menu.addAction(help_action)
+        help_menu.addAction(help_action)  # type: ignore[union-attr]
         
         # 关于操作
         about_action = QAction("关于", self)
         about_action.triggered.connect(self.show_about)
-        help_menu.addAction(about_action)
+        help_menu.addAction(about_action)  # type: ignore[union-attr]
     
     def toggle_advanced_filter(self):
         """切换高级筛选面板的显示状态"""
@@ -426,6 +430,8 @@ class MainWindow(QMainWindow):
             file_types.extend([".doc", ".docx", ".pdf"])
         if afw.xls_check.isChecked():
             file_types.extend([".xls", ".xlsx"])
+        if afw.code_check.isChecked():
+            file_types.extend([".py", ".js", ".java", ".cpp", ".c", ".h", ".cs", ".go", ".rs", ".php", ".rb", ".swift"])
         if afw.img_check.isChecked():
             file_types.extend([".jpg", ".png", ".gif"])
         
@@ -449,14 +455,22 @@ class MainWindow(QMainWindow):
         match_whole_word = afw.match_whole_word.isChecked()
         search_content = afw.search_content.isChecked()
         
-        return {
-            "file_types": file_types if file_types else None,
-            "min_size": min_size,
-            "max_size": max_size,
+        # 注意：只有当file_types不为空时才传递，否则不过滤
+        filters = {
             "case_sensitive": case_sensitive,
             "match_whole_word": match_whole_word,
             "search_content": search_content
         }
+        
+        # 只添加非空None的过滤条件
+        if file_types:
+            filters["file_types"] = file_types  # type: ignore[assignment]
+        if min_size is not None:
+            filters["min_size"] = min_size  # type: ignore[assignment]
+        if max_size is not None:
+            filters["max_size"] = max_size  # type: ignore[assignment]
+            
+        return filters
     
     def on_search_completed(self, results):
         """搜索完成回调"""
@@ -571,7 +585,7 @@ class MainWindow(QMainWindow):
         
         # 创建进度对话框
         progress_dialog = QProgressDialog("正在重建索引...", "取消", 0, 100, self)
-        progress_dialog.setWindowModality(Qt.WindowModal)
+        progress_dialog.setWindowModality(Qt.WindowModal)  # type: ignore[attr-defined]
         progress_dialog.setMinimumDuration(0)
         progress_dialog.setValue(0)
         
@@ -784,7 +798,7 @@ class MainWindow(QMainWindow):
         
         try:
             # 清除搜索缓存
-            self.search_engine.clear_cache()
+            self.search_engine.clear_cache()  # type: ignore[attr-defined]
             
             # 清除临时文件目录
             temp_dir = Path(self.config_loader.get('system', 'temp_dir', './data/temp'))

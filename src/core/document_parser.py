@@ -111,9 +111,11 @@ class DocumentParser:
             with open(file_path, 'rb') as file:
                 reader = PyPDF2.PdfReader(file)
                 text = ""
-                for page_num in range(len(reader.pages)):
-                    page = reader.pages[page_num]
-                    text += page.extract_text() or ""
+                pages = reader.pages
+                if pages:
+                    for page_num in range(len(pages)):
+                        page = pages[page_num]
+                        text += page.extract_text() or ""
                 
                 # 如果PyPDF2提取的文本为空，尝试使用pdfminer
                 if not text.strip():
@@ -266,7 +268,9 @@ class DocumentParser:
                         metadata[f"PDF-{clean_key}"] = str(value)
                 
                 # 添加页数信息
-                metadata["PDF-页数"] = len(reader.pages)
+                pages = reader.pages
+                if pages:
+                    metadata["PDF-页数"] = len(pages)
         except Exception as e:
             self.logger.error(f"提取PDF元数据失败 {file_path}: {str(e)}")
         
@@ -295,7 +299,9 @@ class DocumentParser:
                 metadata["Word-修改时间"] = core_props.modified.strftime('%Y-%m-%d %H:%M:%S')
                 
             # 计算段落数和页数
-            metadata["Word-段落数"] = len(doc.paragraphs)
+            paragraphs = doc.paragraphs
+            if paragraphs:
+                metadata["Word-段落数"] = len(paragraphs)
         except Exception as e:
             self.logger.error(f"提取Word元数据失败 {file_path}: {str(e)}")
         
@@ -309,7 +315,8 @@ class DocumentParser:
                 metadata["图像-尺寸"] = f"{img.width}x{img.height}"
                 metadata["图像-模式"] = img.mode
                 metadata["图像-格式"] = img.format
-                metadata["图像-颜色数"] = len(img.getcolors(maxcolors=2**24)) if img.mode != 'RGB' else ' millions'
+                colors = img.getcolors(maxcolors=2**24) if img.mode != 'RGB' else None
+                metadata["图像-颜色数"] = len(colors) if colors else 'millions'
             
             # 尝试提取EXIF信息
             try:

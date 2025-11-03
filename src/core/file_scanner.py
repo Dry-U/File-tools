@@ -2,6 +2,7 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 """文件扫描器模块 - 负责扫描文件系统并识别可索引文件"""
+import os
 import re
 import platform
 import time

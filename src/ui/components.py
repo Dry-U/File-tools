@@ -130,7 +130,7 @@ class SearchResultModel(QStandardItemModel):
         
         # 设置每个项的对齐方式
         for item in row_items:
-            item.setTextAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+            item.setTextAlignment(Qt.AlignLeft | Qt.AlignVCenter)  # type: ignore[attr-defined]
         
         self.appendRow(row_items)
 
@@ -148,8 +148,8 @@ class SearchResultView(QTableView):
         
         # 设置表头
         header = self.horizontalHeader()
-        header.setSectionResizeMode(QHeaderView.Interactive)
-        header.setStretchLastSection(True)
+        header.setSectionResizeMode(QHeaderView.Interactive)  # type: ignore[union-attr]
+        header.setStretchLastSection(True)  # type: ignore[union-attr]
         
         # 设置样式
         self.setStyleSheet("""
@@ -215,10 +215,10 @@ class FilePreviewer(QTextEdit):
         highlight_format.setBackground(QColor("yellow"))
         
         # 查找并高亮所有匹配项
-        cursor = document.find(search_text)
+        cursor = document.find(search_text)  # type: ignore[union-attr]
         while not cursor.isNull():
             cursor.mergeCharFormat(highlight_format)
-            cursor = document.find(search_text, cursor)
+            cursor = document.find(search_text, cursor)  # type: ignore[union-attr]
         
         # 移回文档开头
         self.moveCursor(QTextCursor.Start)
@@ -242,12 +242,13 @@ class AdvancedFilterWidget(QWidget):
         self.txt_check = QCheckBox("文本文件 (.txt, .md, .csv)")
         self.doc_check = QCheckBox("文档文件 (.doc, .docx, .pdf)")
         self.xls_check = QCheckBox("电子表格 (.xls, .xlsx)")
+        self.code_check = QCheckBox("代码文件 (.py, .js, .java, .cpp, .c, .h)")
         self.img_check = QCheckBox("图像文件 (.jpg, .png, .gif)")
         self.other_check = QCheckBox("其他文件")
         
-        # 添加到布局
-        for check in [self.txt_check, self.doc_check, self.xls_check, self.img_check, self.other_check]:
-            check.setChecked(True)  # 默认全部选中
+        # 添加到布局 - 默认不勾选，避免过度过滤
+        for check in [self.txt_check, self.doc_check, self.xls_check, self.code_check, self.img_check, self.other_check]:
+            # check.setChecked(True)  # 不默认勾选，用户可按需勾选
             file_types_layout.addWidget(check)
         
         file_types_group.setLayout(file_types_layout)
@@ -331,8 +332,8 @@ class ToolTip(QWidget):
     """自定义工具提示组件"""
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setWindowFlags(Qt.ToolTip | Qt.FramelessWindowHint)
-        self.setAttribute(Qt.WA_TranslucentBackground)
+        self.setWindowFlags(Qt.ToolTip | Qt.FramelessWindowHint)  # type: ignore[attr-defined]
+        self.setAttribute(Qt.WA_TranslucentBackground)  # type: ignore[attr-defined]
         
         # 创建标签
         self.label = QLabel("", self)

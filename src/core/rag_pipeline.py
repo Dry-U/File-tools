@@ -1,7 +1,7 @@
 # src/core/rag_pipeline.py
 import os
 import sys
-from typing import Dict, List, Any
+from typing import Dict, List, Any, Optional
 
 # 修复 torch DLL 加载问题：添加 torch lib 目录到 DLL 搜索路径
 try:
@@ -22,9 +22,21 @@ try:
 except ImportError:
     from langchain_core.prompts import PromptTemplate
 try:
-    from langchain.llms.base import LLM
+    from langchain.llms.base import LLM as BaseLLM  # type: ignore[import]
 except ImportError:
-    from langchain_core.language_models.llms import LLM
+    try:
+        from langchain_core.language_models.llms import LLM as BaseLLM  # type: ignore[assignment]
+    except ImportError:
+        # 如果都导入失败，创建一个占位基类
+        from abc import ABC, abstractmethod
+        class BaseLLM(ABC):  # type: ignore
+            @abstractmethod
+            def _call(self, prompt: str, stop: Optional[List[str]] = None) -> str:
+                pass
+            @property
+            @abstractmethod
+            def _llm_type(self) -> str:
+                pass
 try:
     from langchain.schema import Document as LangDocument  # LangChain的Document
 except ImportError:
@@ -63,7 +75,7 @@ class SecurityManager:
 
 logger = setup_logger()
 
-class CustomLLM(LLM):
+class CustomLLM(BaseLLM):  # type: ignore[misc]
     """自定义LangChain LLM：包装ModelManager的generate"""
     model_manager: ModelManager
 
@@ -74,7 +86,7 @@ class CustomLLM(LLM):
         self.privacy_filter = PrivacyFilter(model_manager.config_loader)
         self.security = SecurityManager(model_manager.config_loader)
 
-    def _call(self, prompt: str, stop: List[str] = None) -> str:
+    def _call(self, prompt: str, stop: Optional[List[str]] = None) -> str:
         """同步调用（LangChain默认）"""
         response = ''.join(self.model_manager.generate(prompt))
         return response
@@ -91,9 +103,11 @@ class RAGPipeline:
         self.config_loader = config_loader
         self.retriever = retriever
         self.llm = CustomLLM(model_manager)
+        self.privacy_filter = PrivacyFilter(config_loader)
+        self.security = SecurityManager(config_loader)
         self.qa_chain = self._build_qa_chain()
 
-    def _build_qa_chain(self) -> RetrievalQA:
+    def _build_qa_chain(self) -> Any:
         """构建LangChain RetrievalQA链"""
         prompt_template = """
         使用以下上下文回答问题。如果不知道答案，就说不知道。
@@ -112,6 +126,10 @@ class RAGPipeline:
             docs = self.retriever.search(query)
             return [LangDocument(page_content=doc.content, metadata=doc.metadata) for doc in docs]
 
+        if RetrievalQA is None:
+            logger.warning("RetrievalQA 不可用，返回None")
+            return None
+            
         qa = RetrievalQA.from_chain_type(
             llm=self.llm,
             chain_type="stuff",
@@ -125,6 +143,10 @@ class RAGPipeline:
         """执行RAG查询：检索+生成，返回answer和sources"""
         if not self.security.check_permission('query'):
              return {"answer": "权限不足。", "sources": []}
+        
+        if self.qa_chain is None:
+            return {"answer": "错误：QA链未初始化。", "sources": []}
+            
         try:
             result = self.qa_chain({"query": query})
             answer = result["result"]
@@ -135,14 +157,14 @@ class RAGPipeline:
                 logger.info("无相关文档，触发主动扫描")
                 # 调用FileScanner（假设注入或全局访问；实际可通过事件）
                 from src.core.file_scanner import FileScanner  # 延迟导入避免循环
-                scanner = FileScanner(self.config)
+                scanner = FileScanner(self.config_loader)
                 scanner.scan_and_index()  # 主动更新索引
                 # 重新查询
                 result = self.qa_chain({"query": query})
                 answer = self.privacy_filter.sanitize(result["result"])
                 self.security.log_audit("query_executed", {"query": query, "user_role": self.security.current_user_role})
     
-                return {"answer": answer, "sources": sources}
+            return {"answer": answer, "sources": sources}
         except Exception as e:
             logger.error(f"RAG查询失败: {e}")
             return {"answer": "错误：无法处理查询。", "sources": []}

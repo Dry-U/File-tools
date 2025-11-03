@@ -4,15 +4,19 @@
 import os
 import time
 import logging
+from typing import TYPE_CHECKING, Optional
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler, FileSystemEvent
 from datetime import datetime
+
+if TYPE_CHECKING:
+    from src.core.index_manager import IndexManager
 
 class FileMonitor:
     """文件监控器类，负责监控指定目录的文件变化"""
     def __init__(self, config_loader, index_manager=None):
         self.config_loader = config_loader
-        self.index_manager = index_manager
+        self.index_manager: Optional['IndexManager'] = index_manager
         self.logger = logging.getLogger(__name__)
         
         # 监控配置 - 使用ConfigLoader获取配置
@@ -57,30 +61,31 @@ class FileMonitor:
                 if dir_path and os.path.exists(dir_path):
                     monitored_dirs.append(os.path.abspath(dir_path))
         
-        # 如果没有配置监控目录，在Windows系统下监控所有磁盘驱动器
+        # 如果没有配置监控目录,在Windows系统下监控所有磁盘驱动器
         if not monitored_dirs:
             if os.name == 'nt':  # Windows系统
-                # 尝试使用win32api获取所有磁盘驱动器
+                # 使用ctypes获取所有磁盘驱动器(标准库方案)
                 drives = []
                 try:
-                    import win32api
-                    drives_str = win32api.GetLogicalDriveStrings()
-                    drives = drives_str.split('\\000')[:-1]  # 解析Windows驱动器列表
-                except ImportError:
-                    self.logger.error("无法导入win32api模块")
-                    # 备选方案：使用ctypes获取驱动器信息
+                    import ctypes
+                    # 遍历可能的驱动器字母 A-Z
+                    for drive_letter in 'ABCDEFGHIJKLMNOPQRSTUVWXYZ':
+                        drive_path = f"{drive_letter}:\\"
+                        # 使用GetDriveType函数检查是否为有效的驱动器
+                        # 类型: 2=可移动磁盘 3=固定磁盘 4=网络驱动器 5=光驱 6=RAM磁盘
+                        if ctypes.windll.kernel32.GetDriveTypeW(drive_path) in [2, 3, 4, 5, 6]:
+                            if os.path.exists(drive_path):
+                                drives.append(drive_path)
+                except Exception as e:
+                    self.logger.error(f"使用ctypes获取驱动器信息失败: {str(e)}")
+                    # 最终备选方案：尝试使用win32api
                     try:
-                        import ctypes
+                        import win32api  # type: ignore
+                        drives_str = win32api.GetLogicalDriveStrings()
+                        drives = drives_str.split('\\000')[:-1]
+                    except (ImportError, Exception) as e:
+                        self.logger.warning(f"win32api备选方案也失败: {str(e)}")
                         drives = []
-                        # 遍历可能的驱动器字母 A-Z
-                        for drive_letter in 'ABCDEFGHIJKLMNOPQRSTUVWXYZ':
-                            drive_path = f"{drive_letter}:\\"
-                            # 使用GetDriveType函数检查是否为有效的驱动器
-                            if ctypes.windll.kernel32.GetDriveTypeW(drive_path) in [2, 3, 4, 5, 6]:
-                                if os.path.exists(drive_path):
-                                    drives.append(drive_path)
-                    except (ImportError, Exception):
-                        self.logger.error("尝试使用ctypes获取驱动器信息失败")
                         
                 # 添加检测到的驱动器
                 if drives:
@@ -277,6 +282,10 @@ class FileMonitor:
     
     def _update_index_for_file(self, file_path):
         """更新文件在索引中的信息"""
+        if self.index_manager is None:
+            self.logger.warning(f"索引管理器未初始化，跳过文件索引更新: {file_path}")
+            return
+        
         try:
             # 调用索引管理器更新文件索引
             self.index_manager.update_document(file_path)
@@ -286,6 +295,10 @@ class FileMonitor:
     
     def _remove_from_index(self, file_path):
         """从索引中删除文件"""
+        if self.index_manager is None:
+            self.logger.warning(f"索引管理器未初始化，跳过文件索引删除: {file_path}")
+            return
+        
         try:
             # 调用索引管理器删除文件索引
             self.index_manager.delete_document(file_path)

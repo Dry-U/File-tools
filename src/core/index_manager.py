@@ -11,7 +11,8 @@ from whoosh.qparser import QueryParser, MultifieldParser
 from whoosh.analysis import StemmingAnalyzer
 import faiss
 import numpy as np
-from sentence_transformers import SentenceTransformer
+# 延迟导入SentenceTransformer，避免在禁用时卡住
+# from sentence_transformers import SentenceTransformer
 from datetime import datetime
 import json
 
@@ -23,9 +24,11 @@ class IndexManager:
         
         # 获取索引路径配置 - 使用ConfigLoader
         try:
-            self.whoosh_index_path = config_loader.get('index', 'whoosh_path', './data/whoosh_index')
-            self.faiss_index_path = config_loader.get('index', 'faiss_path', './data/faiss_index')
-            self.metadata_path = config_loader.get('index', 'metadata_path', './data/metadata')
+            # 优先从system配置读取，如果没有则使用index配置
+            data_dir = config_loader.get('system', 'data_dir', './data')
+            self.whoosh_index_path = config_loader.get('index', 'whoosh_path', f'{data_dir}/whoosh_index')
+            self.faiss_index_path = config_loader.get('index', 'faiss_path', f'{data_dir}/faiss_index')
+            self.metadata_path = config_loader.get('index', 'metadata_path', f'{data_dir}/metadata')
         except Exception as e:
             self.logger.error(f"获取索引路径配置失败: {str(e)}")
             # 使用默认值
@@ -42,6 +45,8 @@ class IndexManager:
         model_enabled = config_loader.get('model', 'enabled', False)
         if model_enabled:
             try:
+                # 延迟导入SentenceTransformer
+                from sentence_transformers import SentenceTransformer
                 # 从配置获取嵌入模型名称
                 embedding_model_name = config_loader.get('model', 'embedding_model', 'all-MiniLM-L6-v2')
                 self.embedding_model = SentenceTransformer(embedding_model_name)
@@ -106,7 +111,9 @@ class IndexManager:
             try:
                 self.faiss_index = faiss.read_index(index_file)
                 with open(metadata_file, 'r', encoding='utf-8') as f:
-                    self.vector_metadata = json.load(f)
+                    metadata_dict = json.load(f)
+                    self.vector_metadata = metadata_dict.get('metadata', {})
+                    self.next_id = metadata_dict.get('next_id', len(self.vector_metadata))
                 self.logger.info(f"成功加载FAISS索引: {index_file}, 向量数量: {self.faiss_index.ntotal}")
             except Exception as e:
                 self.logger.error(f"加载FAISS索引失败: {str(e)}")
@@ -117,19 +124,22 @@ class IndexManager:
     def _create_new_faiss_index(self):
         """创建新的FAISS索引"""
         try:
-            # 创建一个空的FAISS索引
-            self.faiss_index = faiss.IndexFlatL2(self.vector_dim)  # 使用L2距离
+            # 创建一个带ID映射的FAISS索引，支持reconstruct操作
+            base_index = faiss.IndexFlatL2(self.vector_dim)  # 使用L2距离
+            self.faiss_index = faiss.IndexIDMap(base_index)  # 包装为IDMap支持ID管理
             self.vector_metadata = {}
+            self.next_id = 0  # 用于追踪下一个可用的ID
             self.logger.info(f"成功创建新的FAISS索引，向量维度: {self.vector_dim}")
         except Exception as e:
             self.logger.error(f"创建FAISS索引失败: {str(e)}")
             self.faiss_index = None
             self.vector_metadata = {}
+            self.next_id = 0
     
     def add_document(self, document):
         """添加文档到索引"""
-        if not self.whoosh_index or not self.faiss_index:
-            self.logger.error("索引组件未初始化完成，无法添加文档")
+        if not self.whoosh_index:
+            self.logger.error("Whoosh索引未初始化完成，无法添加文档")
             return False
         
         try:
@@ -151,11 +161,13 @@ class IndexManager:
                 vector = self.embedding_model.encode(document['content'][:5000])  # 限制内容长度以提高效率
                 vector = np.array([vector], dtype=np.float32)
                 
-                # 获取当前索引的ID
-                doc_id = len(self.vector_metadata)
+                # 使用递增的ID
+                doc_id = self.next_id
                 
-                # 添加到FAISS索引
-                self.faiss_index.add(vector)
+                # 添加到FAISS索引，使用ID映射
+                # add_with_ids(xb, xids) - xb是向量矩阵，xids是ID数组
+                ids = np.array([doc_id], dtype=np.int64)
+                self.faiss_index.add_with_ids(vector, ids)  # type: ignore
                 
                 # 保存元数据
                 self.vector_metadata[str(doc_id)] = {
@@ -164,6 +176,9 @@ class IndexManager:
                     'file_type': document['file_type'],
                     'modified': document['modified'].strftime('%Y-%m-%d %H:%M:%S')
                 }
+                
+                # 递增ID计数器
+                self.next_id += 1
             
             return True
         except Exception as e:
@@ -187,33 +202,24 @@ class IndexManager:
                 old_doc_id = int(doc_id)
                 break
         
-        if old_doc_id is not None and self.embedding_model:
-            # 创建一个新的索引，排除要删除的向量
-            new_index = faiss.IndexFlatL2(self.vector_dim)
-            new_metadata = {}
-            
-            # 添加所有不包含要删除向量的向量
-            for i in range(self.faiss_index.ntotal):
-                if i != old_doc_id:
-                    vector = self.faiss_index.reconstruct(i).reshape(1, -1)
-                    new_index.add(vector)
-                    
-                    # 更新元数据ID
-                    old_key = str(i)
-                    if old_key in self.vector_metadata:
-                        new_metadata[str(len(new_metadata))] = self.vector_metadata[old_key]
-            
-            # 更新FAISS索引和元数据
-            self.faiss_index = new_index
-            self.vector_metadata = new_metadata
+        if old_doc_id is not None and self.embedding_model and self.faiss_index:
+            # 使用IDMap的remove_ids方法删除指定ID的向量
+            try:
+                ids_to_remove = np.array([old_doc_id], dtype=np.int64)
+                self.faiss_index.remove_ids(ids_to_remove)  # type: ignore
+                # 删除元数据
+                if str(old_doc_id) in self.vector_metadata:
+                    del self.vector_metadata[str(old_doc_id)]
+            except Exception as e:
+                self.logger.error(f"删除旧向量失败: {str(e)}")
         
         # 添加更新后的文档
         return self.add_document(document)
     
     def delete_document(self, file_path):
         """从索引中删除文档"""
-        if not self.whoosh_index or not self.faiss_index:
-            self.logger.error("索引组件未初始化完成，无法删除文档")
+        if not self.whoosh_index:
+            self.logger.error("Whoosh索引未初始化完成，无法删除文档")
             return False
         
         try:
@@ -228,25 +234,16 @@ class IndexManager:
                     old_doc_id = int(doc_id)
                     break
             
-            if old_doc_id is not None:
-                # 创建一个新的索引，排除要删除的向量
-                new_index = faiss.IndexFlatL2(self.vector_dim)
-                new_metadata = {}
-                
-                # 添加所有不包含要删除向量的向量
-                for i in range(self.faiss_index.ntotal):
-                    if i != old_doc_id:
-                        vector = self.faiss_index.reconstruct(i).reshape(1, -1)
-                        new_index.add(vector)
-                        
-                        # 更新元数据ID
-                        old_key = str(i)
-                        if old_key in self.vector_metadata:
-                            new_metadata[str(len(new_metadata))] = self.vector_metadata[old_key]
-                
-                # 更新FAISS索引和元数据
-                self.faiss_index = new_index
-                self.vector_metadata = new_metadata
+            if old_doc_id is not None and self.faiss_index:
+                # 使用IDMap的remove_ids方法删除指定ID的向量
+                try:
+                    ids_to_remove = np.array([old_doc_id], dtype=np.int64)
+                    self.faiss_index.remove_ids(ids_to_remove)  # type: ignore
+                    # 删除元数据
+                    if str(old_doc_id) in self.vector_metadata:
+                        del self.vector_metadata[str(old_doc_id)]
+                except Exception as e:
+                    self.logger.error(f"删除向量失败 (ID: {old_doc_id}): {str(e)}")
             
             return True
         except Exception as e:
@@ -315,8 +312,9 @@ class IndexManager:
             query_vector = self.embedding_model.encode([query_str])
             query_vector = np.array(query_vector, dtype=np.float32)
             
-            # 执行向量搜索
-            distances, indices = self.faiss_index.search(query_vector, limit)
+            # 执行向量搜索 - search(x, k) 返回 (distances, labels)
+            k = min(limit, self.faiss_index.ntotal) if self.faiss_index.ntotal > 0 else limit
+            distances, indices = self.faiss_index.search(query_vector, k)  # type: ignore
             
             # 处理搜索结果
             results = []
@@ -337,23 +335,27 @@ class IndexManager:
     
     def save_indexes(self):
         """保存索引到磁盘"""
-        if not self.whoosh_index or not self.faiss_index:
-            self.logger.error("索引组件未初始化完成，无法保存")
+        if not self.whoosh_index:
+            self.logger.error("Whoosh索引未初始化，无法保存")
             return False
         
         try:
-            # Whoosh索引会自动保存，但我们可以显式提交任何未完成的写入
-            if self.whoosh_index.is_modified():
-                self.whoosh_index.commit()
+            # Whoosh索引会自动保存
+            # 注意：FileIndex没有is_modified()方法，索引在writer退出时自动提交
             
             # 保存FAISS索引
-            index_file = os.path.join(self.faiss_index_path, 'vector_index.faiss')
-            faiss.write_index(self.faiss_index, index_file)
+            if self.faiss_index:
+                index_file = os.path.join(self.faiss_index_path, 'vector_index.faiss')
+                faiss.write_index(self.faiss_index, index_file)
             
-            # 保存向量元数据
+            # 保存向量元数据（包含next_id）
             metadata_file = os.path.join(self.metadata_path, 'vector_metadata.json')
+            metadata_dict = {
+                'metadata': self.vector_metadata,
+                'next_id': self.next_id
+            }
             with open(metadata_file, 'w', encoding='utf-8') as f:
-                json.dump(self.vector_metadata, f, ensure_ascii=False, indent=2)
+                json.dump(metadata_dict, f, ensure_ascii=False, indent=2)
             
             self.logger.info("索引已成功保存到磁盘")
             return True
@@ -418,10 +420,9 @@ class IndexManager:
     def close(self):
         """关闭索引管理器，释放资源"""
         try:
-            # 提交Whoosh索引的未完成更改
-            if self.whoosh_index and hasattr(self.whoosh_index, 'commit'):
-                self.whoosh_index.commit()
-                self.logger.info("Whoosh索引已提交")
+            # Whoosh索引在writer退出时自动提交，无需显式调用commit
+            if self.whoosh_index:
+                self.logger.info("Whoosh索引将在关闭时自动保存")
             
             # FAISS索引不需要显式关闭
             # 释放嵌入模型资源

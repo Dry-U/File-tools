@@ -52,14 +52,14 @@ class ModelManager:
             print(f"获取模型配置失败: {str(e)}")
             logger.error(f"获取模型配置失败: {str(e)}")
             # 使用默认值
-            self.interface_type: str = 'local'
-            self.api_url: str = 'http://localhost:8000/v1/completions'
-            self.api_key: str = ''
+            self.interface_type = 'local'
+            self.api_url = 'http://localhost:8000/v1/completions'
+            self.api_key = ''
 
     def auto_select_model(self) -> str:
         """根据硬件自动选择模型（基于文档代码）"""
         vram = self.vram_manager.available_vram()
-        cpu_cores = os.cpu_count()
+        cpu_cores = os.cpu_count() or 0
         
         if vram >= 8 * 1024**3 and cpu_cores >= 8:
             return "nous-hermes-2-7b.Q4_K_M.gguf"
@@ -81,7 +81,7 @@ class ModelManager:
         self.current_model = self.vram_manager.load_model(self.current_model_name, Llama)
         return self.current_model
 
-    def generate(self, prompt: str, session_id: str = None, max_tokens: int = 512, temperature: float = 0.7) -> Generator[str, None, None]:
+    def generate(self, prompt: str, session_id: Optional[str] = None, max_tokens: int = 512, temperature: float = 0.7) -> Generator[str, None, None]:
         """根据配置的接口类型进行推理生成"""
         try:
             # 检查模型是否启用
