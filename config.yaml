@@ -15,7 +15,7 @@ file_scanner:
     video: .mp4,.avi,.mov,.mkv,.wmv
   max_file_size: 100
   recursive: true
-  scan_paths: 'd:\\python_work\\File-tools\\src'
+  scan_paths: '~'  # Use home directory which should have files
   scan_threads: 4
 interface:
   auto_save_settings: true
@@ -33,12 +33,12 @@ model:
   api_key: ''
   api_url: http://localhost:8000/v1/completions
   embedding_model: all-MiniLM-L6-v2
-  enabled: false
-  interface_type: api
+  enabled: true
+  interface_type: local
   max_tokens: 2048
-  model_path: ''
+  model_path: "D:\\Models\\Qwen2.5-3B-YiLin.Q4_K_M.gguf"
   temperature: 0.7
-  use_gpu: false
+  use_gpu: true
 monitor:
   debounce_time: 0.5
   directories: '~'
@@ -62,5 +62,8 @@ system:
   log_level: INFO
   log_max_size: 10
   log_rotation: midnight
+  log_format: structured
+  log_json: false
+  log_sensitive_data: false
   temp_dir: ./data/temp
   version: 1.0.0

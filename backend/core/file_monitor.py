@@ -10,7 +10,7 @@ from watchdog.events import FileSystemEventHandler, FileSystemEvent
 from datetime import datetime
 
 if TYPE_CHECKING:
-    from src.core.index_manager import IndexManager
+    from backend.core.index_manager import IndexManager
 
 class FileMonitor:
     """文件监控器类，负责监控指定目录的文件变化"""

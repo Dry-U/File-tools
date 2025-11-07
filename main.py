@@ -17,40 +17,26 @@ try:
 except Exception as e:
     print(f"警告：无法添加 torch DLL 目录：{e}")
 
-from PyQt5.QtWidgets import QApplication
-from PyQt5.QtGui import QFont
+def run_web_ui():
+    """Run the web UI version of the application"""
+    from run_web import run_web_interface
+    import uvicorn
+    from backend.api.api import app
 
-# 导入主窗口模块
-from src.ui.main_window import MainWindow
+    # Initialize logger
+    from backend.utils.logger import setup_logger
+    logger = setup_logger()
+    logger.info("Web application (FastAPI)启动")
 
-# 确保中文正常显示
-def setup_chinese_font_support(app):
-    """设置中文字体支持"""
-    font_families = ["Microsoft YaHei", "SimHei", "WenQuanYi Micro Hei", "Heiti TC"]
-    
-    # 选择系统中可用的字体
-    font = QFont()
-    for family in font_families:
-        font.setFamily(family)
-        if font.family() == family:
-            app.setFont(font)
-            return True
-    return False
+    # Run the web interface
+    uvicorn.run(app, host="127.0.0.1", port=8000, log_level="info")
+
 
 def main():
-    """主函数 - 应用程序入口点"""
-    # 创建应用程序实例
-    app = QApplication(sys.argv)
-    
-    # 设置中文字体支持
-    setup_chinese_font_support(app)
-    
-    # 创建并显示主窗口
-    window = MainWindow()
-    window.show()
-    
-    # 运行应用程序主循环
-    sys.exit(app.exec_())
+    """Main function - Application entry point for web interface"""
+    print("启动 Web 界面...")
+    run_web_ui()
+
 
 if __name__ == "__main__":
     main()

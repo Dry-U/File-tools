@@ -1,6 +1,6 @@
 # 智能文件检索与问答系统
 
-基于 Python 和 PyQt5 的本地文件智能管理工具，提供高效文件扫描、语义检索和 AI 增强问答功能。
+基于 Python 的本地文件智能管理工具，提供高效文件扫描、语义检索和 AI 增强问答功能。支持多种用户界面（PyQt5 桌面界面和 FastAPI Web 界面）。
 
 ## 核心特性
 
@@ -8,23 +8,29 @@
 -  **智能问答**：基于 RAG 技术的文档智能问答
 -  **多格式支持**：PDF、Word、Excel、Markdown 等多种文档格式
 -  **实时监控**：自动监控文件变化并增量更新索引
--  **现代界面**：PyQt5 构建的跨平台桌面应用
+-  **多界面支持**：PyQt5 桌面界面和 FastAPI Web 界面
+-  **企业级日志**：结构化日志记录，支持 JSON 格式和上下文追踪
+-  **可打包为 .exe**：支持打包为独立的可执行文件
 
 ## 技术栈
 
 - **编程语言**：Python 3.9+
-- **GUI 框架**：PyQt5
+- **GUI 框架**：PyQt5 (桌面界面), FastAPI (Web 界面)
 - **文本索引**：Whoosh
 - **向量检索**：FAISS
 - **AI 模型**：Sentence-BERT (嵌入), LLaMA (本地推理)
 - **文档处理**：PyPDF2, python-docx, pandas
 - **文件监控**：Watchdog
+- **日志系统**：企业级结构化日志，支持 JSON 输出
+- **打包工具**：PyInstaller
 
 ## 项目结构
 
 ```
 File-tools/
-├── src/                    # 源代码
+├── backend/                # 后端服务
+│   ├── api/                # API接口层
+│   │   └── api.py          # FastAPI应用主文件
 │   ├── core/               # 核心业务逻辑
 │   │   ├── document_parser.py      # 文档解析器
 │   │   ├── file_scanner.py         # 文件扫描器
@@ -36,18 +42,19 @@ File-tools/
 │   │   ├── rag_pipeline.py         # RAG 问答流水线
 │   │   ├── smart_indexer.py        # 智能索引器
 │   │   └── universal_parser.py     # 通用解析器
-│   ├── ui/                 # 用户界面
-│   │   ├── main_window.py          # 主窗口
-│   │   └── components.py           # UI 组件
 │   └── utils/              # 工具模块
 │       ├── config_loader.py        # 配置加载
-│       └── logger.py               # 日志系统
+│       └── logger.py               # 企业级日志系统
+├── frontend/               # 前端界面 (Web UI)
+│   ├── static/             # 静态资源
+│   └── templates/          # HTML模板
 ├── tests/                  # 测试代码
 ├── data/                   # 数据存储
 │   ├── index/              # 文本索引
 │   ├── faiss_index/        # 向量索引
 │   ├── metadata/           # 元数据
-│   └── cache/              # 缓存文件
+│   ├── cache/              # 缓存文件
+│   └── logs/               # 日志文件
 ├── docs/                   # 项目文档
 ├── config.yaml             # 配置文件
 ├── main.py                 # 应用入口
@@ -98,8 +105,11 @@ interface:
 ### 运行
 
 ```bash
+# 运行 Web 界面 (当前支持)
 python main.py
 ```
+
+应用程序将在 `http://127.0.0.1:8000` 上启动。
 
 ## 核心功能
 
@@ -143,6 +153,23 @@ pytest tests/
 # 性能测试
 pytest tests/test_performance.py -v
 ```
+
+## 打包为 .exe
+
+可以使用 PyInstaller 将应用程序打包为独立的 .exe 文件：
+
+```bash
+# 安装 PyInstaller
+pip install pyinstaller
+
+# 使用 spec 文件打包
+pyinstaller file-tools.spec
+
+# 或者直接使用 build 脚本
+./build_exe.bat  # Windows
+```
+
+打包后的可执行文件将在 `dist/` 目录中生成。
 
 ## 许可证
 

@@ -3,9 +3,9 @@ from typing import List, Optional
 import faiss
 import numpy as np
 # from sentence_transformers import SentenceTransformer  # 暂时禁用，解决sqlite3 DLL问题
-from src.utils.logger import setup_logger
-from src.utils.config_loader import ConfigLoader
-from src.core.universal_parser import Document  # 从Part 3导入
+from backend.utils.logger import setup_logger
+from backend.utils.config_loader import ConfigLoader
+from backend.core.universal_parser import Document  # 从Part 3导入
 
 logger = setup_logger()
 

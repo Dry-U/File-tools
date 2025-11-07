@@ -9,7 +9,7 @@ import pandas as pd
 import pytesseract
 from PIL import Image
 # from sentence_transformers import SentenceTransformer, util  # Sentence-BERT (暂时禁用，解决sqlite3 DLL问题)
-from src.utils.logger import setup_logger
+from backend.utils.logger import setup_logger
 
 logger = setup_logger()
 

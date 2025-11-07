@@ -11,8 +11,6 @@ authors = [{name = "Darian", email = "Dar1an@126.com"}]
 license = {text = "MIT"}
 
 dependencies = [
-    "PyQt5>=5.15.0,<5.16.0",
-    "PyQt5-Qt5==5.15.2",
     "watchdog>=3.0.0",
     "Whoosh>=2.7.4",
     "faiss-cpu>=1.9.0",
@@ -32,7 +30,10 @@ dependencies = [
     "pytesseract>=0.3.10",
     "langchain>=0.1.0",
     "langchain-community>=0.0.10",
-    "pywin32>=306; sys_platform == 'win32'"
+    "pywin32>=306; sys_platform == 'win32'",
+    "fastapi>=0.104.0",
+    "uvicorn[standard]>=0.24.0",
+    "python-multipart>=0.0.6"
 ]
 
 [project.optional-dependencies]

@@ -9,9 +9,9 @@ try:
     import win32api  # 用于获取Windows磁盘驱动器
 except ImportError:
     win32api = None
-from src.utils.logger import setup_logger
-from src.utils.config_loader import ConfigLoader
-from src.core.vram_manager import VRAMManager
+from backend.utils.logger import setup_logger
+from backend.utils.config_loader import ConfigLoader
+from backend.core.vram_manager import VRAMManager
 
 # 临时定义缺失的类
 class InferenceOptimizer:

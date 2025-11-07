@@ -41,9 +41,9 @@ try:
     from langchain.schema import Document as LangDocument  # LangChain的Document
 except ImportError:
     from langchain_core.documents import Document as LangDocument
-from src.utils.logger import setup_logger
-from src.utils.config_loader import ConfigLoader
-from src.core.model_manager import ModelManager
+from backend.utils.logger import setup_logger
+from backend.utils.config_loader import ConfigLoader
+from backend.core.model_manager import ModelManager
 
 # 临时定义缺失的类，实际项目中应创建对应的文件
 class HybridRetriever:
@@ -156,7 +156,7 @@ class RAGPipeline:
             if not sources:
                 logger.info("无相关文档，触发主动扫描")
                 # 调用FileScanner（假设注入或全局访问；实际可通过事件）
-                from src.core.file_scanner import FileScanner  # 延迟导入避免循环
+                from backend.core.file_scanner import FileScanner  # 延迟导入避免循环
                 scanner = FileScanner(self.config_loader)
                 scanner.scan_and_index()  # 主动更新索引
                 # 重新查询

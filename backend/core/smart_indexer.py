@@ -2,8 +2,8 @@
 import time
 from collections import deque
 from typing import Dict
-from src.utils.logger import setup_logger
-from src.utils.config_loader import ConfigLoader
+from backend.utils.logger import setup_logger
+from backend.utils.config_loader import ConfigLoader
 
 # 临时定义缺失的类
 class VectorEngine:
