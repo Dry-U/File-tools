@@ -24,14 +24,22 @@ class SearchEngine:
         self.vector_weight = float(search_config.get('vector_weight', 0.5))
         self.max_results = int(search_config.get('max_results', 50))
         
-        # 确保权重之和为1
-        total_weight = self.text_weight + self.vector_weight
-        if total_weight > 0:
-            self.text_weight /= total_weight
-            self.vector_weight /= total_weight
-        else:
+        # 确保权重之和为1，但如果其中一个为0，则另一个为1
+        if self.text_weight == 0 and self.vector_weight == 0:
+            # 默认情况下，两个都为0.5
             self.text_weight = 0.5
             self.vector_weight = 0.5
+        elif self.text_weight == 0:
+            # 只使用向量搜索
+            self.vector_weight = 1.0
+        elif self.vector_weight == 0:
+            # 只使用文本搜索
+            self.text_weight = 1.0
+        else:
+            # 确保权重之和为1
+            total_weight = self.text_weight + self.vector_weight
+            self.text_weight /= total_weight
+            self.vector_weight /= total_weight
         
         self.logger.info(f"搜索引擎初始化完成，文本权重: {self.text_weight}, 向量权重: {self.vector_weight}")
     
@@ -108,6 +116,9 @@ class SearchEngine:
             path = result['path']
             if path not in combined:
                 combined[path] = result.copy()
+                # 确保文本搜索结果有search_type字段
+                if 'search_type' not in combined[path]:
+                    combined[path]['search_type'] = 'text'
             else:
                 # 如果已经存在，取较高的分数
                 if result['score'] > combined[path]['score']:
@@ -126,6 +137,9 @@ class SearchEngine:
             else:
                 # 如果是新文件路径，直接添加
                 combined[path] = result.copy()
+                # 确保向量搜索结果有search_type字段
+                if 'search_type' not in combined[path]:
+                    combined[path]['search_type'] = 'vector'
         
         # 转换为列表并按分数排序
         sorted_results = sorted(combined.values(), key=lambda x: x['score'], reverse=True)

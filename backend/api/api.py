@@ -650,14 +650,33 @@ async def search(request: Request):
         # Perform the search with filters
         results = search_engine.search(query, filters)
 
-        # Format results for web response
+        # Format results for web response - convert numpy types to native Python types
+        def convert_types(obj):
+            """Convert numpy types to native Python types for JSON serialization"""
+            import numpy as np
+            if isinstance(obj, np.floating):
+                return float(obj)
+            elif isinstance(obj, np.integer):
+                return int(obj)
+            elif isinstance(obj, np.ndarray):
+                return [convert_types(item) for item in obj]
+            elif isinstance(obj, (list, tuple)):
+                return [convert_types(item) for item in obj]
+            elif isinstance(obj, dict):
+                return {key: convert_types(value) for key, value in obj.items()}
+            elif hasattr(obj, 'isoformat'):  # datetime对象
+                return obj.isoformat()
+            else:
+                return obj
+
         formatted_results = []
         for result in results:
+            converted_result = convert_types(result)
             formatted_results.append({
-                "file_name": os.path.basename(result["path"]),
-                "path": result["path"],
-                "score": result.get("score", 0.0),
-                "modified_time": result.get("modified_time", None)
+                "file_name": os.path.basename(converted_result["path"]),
+                "path": converted_result["path"],
+                "score": converted_result.get("score", 0.0),
+                "modified_time": converted_result.get("modified_time") or converted_result.get("modified")
             })
 
         return formatted_results
@@ -670,23 +689,43 @@ async def search(request: Request):
 
 
 @app.post("/api/preview")
-async def preview_file(path: str):
+async def preview_file(request: Request):
     """Preview file content"""
     try:
+        # 从请求体获取路径
+        body = await request.json()
+        path = body.get("path", "")
+        
+        if not path:
+            return {"content": "错误：未提供文件路径"}
+        
+        # 验证路径安全性，防止路径遍历攻击
+        import os
+        # 解析并规范路径
+        normalized_path = os.path.normpath(path)
+        
         # Check file size to prevent loading huge files
-        if os.path.getsize(path) > 5 * 1024 * 1024:  # 5MB limit
+        if not os.path.exists(normalized_path):
+            return {"content": "错误：文件不存在"}
+        if os.path.getsize(normalized_path) > 5 * 1024 * 1024:  # 5MB limit
             return {"content": "文件过大（超过5MB），无法预览"}
-        
+
         # Get file extension
-        ext = os.path.splitext(path)[1].lower()
-        
+        ext = os.path.splitext(normalized_path)[1].lower()
+
         # Preview text-based files
         if ext in ['.txt', '.md', '.csv', '.json', '.xml', '.py', '.js', '.html', '.css', '.sql', '.log']:
-            with open(path, 'r', encoding='utf-8', errors='replace') as f:
+            with open(normalized_path, 'r', encoding='utf-8', errors='replace') as f:
                 content = f.read(2000)  # Limit content to 2000 chars
             return {"content": content}
         else:
             return {"content": f"不支持预览 {ext} 格式的文件"}
+    except FileNotFoundError:
+        logger.error(f"Preview error: File not found")
+        return {"content": "预览失败: 文件不存在"}
+    except PermissionError:
+        logger.error(f"Preview error: Permission denied")
+        return {"content": "预览失败: 没有权限访问文件"}
     except Exception as e:
         logger.error(f"Preview error: {str(e)}")
         return {"content": f"预览失败: {str(e)}"}

@@ -2,7 +2,7 @@
 import os
 import time
 from typing import Optional, Generator
-# from llama_cpp import Llama  # llama-cpp-python (临时注释掉以避免DLL加载问题)
+from llama_cpp import Llama  # llama-cpp-python
 import requests  # 用于WSL API fallback
 # 尝试导入win32api，如失败则设置为None
 try:
@@ -20,17 +20,6 @@ class InferenceOptimizer:
     def generate(self, prompt, session_id=None, max_tokens=512, temperature=0.7):
         # 模拟生成
         yield "模拟响应: " + prompt
-
-# 临时模拟Llama类以避免DLL加载问题
-class Llama:
-    def __init__(self, model_path, n_ctx=4096, n_gpu_layers=0):
-        pass
-    def __call__(self, prompt, max_tokens=512, temperature=0.7, stream=True):
-        # 模拟生成结果
-        class MockResponse:
-            def __init__(self, text):
-                self.text = text
-        return [{"choices": [{"text": "模拟响应: " + prompt}]}]
 
 logger = setup_logger()
 

@@ -2,14 +2,20 @@
 import pytest
 import tempfile
 import os
+import sys
 from pathlib import Path
-from src.utils.config_loader import ConfigLoader
-from src.core.file_scanner import FileScanner
-from src.core.smart_indexer import SmartIndexer
-from src.core.rag_pipeline import RAGPipeline
-from src.core.model_manager import ModelManager
-from src.core.hybrid_retriever import HybridRetriever
-from src.core.vector_engine import VectorEngine
+
+# Add the project root to sys.path to allow imports from backend
+project_root = Path(__file__).parent.parent
+sys.path.insert(0, str(project_root))
+
+from backend.utils.config_loader import ConfigLoader
+from backend.core.file_scanner import FileScanner
+from backend.core.index_manager import IndexManager
+from backend.core.search_engine import SearchEngine
+from backend.core.model_manager import ModelManager
+from backend.core.rag_pipeline import HybridRetriever
+from backend.core.vector_engine import VectorEngine
 
 @pytest.fixture(scope="session")
 def temp_config():
@@ -43,6 +49,7 @@ def mock_rag(temp_config):
     model_manager = ModelManager(temp_config)
     vector_engine = VectorEngine(temp_config)
     retriever = HybridRetriever(temp_config, vector_engine)
+    from backend.core.rag_pipeline import RAGPipeline
     return RAGPipeline(model_manager, temp_config, retriever)
 
 @pytest.fixture

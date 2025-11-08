@@ -49,9 +49,24 @@ class IndexManager:
                 from sentence_transformers import SentenceTransformer
                 # 从配置获取嵌入模型名称
                 embedding_model_name = config_loader.get('model', 'embedding_model', 'all-MiniLM-L6-v2')
-                self.embedding_model = SentenceTransformer(embedding_model_name)
-                self.vector_dim = self.embedding_model.get_sentence_embedding_dimension()
-                self.logger.info(f"成功加载嵌入模型: {embedding_model_name}, 向量维度: {self.vector_dim}")
+                
+                # 尝试加载嵌入模型 with local files only to avoid download
+                try:
+                    self.embedding_model = SentenceTransformer(embedding_model_name, local_files_only=True)
+                    self.vector_dim = self.embedding_model.get_sentence_embedding_dimension()
+                    self.logger.info(f"成功加载本地嵌入模型: {embedding_model_name}, 向量维度: {self.vector_dim}")
+                except Exception as local_error:
+                    # 如果本地加载失败，尝试在线下载
+                    self.logger.warning(f"本地加载嵌入模型失败: {str(local_error)}, 尝试在线加载...")
+                    try:
+                        self.embedding_model = SentenceTransformer(embedding_model_name)
+                        self.vector_dim = self.embedding_model.get_sentence_embedding_dimension()
+                        self.logger.info(f"成功加载嵌入模型: {embedding_model_name}, 向量维度: {self.vector_dim}")
+                    except Exception as online_error:
+                        self.logger.warning(f"在线加载嵌入模型也失败: {str(online_error)}")
+                        self.embedding_model = None
+                        self.vector_dim = 384  # MiniLM-L6-v2的默认维度
+                        self.logger.info("嵌入模型已禁用，仅支持文本索引和搜索")
             except Exception as e:
                 self.logger.warning(f"加载嵌入模型失败: {str(e)}")
                 self.embedding_model = None
@@ -289,22 +304,9 @@ class IndexManager:
             return []
         
         if not self.embedding_model:
-            # 嵌入模型被禁用，提供回退模式
-            # 在回退模式下，我们可以返回空结果或记录警告
-            self.logger.warning("嵌入模型已禁用，使用回退模式，无法进行向量搜索")
-            # 如果有已索引的文档，可以返回一些示例结果
-            if self.vector_metadata:
-                # 返回一些随机的文档作为回退结果
-                limited_metadata = list(self.vector_metadata.items())[:limit]
-                results = []
-                for doc_id, metadata in limited_metadata:
-                    results.append({
-                        'path': metadata['path'],
-                        'filename': metadata['filename'],
-                        'file_type': metadata['file_type'],
-                        'score': 0.5  # 默认分数
-                    })
-                return results
+            # 嵌入模型被禁用，返回空结果而不是示例结果
+            # 这样可以避免混淆用户
+            self.logger.warning("嵌入模型已禁用，跳过向量搜索")
             return []
         
         try:

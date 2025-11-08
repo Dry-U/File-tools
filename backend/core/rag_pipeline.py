@@ -50,7 +50,7 @@ class HybridRetriever:
     def __init__(self, config_loader, vector_engine):
         self.config_loader = config_loader
         self.vector_engine = vector_engine
-    def search(self, query):
+    def search(self, query, top_k=5):
         return []
 
 class Document:
@@ -75,16 +75,68 @@ class SecurityManager:
 
 logger = setup_logger()
 
-class CustomLLM(BaseLLM):  # type: ignore[misc]
+from langchain_core.language_models.llms import BaseLLM
+from langchain_core.callbacks import CallbackManagerForLLMRun
+from typing import Any, Optional, List
+from langchain_core.outputs import GenerationChunk
+
+class CustomLLM(BaseLLM):
     """自定义LangChain LLM：包装ModelManager的generate"""
     model_manager: ModelManager
 
     def __init__(self, model_manager: ModelManager):
-        super().__init__()
+        # Initialize with pydantic
+        super().__init__()  # Initialize the pydantic model
         self.model_manager = model_manager
         # 使用model_manager的config_loader
         self.privacy_filter = PrivacyFilter(model_manager.config_loader)
         self.security = SecurityManager(model_manager.config_loader)
+
+    @property
+    def _llm_type(self) -> str:
+        return "custom_llm"
+
+    def _generate(
+        self,
+        prompts: List[str],
+        stop: Optional[List[str]] = None,
+        run_manager: Optional[CallbackManagerForLLMRun] = None,
+        **kwargs: Any,
+    ):
+        """LangChain LLM required method"""
+        # For now, process the first prompt
+        if prompts:
+            response = ''.join(self.model_manager.generate(prompts[0]))
+            return {
+                "generations": [[{
+                    "text": response,
+                    "generation_info": {}
+                }]],
+                "llm_output": None
+            }
+        return {"generations": [], "llm_output": None}
+
+    def _stream(
+        self,
+        prompt: str,
+        stop: Optional[List[str]] = None,
+        run_manager: Optional[CallbackManagerForLLMRun] = None,
+        **kwargs: Any,
+    ):
+        """Stream implementation for newer LangChain versions"""
+        # Not implemented, but required
+        raise NotImplementedError("Streaming not implemented")
+
+    def _call(
+        self,
+        prompt: str,
+        stop: Optional[List[str]] = None,
+        run_manager: Optional[CallbackManagerForLLMRun] = None,
+        **kwargs: Any,
+    ) -> str:
+        """同步调用（LangChain默认）"""
+        response = ''.join(self.model_manager.generate(prompt))
+        return response
 
     def _call(self, prompt: str, stop: Optional[List[str]] = None) -> str:
         """同步调用（LangChain默认）"""
