@@ -19,7 +19,7 @@ except Exception as e:
 
 def run_web_ui():
     """Run the web UI version of the application"""
-    from run_web import run_web_interface
+    from backend.run_web import run_web_interface
     import uvicorn
     from backend.api.api import app
 

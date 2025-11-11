@@ -1,0 +1,109 @@
+body {
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+    min-height: 100vh;
+    padding-bottom: 30px;
+}
+.app-header {
+    background: linear-gradient(90deg, #3498db, #2c3e50);
+    color: white;
+    padding: 1.5rem 0;
+    margin-bottom: 2rem;
+    border-radius: 0 0 10px 10px;
+    box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+}
+.card {
+    border-radius: 10px;
+    box-shadow: 0 4px 15px rgba(0,0,0,0.08);
+    transition: transform 0.2s;
+}
+.card:hover {
+    transform: translateY(-5px);
+}
+.search-container {
+    background: white;
+    padding: 2rem;
+    border-radius: 10px;
+    box-shadow: 0 4px 15px rgba(0,0,0,0.08);
+}
+.search-input {
+    border-radius: 25px;
+    padding: 15px 20px;
+    border: 2px solid #e9ecef;
+    font-size: 1.1rem;
+}
+.search-input:focus {
+    border-color: #3498db;
+    box-shadow: 0 0 0 0.2rem rgba(52, 152, 219, 0.25);
+}
+.search-btn {
+    border-radius: 25px;
+    padding: 10px 25px;
+    font-size: 1.1rem;
+    background: linear-gradient(90deg, #3498db, #2980b9);
+    border: none;
+}
+.search-btn:hover {
+    background: linear-gradient(90deg, #2980b9, #3498db);
+}
+.result-card {
+    margin-bottom: 15px;
+    border-left: 4px solid #3498db;
+}
+.file-icon {
+    font-size: 1.5rem;
+    margin-right: 10px;
+    color: #3498db;
+}
+.file-name {
+    font-weight: bold;
+    color: #2c3e50;
+}
+.file-path {
+    color: #7f8c8d;
+    font-size: 0.9rem;
+}
+.score-badge {
+    background: linear-gradient(90deg, #2ecc71, #27ae60);
+}
+.preview-content {
+    background-color: #f8f9fa;
+    border-radius: 8px;
+    padding: 15px;
+    margin-top: 15px;
+    max-height: 200px;
+    overflow-y: auto;
+}
+.controls {
+    display: flex;
+    gap: 10px;
+    margin-bottom: 20px;
+    flex-wrap: wrap;
+}
+.control-btn {
+    border-radius: 20px;
+    padding: 8px 15px;
+    font-size: 0.9rem;
+}
+.status-bar {
+    background: white;
+    padding: 10px 15px;
+    border-radius: 5px;
+    margin-top: 15px;
+    border-left: 4px solid #3498db;
+}
+.file-types {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+    margin: 10px 0;
+}
+.file-type-btn {
+    border-radius: 20px;
+    padding: 5px 12px;
+    font-size: 0.8rem;
+}
+.file-type-btn.active {
+    background-color: #3498db;
+    color: white;
+}

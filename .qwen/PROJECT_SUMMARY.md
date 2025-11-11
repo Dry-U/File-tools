@@ -1,43 +1,35 @@
 # Project Summary
 
 ## Overall Goal
-Transform an existing PyQt5-based file search application into a web-based system with enterprise-grade logging, modern UI, and vector search capabilities that can be packaged as an executable, while reorganizing the codebase according to standard enterprise practices.
+Transform an existing file search application into a properly structured web-based system with enterprise-grade architecture, implementing true frontend-backend separation using FastAPI and static file serving, while cleaning up and organizing the project structure according to standard practices.
 
 ## Key Knowledge
-- **Technology Stack**: FastAPI (Web API), Bootstrap (Frontend styling), Font Awesome (Icons), sentence-transformers for embedding, FAISS for vector search
-- **Architecture**: Backend structure with `/backend/api`, `/backend/core`, `/backend/utils` and frontend with `/frontend/static`, `/frontend/templates`
-- **Logging**: Enterprise-grade logging with structured logging, JSON output, context management, and performance monitoring
-- **UI Framework**: Web-based interface using FastAPI HTMLResponse with Bootstrap design, replacing PyQt5 interface
-- **Packaging**: Can be packaged as executable using PyInstaller with `build_exe.bat` script
-- **Configuration**: Uses `config.yaml` for application settings, including scan paths, logging, and model settings
-- **Search Functionality**: Hybrid text/vector search with Whoosh for text and FAISS for vector search
+- **Technology Stack**: FastAPI (Backend API), static HTML/CSS/JS (Frontend), Bootstrap (UI styling), Jinja2 templates (removed in favor of static file serving)
+- **Architecture**: Backend in `/backend` with API endpoints under `/api/*`, static frontend files served from `/frontend` directory
+- **File Structure**: Backend code in `/backend`, frontend files in `/frontend`, tests in `/tests`, configuration in root directory
+- **API Endpoints**: `/api/search`, `/api/preview`, `/api/rebuild-index`, `/api/health` under `/api` prefix
+- **Frontend**: `frontend/index.html` with CSS in `frontend/static/css/` and JS in `frontend/static/js/`
+- **Build Script**: `build_exe.bat` in root directory for building executable
+- **Entry Points**: `main.py` as main entry point, `backend/run_web.py` moved from root directory
 
 ## Recent Actions
-- [DONE] Reorganized project structure from flat src/web to enterprise-level directories (backend/frontend structure)
-- [DONE] Implemented enterprise-grade logging system with structured logging, context support, and performance monitoring
-- [DONE] Replaced PyQt5 UI with FastAPI-based web interface featuring modern Bootstrap UI
-- [DONE] Updated all import paths to reflect new directory structure
-- [DONE] Removed PyQt5 dependencies from pyproject.toml and added web dependencies
-- [DONE] Fixed JavaScript issues to use Bootstrap notifications instead of browser alerts
-- [DONE] Created proper API endpoints with JSON request handling
-- [DONE] Implemented advanced search functionality with filtering and result preview
-- [DONE] Fixed duplicate endpoint issues that were causing 422 errors
-- [DONE] Updated README documentation to reflect new structure and functionality
-- [DONE] Fixed numpy type serialization issues for JSON responses
-- [DONE] Modified preview API to properly handle JSON request bodies
-- [DONE] Implemented model fallback to ensure text search works even when vector model fails to load
-- [DONE] Fixed scan paths in configuration and improved file indexing process
+- [DONE] Moved `run_web.py` from root to `backend/` directory and updated imports in `main.py`
+- [DONE] Moved `test_web_api.py` from root to `tests/` directory 
+- [DONE] Completely removed Jinja2 templates system, now serving static HTML files directly
+- [DONE] Implemented proper frontend-backend separation with API routes under `/api` prefix
+- [DONE] Organized frontend files: `index.html` in frontend root, CSS in `frontend/static/css/`, JS in `frontend/static/js/`
+- [DONE] Updated FastAPI to use `StaticFiles` for serving frontend and API routers for backend endpoints
+- [DONE] Cleaned up project root directory, removing unnecessary files and organizing remaining files appropriately
+- [DONE] Verified application imports and functionality work correctly
 
 ## Current Plan
-- [TODO] Enable vector search by downloading embedding model when network is available
-- [TODO] Test full functionality including search, indexing, and file preview
-- [TODO] Ensure all UI interactions work properly after JavaScript fixes
-- [DONE] The application can now be run with `python main.py` and will start a web server on http://127.0.0.1:8000
-- [DONE] Can be packaged as executable using PyInstaller with the spec file
-- [IN PROGRESS] Fine-tune search weights and parameters for optimal performance
-- [IN PROGRESS] Address scan and indexing issues to ensure proper file discovery
+- [DONE] Organize project with proper frontend-backend separation
+- [DONE] Clean up main directory files and move to appropriate locations
+- [DONE] Ensure API endpoints are properly isolated under `/api` prefix
+- [DONE] Verify static file serving works for frontend resources
+- [DONE] Test application functionality after restructuring
 
 ---
 
 ## Summary Metadata
-**Update time**: 2025-11-08T10:13:32.734Z 
+**Update time**: 2025-11-11T05:57:13.627Z 

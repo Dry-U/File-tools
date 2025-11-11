@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <title>智能文件检索与问答系统</title>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <link rel="stylesheet" href="static/css/style.css">
+    <style>
+    </style>
+</head>
+<body>
+    <div class="app-header text-center">
+        <div class="container">
+            <h1><i class="fas fa-search me-2"></i>智能文件检索与问答系统</h1>
+            <p class="mb-0">基于Python的本地文件智能管理工具</p>
+        </div>
+    </div>
+
+    <div class="container">
+        <!-- Controls -->
+        <div class="controls d-flex justify-content-center mb-4">
+            <button class="btn btn-outline-primary control-btn" onclick="toggleAdvancedFilter()">
+                <i class="fas fa-filter me-1"></i>高级筛选
+            </button>
+            <button class="btn btn-outline-success control-btn" onclick="rebuildIndex()">
+                <i class="fas fa-sync me-1"></i>重建索引
+            </button>
+            <button class="btn btn-outline-info control-btn" onclick="exportResults()">
+                <i class="fas fa-download me-1"></i>导出结果
+            </button>
+        </div>
+
+        <!-- Advanced Filter Panel -->
+        <div class="card mb-4" id="advancedFilterPanel" style="display: none;">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0"><i class="fas fa-sliders-h me-2"></i>高级筛选</h5>
+                <button class="btn btn-sm btn-outline-secondary" onclick="toggleAdvancedFilter()">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-md-6">
+                        <label class="form-label">文件类型</label>
+                        <div class="file-types">
+                            <button class="btn btn-outline-primary btn-sm file-type-btn" data-type=".txt">文本</button>
+                            <button class="btn btn-outline-primary btn-sm file-type-btn" data-type=".doc">文档</button>
+                            <button class="btn btn-outline-primary btn-sm file-type-btn" data-type=".xls">表格</button>
+                            <button class="btn btn-outline-primary btn-sm file-type-btn" data-type=".pdf">PDF</button>
+                            <button class="btn btn-outline-primary btn-sm file-type-btn" data-type=".jpg">图片</button>
+                            <button class="btn btn-outline-primary btn-sm file-type-btn" data-type=".py">代码</button>
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label">文件大小范围</label>
+                        <div class="d-flex">
+                            <input type="number" id="minSize" class="form-control me-2" placeholder="最小(MB)">
+                            <input type="number" id="maxSize" class="form-control" placeholder="最大(MB)">
+                        </div>
+                    </div>
+                </div>
+                <div class="mt-3">
+                    <div class="form-check form-check-inline">
+                        <input class="form-check-input" type="checkbox" id="caseSensitive">
+                        <label class="form-check-label" for="caseSensitive">区分大小写</label>
+                    </div>
+                    <div class="form-check form-check-inline">
+                        <input class="form-check-input" type="checkbox" id="matchWholeWord">
+                        <label class="form-check-label" for="matchWholeWord">全词匹配</label>
+                    </div>
+                    <div class="form-check form-check-inline">
+                        <input class="form-check-input" type="checkbox" id="searchContent">
+                        <label class="form-check-label" for="searchContent">搜索内容</label>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Search Area -->
+        <div class="search-container">
+            <div class="input-group mb-3">
+                <input type="text" id="searchInput" class="form-control search-input" placeholder="输入搜索关键词..." onkeypress="handleKeyPress(event)">
+                <button class="btn btn-primary search-btn" type="button" onclick="performSearch()">
+                    <i class="fas fa-search me-2"></i>搜索
+                </button>
+            </div>
+        </div>
+
+        <!-- Status Bar -->
+        <div class="status-bar" id="statusBar">
+            <span id="statusText">就绪</span>
+        </div>
+
+        <!-- Results -->
+        <div class="card mt-4" id="resultsCard" style="display: none;">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0"><i class="fas fa-list me-2"></i>搜索结果</h5>
+                <span id="resultCount">0 条结果</span>
+            </div>
+            <div class="card-body p-0" id="resultsContainer">
+                <!-- Results will be displayed here -->
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="static/js/main.js"></script>
+</body>
+</html>
