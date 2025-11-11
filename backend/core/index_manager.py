@@ -42,13 +42,13 @@ class IndexManager:
         os.makedirs(self.metadata_path, exist_ok=True)
         
         # 初始化嵌入模型
-        model_enabled = config_loader.get('model', 'enabled', False)
+        model_enabled = config_loader.get('embedding', 'enabled', False)
         if model_enabled:
             try:
                 # 延迟导入SentenceTransformer
                 from sentence_transformers import SentenceTransformer
                 # 从配置获取嵌入模型名称
-                embedding_model_name = config_loader.get('model', 'embedding_model', 'all-MiniLM-L6-v2')
+                embedding_model_name = config_loader.get('embedding', 'model_name', 'all-MiniLM-L6-v2')
                 
                 # 尝试加载嵌入模型 with local files only to avoid download
                 try:

@@ -8,7 +8,7 @@ import os
 from pathlib import Path
 
 # Add the project root to the Python path
-project_root = Path(__file__).parent
+project_root = Path(__file__).parent.parent  # Go up one more level to project root
 sys.path.insert(0, str(project_root))
 
 print("Testing web API initialization...")

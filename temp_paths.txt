@@ -1,0 +1,16 @@
+D:\Garbage\Career\Senior\Thesis\2.计科22101-代拴拴-2204001188-毕业论文(设计)-开题报告.docx 
+D:\Garbage\Career\Senior\Thesis\个性化新闻推荐技术研究综述_王绍卿.pdf 
+D:\Garbage\Career\Senior\Thesis\基于RAG的Java程序设计课程助手设计_胡继礼.pdf 
+D:\Garbage\Career\Senior\Thesis\基于堆叠LSTM和知识图卷积网络MOOC课程推荐算法_马荣康.pdf 
+D:\Garbage\Career\Senior\Thesis\基于大模型增强优化与重排序的零样本代码搜索方法_蔡天昱.pdf 
+D:\Garbage\Career\Senior\Thesis\基于文档编写与检查的智能问答系统设计与实现_王洪帅.pdf 
+D:\Garbage\Career\Senior\Thesis\基于检索增强的多智能体协作框架_李强.pdf 
+D:\Garbage\Career\Senior\Thesis\大语言模型赋能的地质找矿知识图谱与问答模型构建_张宝一.pdf 
+D:\Garbage\Career\Senior\Thesis\大语言模型驱动的地理信息智能交互系统_庄晓东.pdf 
+D:\Garbage\Career\Senior\Thesis\宁夏理工学院本科毕业论文（设计）开题报告.doc 
+D:\Garbage\Career\Senior\Thesis\引言.docx 
+D:\Garbage\Career\Senior\Thesis\提纲.docx 
+D:\Garbage\Career\Senior\Thesis\支持高维数据高效查询及动态更新的学习索引_吴婉月.pdf 
+D:\Garbage\Career\Senior\Thesis\文献综述.docx 
+D:\Garbage\Career\Senior\Thesis\汉-维跨语种农业知识库检索系统研究_陈燕红.pdf 
+D:\Garbage\Career\Senior\Thesis\海量文档桌面全文检索终端设计与实现_张俊飞.pdf 

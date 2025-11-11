@@ -164,6 +164,7 @@ class FileScanner:
         """扫描所有配置的路径并索引文件"""
         start_time = time.time()
         self.logger.info("开始扫描并索引文件")
+        self.logger.info(f"扫描路径列表: {self.scan_paths}")
         
         # 重置停止标志
         self._stop_flag = False
@@ -186,7 +187,9 @@ class FileScanner:
                 self.logger.warning(f"初始化进度回调失败: {str(e)}")
         
         # 扫描每个配置的路径
-        for path in self.scan_paths:
+        self.logger.info(f"开始扫描 {len(self.scan_paths)} 个路径")
+        for i, path in enumerate(self.scan_paths):
+            self.logger.info(f"扫描路径[{i}]: {path}")
             if self._stop_flag:
                 self.logger.info("扫描已被停止")
                 break
@@ -206,22 +209,68 @@ class FileScanner:
         self.logger.info(f"扫描完成，统计: 扫描文件 {self.scan_stats['total_files_scanned']} 个, 索引文件 {self.scan_stats['total_files_indexed']} 个, 跳过文件 {self.scan_stats['total_files_skipped']} 个, 耗时 {self.scan_stats['scan_time']:.2f} 秒")
         
         return self.scan_stats
-    
+
     def _scan_directory(self, dir_path: Path) -> None:
         """递归扫描目录并索引符合条件的文件"""
-        self.logger.debug(f"扫描目录: {dir_path}")
-        
+        self.logger.info(f"扫描目录: {dir_path}")
+
+        # Log if directory exists and is accessible
+        if not dir_path.exists():
+            self.logger.warning(f"扫描目录不存在: {dir_path}")
+            return
+        if not dir_path.is_dir():
+            self.logger.warning(f"扫描路径不是目录: {dir_path}")
+            return
+
         try:
-            # 使用生成器模式，避免一次性加载所有文件路径到内存
-            for file_path in dir_path.rglob('*'):
-                if self._stop_flag:
-                    break
-                if file_path.is_file():
-                    self._process_file(file_path)
+            self.logger.info(f"开始遍历目录: {dir_path}")
+            # Use generator pattern, but handle rglob call separately
+            try:
+                file_paths = list(dir_path.rglob('*'))  # Convert to list to catch any exception during generation
+                self.logger.info(f"rglob found {len(file_paths)} items to process")
+                # Log first few items for debugging
+                for i, file_path in enumerate(file_paths[:5]):
+                    self.logger.info(f"  文件[{i}]: {file_path}")
+                if len(file_paths) > 5:
+                    self.logger.info(f"  ... 还有 {len(file_paths) - 5} 个文件")
+            except Exception as rglob_error:
+                self.logger.error(f"rglob failed on directory {dir_path}: {str(rglob_error)}")
+                import traceback
+                self.logger.error(f"rglob详细错误信息: {traceback.format_exc()}")
+                return
+
+            # Process each file, handling exceptions individually
+            file_count = 0
+            self.logger.info(f"开始处理 {len(file_paths)} 个文件")
+            for file_path in file_paths:
+                try:
+                    self.logger.info(f"检查路径: {file_path}, 是否为文件: {file_path.is_file()}")
+                    if self._stop_flag:
+                        self.logger.info(f"扫描被停止，已处理 {file_count} 个项目")
+                        break
+                    if file_path.is_file():
+                        self.logger.info(f"处理文件: {file_path}")
+                        self._process_file(file_path)
+                        file_count += 1
+                        if file_count % 10 == 0:  # Log every 10 files
+                            self.logger.info(f"已处理 {file_count} 个文件...")
+                    else:
+                        self.logger.info(f"跳过目录: {file_path}")
+                except Exception as e:
+                    # Individual file processing failure shouldn't stop entire scan
+                    self.logger.error(f"处理文件失败 {file_path}: {str(e)}")
+                    import traceback
+                    self.logger.error(f"详细错误信息: {traceback.format_exc()}")
+                    continue
+            self.logger.info(f"目录扫描完成，共处理 {file_count} 个文件")
         except PermissionError:
-            self.logger.warning(f"无权限访问目录: {dir_path}")
+            self.logger.error(f"无权限访问目录: {dir_path}")
+            import traceback
+            self.logger.error(f"详细错误信息: {traceback.format_exc()}")
         except Exception as e:
             self.logger.error(f"扫描目录失败 {dir_path}: {str(e)}")
+            import traceback
+            self.logger.error(f"详细错误信息: {traceback.format_exc()}")
     
     def _process_file(self, file_path: Path) -> bool:
         """处理单个文件，检查是否应索引并执行索引操作"""
@@ -266,44 +315,71 @@ class FileScanner:
         
         # 检查文件大小
         try:
-            if file_path.stat().st_size > self.max_file_size:
-                self.logger.debug(f"跳过过大文件: {path}")
+            file_size = file_path.stat().st_size
+            if file_size > self.max_file_size:
+                self.logger.info(f"跳过过大文件: {path}, 大小: {file_size}, 限制: {self.max_file_size}")
                 return False
+            self.logger.info(f"文件大小检查通过: {path}, 大小: {file_size}")
         except Exception as e:
             self.logger.warning(f"获取文件大小失败 {path}: {str(e)}")
             return False
         
         # 检查文件扩展名
         file_ext = file_path.suffix.lower()
+        self.logger.info(f"检查文件扩展名: {path}, 扩展名: {file_ext}, 支持的扩展名: {self.all_extensions}")
         if not any(file_ext == ext for ext in self.all_extensions):
-            self.logger.debug(f"跳过不支持的文件类型: {path}")
+            self.logger.info(f"跳过不支持的文件类型: {path}")
             return False
+        self.logger.info(f"文件扩展名检查通过: {path}")
         
         # 检查排除模式
+        self.logger.info(f"检查排除模式: {path}, 排除模式: {self.exclude_patterns}")
         if any(re.search(pattern, path) for pattern in self.exclude_patterns):
-            self.logger.debug(f"跳过匹配排除模式的文件: {path}")
+            self.logger.info(f"跳过匹配排除模式的文件: {path}")
             return False
+        self.logger.info(f"排除模式检查通过: {path}")
         
         # 检查是否为系统文件
         if self._is_system_file(path):
-            self.logger.debug(f"跳过系统文件: {path}")
+            self.logger.info(f"跳过系统文件: {path}")
             return False
+        self.logger.info(f"系统文件检查通过: {path}")
         
+        self.logger.info(f"文件应被索引: {path}")
         return True
     
     def _is_system_file(self, path: str) -> bool:
         """检测是否为系统文件"""
-        # Windows系统文件检测
+        # 首先检查扩展名，对已知的文档文件直接跳过可执行文件检查
+        file_ext = Path(path).suffix.lower()
+        document_extensions = {'.pdf', '.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx', 
+                              '.txt', '.md', '.csv', '.json', '.xml', '.rtf', '.html', '.htm', '.py',
+                              '.js', '.java', '.cpp', '.c', '.h', '.cs', '.go', '.rs', '.php', '.rb', 
+                              '.swift', '.zip', '.rar', '.7z', '.tar', '.gz', '.mp3', '.wav', '.flac', 
+                              '.ogg', '.m4a', '.jpg', '.jpeg', '.png', '.gif', '.bmp', '.tiff', '.svg', 
+                              '.mp4', '.avi', '.mov', '.mkv', '.wmv'}
+        
+        if file_ext in document_extensions:
+            # 对于已知文档类型，只检查路径模式，不检查可执行头
+            if platform.system() == 'Windows':
+                if re.search(r'\$[A-Za-z]', path):
+                    return True
+            # 检查隐藏文件
+            if any(part.startswith('.') and part != '.' for part in Path(path).parts):
+                return True
+            return False
+        
+        # 对于其他文件类型，执行完整的检查
         if platform.system() == 'Windows':
             # 检查是否为临时文件或系统文件
             if re.search(r'\$[A-Za-z]', path):
                 return True
-        
+
         # 检查隐藏文件
         if any(part.startswith('.') and part != '.' for part in Path(path).parts):
             return True
-        
-        # 检查可执行文件头
+
+        # 对非文档文件执行可执行文件头检查
         try:
             with open(path, 'rb') as f:
                 header = f.read(4)
@@ -311,9 +387,9 @@ class FileScanner:
                     return True
         except Exception:
             pass  # 无法读取，假设非系统文件
-        
+
         return False
-    
+
     def _index_file(self, file_path: str) -> bool:
         """索引单个文件"""
         if not self.index_manager:
@@ -359,6 +435,8 @@ class FileScanner:
             return True
         except Exception as e:
             self.logger.error(f"索引文件失败 {file_path}: {str(e)}")
+            import traceback
+            self.logger.error(f"详细错误信息: {traceback.format_exc()}")
             return False
     
     def _read_file_content(self, file_path: str, file_ext: str) -> str:

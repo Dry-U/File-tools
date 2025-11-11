@@ -12,6 +12,109 @@ try:
 except Exception:
     pass
 
+# 统一导入 BaseLLM，优先使用 langchain_core 版本
+def create_custom_llm_class():
+    # 延迟导入以避免类型检查冲突
+    try:
+        base_llm_class = __import__('langchain_core.language_models.llms', fromlist=['LLM']).LLM
+    except ImportError:
+        try:
+            base_llm_class = __import__('langchain.llms.base', fromlist=['LLM']).LLM
+        except ImportError:
+            # 如果都导入失败，创建一个占位基类
+            from abc import ABC, abstractmethod
+            class BaseLLMClass(ABC):
+                @abstractmethod
+                def _call(self, prompt: str, stop: Optional[List[str]] = None) -> str:
+                    pass
+                @property
+                @abstractmethod
+                def _llm_type(self) -> str:
+                    pass
+            base_llm_class = BaseLLMClass
+    
+    from langchain_core.callbacks import CallbackManagerForLLMRun
+    from typing import Any, Optional, List
+    from langchain_core.outputs import GenerationChunk
+    from backend.utils.config_loader import ConfigLoader
+    from backend.core.model_manager import ModelManager
+    
+    # 临时定义缺失的类，实际项目中应创建对应的文件
+    class PrivacyFilter:
+        def __init__(self, config):
+            self.config = config
+        def sanitize(self, text):
+            return text
+
+    class SecurityManager:
+        def __init__(self, config):
+            self.config = config
+            self.current_user_role = "user"
+        def check_permission(self, permission):
+            return True
+        def log_audit(self, action, details):
+            pass
+
+    class CustomLLM(base_llm_class):  # type: ignore
+        """自定义LangChain LLM：包装ModelManager的generate"""
+        model_manager: ModelManager
+
+        def __init__(self, model_manager: ModelManager):
+            # Initialize with pydantic
+            super().__init__()  # Initialize the pydantic model
+            self.model_manager = model_manager
+            # 使用model_manager的config_loader
+            self.privacy_filter = PrivacyFilter(model_manager.config_loader)
+            self.security = SecurityManager(model_manager.config_loader)
+
+        @property
+        def _llm_type(self) -> str:
+            return "custom_llm"
+
+        def _generate(
+            self,
+            prompts: List[str],
+            stop: Optional[List[str]] = None,
+            run_manager: Optional[CallbackManagerForLLMRun] = None,
+            **kwargs: Any,
+        ):
+            """LangChain LLM required method"""
+            # For now, process the first prompt
+            if prompts:
+                response = ''.join(self.model_manager.generate(prompts[0]))
+                return {
+                    "generations": [[{
+                        "text": response,
+                        "generation_info": {}
+                    }]],
+                    "llm_output": None
+                }
+            return {"generations": [], "llm_output": None}
+
+        def _stream(
+            self,
+            prompt: str,
+            stop: Optional[List[str]] = None,
+            run_manager: Optional[CallbackManagerForLLMRun] = None,
+            **kwargs: Any,
+        ):
+            """Stream implementation for newer LangChain versions"""
+            # Not implemented, but required
+            raise NotImplementedError("Streaming not implemented")
+
+        def _call(
+            self,
+            prompt: str,
+            stop: Optional[List[str]] = None,
+            run_manager: Optional[CallbackManagerForLLMRun] = None,
+            **kwargs: Any,
+        ) -> str:
+            """同步调用（LangChain默认）"""
+            response = ''.join(self.model_manager.generate(prompt))
+            return response
+            
+    return CustomLLM
+
 try:
     from langchain.chains import RetrievalQA
 except ImportError:
@@ -21,22 +124,6 @@ try:
     from langchain.prompts import PromptTemplate
 except ImportError:
     from langchain_core.prompts import PromptTemplate
-try:
-    from langchain.llms.base import LLM as BaseLLM  # type: ignore[import]
-except ImportError:
-    try:
-        from langchain_core.language_models.llms import LLM as BaseLLM  # type: ignore[assignment]
-    except ImportError:
-        # 如果都导入失败，创建一个占位基类
-        from abc import ABC, abstractmethod
-        class BaseLLM(ABC):  # type: ignore
-            @abstractmethod
-            def _call(self, prompt: str, stop: Optional[List[str]] = None) -> str:
-                pass
-            @property
-            @abstractmethod
-            def _llm_type(self) -> str:
-                pass
 try:
     from langchain.schema import Document as LangDocument  # LangChain的Document
 except ImportError:
@@ -75,78 +162,6 @@ class SecurityManager:
 
 logger = setup_logger()
 
-from langchain_core.language_models.llms import BaseLLM
-from langchain_core.callbacks import CallbackManagerForLLMRun
-from typing import Any, Optional, List
-from langchain_core.outputs import GenerationChunk
-
-class CustomLLM(BaseLLM):
-    """自定义LangChain LLM：包装ModelManager的generate"""
-    model_manager: ModelManager
-
-    def __init__(self, model_manager: ModelManager):
-        # Initialize with pydantic
-        super().__init__()  # Initialize the pydantic model
-        self.model_manager = model_manager
-        # 使用model_manager的config_loader
-        self.privacy_filter = PrivacyFilter(model_manager.config_loader)
-        self.security = SecurityManager(model_manager.config_loader)
-
-    @property
-    def _llm_type(self) -> str:
-        return "custom_llm"
-
-    def _generate(
-        self,
-        prompts: List[str],
-        stop: Optional[List[str]] = None,
-        run_manager: Optional[CallbackManagerForLLMRun] = None,
-        **kwargs: Any,
-    ):
-        """LangChain LLM required method"""
-        # For now, process the first prompt
-        if prompts:
-            response = ''.join(self.model_manager.generate(prompts[0]))
-            return {
-                "generations": [[{
-                    "text": response,
-                    "generation_info": {}
-                }]],
-                "llm_output": None
-            }
-        return {"generations": [], "llm_output": None}
-
-    def _stream(
-        self,
-        prompt: str,
-        stop: Optional[List[str]] = None,
-        run_manager: Optional[CallbackManagerForLLMRun] = None,
-        **kwargs: Any,
-    ):
-        """Stream implementation for newer LangChain versions"""
-        # Not implemented, but required
-        raise NotImplementedError("Streaming not implemented")
-
-    def _call(
-        self,
-        prompt: str,
-        stop: Optional[List[str]] = None,
-        run_manager: Optional[CallbackManagerForLLMRun] = None,
-        **kwargs: Any,
-    ) -> str:
-        """同步调用（LangChain默认）"""
-        response = ''.join(self.model_manager.generate(prompt))
-        return response
-
-    def _call(self, prompt: str, stop: Optional[List[str]] = None) -> str:
-        """同步调用（LangChain默认）"""
-        response = ''.join(self.model_manager.generate(prompt))
-        return response
-
-    @property
-    def _llm_type(self) -> str:
-        return "custom_llm"
-
 class RAGPipeline:
     """RAG问答管道：使用LangChain实现数据感知和主动性（基于文档3.3）"""
 
@@ -154,6 +169,8 @@ class RAGPipeline:
         self.model_manager = model_manager
         self.config_loader = config_loader
         self.retriever = retriever
+        # 创建CustomLLM类
+        CustomLLM = create_custom_llm_class()
         self.llm = CustomLLM(model_manager)
         self.privacy_filter = PrivacyFilter(config_loader)
         self.security = SecurityManager(config_loader)

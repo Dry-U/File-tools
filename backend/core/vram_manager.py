@@ -15,7 +15,7 @@ class VRAMManager:
         self.models: Dict[str, Any] = {}
         self.last_used: Dict[str, float] = {}
         # 从配置中获取模型目录 - 使用ConfigLoader的get方法
-        self.models_dir = config.get('model', 'model_path', './data/models')
+        self.models_dir = config.get('ai_model', 'model_path', './data/models')
         logger.info(f"VRAM管理器初始化，模型目录: {self.models_dir}")
     
     def available_vram(self) -> int:

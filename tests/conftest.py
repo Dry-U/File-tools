@@ -16,6 +16,7 @@ from backend.core.search_engine import SearchEngine
 from backend.core.model_manager import ModelManager
 from backend.core.rag_pipeline import HybridRetriever
 from backend.core.vector_engine import VectorEngine
+from backend.core.smart_indexer import SmartIndexer
 
 @pytest.fixture(scope="session")
 def temp_config():
@@ -23,7 +24,8 @@ def temp_config():
     config_data = {
         'system': {'data_dir': tempfile.mkdtemp()},
         'file_scanner': {'scan_paths': [tempfile.mkdtemp()]},
-        'model': {'model_dir': tempfile.mkdtemp()}
+        'embedding': {'cache_dir': tempfile.mkdtemp()},
+        'ai_model': {'model_path': tempfile.mkdtemp()}
     }
     config_path = Path(tempfile.mkdtemp()) / 'test_config.yaml'
     with open(config_path, 'w') as f:

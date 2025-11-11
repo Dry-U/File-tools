@@ -287,8 +287,60 @@ class FileMonitor:
             return
         
         try:
+            # 构建文档对象（模拟FileScanner中的逻辑）
+            from pathlib import Path
+            from datetime import datetime
+            import os
+            
+            file_path_obj = Path(file_path)
+            
+            # 获取文件基本信息
+            stat_info = file_path_obj.stat()
+            file_size = stat_info.st_size
+            created_time = datetime.fromtimestamp(stat_info.st_ctime)
+            modified_time = datetime.fromtimestamp(stat_info.st_mtime)
+            
+            # 获取文件扩展名
+            file_ext = file_path_obj.suffix.lower()
+            
+            # 简单的文件类型分类
+            if file_ext in ['.txt', '.md', '.json', '.xml', '.csv', '.log', '.py', '.js', '.java', '.cpp', '.c', '.h']:
+                file_type = 'document'
+            elif file_ext in ['.jpg', '.jpeg', '.png', '.gif', '.bmp', '.tiff', '.svg']:
+                file_type = 'image'
+            elif file_ext in ['.mp3', '.wav', '.flac', '.ogg', '.m4a']:
+                file_type = 'audio'
+            elif file_ext in ['.mp4', '.avi', '.mov', '.mkv', '.wmv']:
+                file_type = 'video'
+            elif file_ext in ['.zip', '.rar', '.7z', '.tar', '.gz']:
+                file_type = 'archive'
+            else:
+                file_type = 'unknown'
+            
+            # 读取文件内容（简化处理）
+            content = file_path_obj.name  # 默认使用文件名作为内容
+            try:
+                # 对于文本类文件，尝试读取内容
+                if file_ext in ['.txt', '.md', '.json', '.xml', '.csv', '.log', '.py', '.js', '.java', '.cpp', '.c', '.h']:
+                    with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+                        content = f.read(1000)  # 限制读取内容大小
+            except Exception:
+                pass  # 保持默认内容
+            
+            # 构建文档字典
+            document = {
+                'path': str(file_path),
+                'filename': file_path_obj.name,
+                'content': content,
+                'file_type': file_type,
+                'size': file_size,
+                'created': created_time,
+                'modified': modified_time,
+                'keywords': ''
+            }
+            
             # 调用索引管理器更新文件索引
-            self.index_manager.update_document(file_path)
+            self.index_manager.update_document(document)
             self.logger.debug(f"已更新文件索引: {file_path}")
         except Exception as e:
             self.logger.error(f"更新文件索引失败 {file_path}: {str(e)}")
@@ -460,3 +512,4 @@ if __name__ == "__main__":
         # 清理测试目录
         if os.path.exists(test_dir):
             os.rmdir(test_dir)
+

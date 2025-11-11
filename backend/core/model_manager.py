@@ -76,7 +76,7 @@ class ModelManager:
             # 检查模型是否启用
             model_enabled = False
             try:
-                model_enabled = self.config_loader.getboolean('model', 'enabled', False)
+                model_enabled = self.config_loader.getboolean('ai_model', 'enabled', False)
             except Exception as e:
                 print(f"检查模型启用状态失败: {str(e)}")
                 logger.error(f"检查模型启用状态失败: {str(e)}")
@@ -90,7 +90,17 @@ class ModelManager:
                 model = self.get_model()
                 if model:
                     for token in model(prompt, max_tokens=max_tokens, temperature=temperature, stream=True):
-                        yield token['choices'][0]['text']
+                        # 修复类型检查问题，先检查token是否为字典类型
+                        if isinstance(token, dict):
+                            choices = token.get('choices', [])
+                            if choices and isinstance(choices, list) and len(choices) > 0:
+                                choice = choices[0]
+                                if isinstance(choice, dict):
+                                    text = choice.get('text', '')
+                                    yield text
+                        else:
+                            # 如果token不是字典，尝试直接转换为字符串
+                            yield str(token)
                     self.vram_manager.update_last_used(self.current_model_name)
                 else:
                     yield "错误：无法加载本地模型。"

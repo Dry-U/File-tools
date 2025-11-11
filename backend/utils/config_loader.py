@@ -10,10 +10,10 @@ import datetime
 
 class ConfigLoader:
     """配置加载器类，负责加载、验证和管理配置文件"""
-    def __init__(self, config_path: str = None):
+    def __init__(self, config_path: Optional[str] = None):
         # 默认配置路径，如果未指定则使用当前目录下的config.yaml
         default_path = Path('config.yaml')
-        self.config_path = Path(config_path).resolve() if config_path else default_path.resolve()
+        self.config_path = Path(config_path).resolve() if config_path is not None else default_path.resolve()
         self.config: Dict[str, Any] = {}  # 初始化空配置
         
         # 尝试加载配置文件，如果不存在则创建默认配置
@@ -79,15 +79,19 @@ class ConfigLoader:
                 'refresh_interval': 1,
                 'debounce_time': 0.5
             },
-            'model': {
+            'embedding': {
+                'model_name': 'all-MiniLM-L6-v2',
+                'enabled': False,
+                'cache_dir': './data/models/embedding'
+            },
+            'ai_model': {
                 'enabled': False,
                 'model_path': '',
-                'embedding_model': 'all-MiniLM-L6-v2',
-                'max_tokens': 2048,
-                'temperature': 0.7,
                 'interface_type': 'local',  # 可选值: local, wsl, api
                 'api_url': 'http://localhost:8000/v1/completions',
-                'api_key': ''
+                'api_key': '',
+                'max_tokens': 2048,
+                'temperature': 0.7
             },
             'interface': {
                 'theme': 'light',
@@ -180,7 +184,7 @@ class ConfigLoader:
         except (ValueError, TypeError):
             return default
     
-    def getlist(self, section: str, key: str, default: list = None, delimiter: str = ';') -> list:
+    def getlist(self, section: str, key: str, default: Optional[list] = None, delimiter: str = ';') -> list:
         """获取列表形式的配置"""
         if default is None:
             default = []

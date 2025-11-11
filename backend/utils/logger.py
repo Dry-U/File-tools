@@ -10,7 +10,7 @@ import datetime
 import json
 import traceback
 from logging.handlers import RotatingFileHandler, TimedRotatingFileHandler
-from typing import Optional, Dict, Any, Union
+from typing import Optional, Dict, Any, Union, Literal
 import threading
 import time
 from functools import wraps
@@ -40,7 +40,9 @@ class LoggerConfig:
 
     def __init__(self, config):
         # 支持ConfigLoader实例或字典
-        if hasattr(config, 'get'):
+        # 检查是否是ConfigLoader实例（有3参数get方法）
+        from backend.utils.config_loader import ConfigLoader
+        if isinstance(config, ConfigLoader):
             # ConfigLoader实例
             self.log_level = config.get('system', 'log_level', 'INFO')
             self.log_dir = config.get('system', 'data_dir', './data') + '/logs'
@@ -51,8 +53,8 @@ class LoggerConfig:
             self.log_json = config.get('system', 'log_json', False)  # Whether to output in JSON
             self.log_sensitive_data = config.get('system', 'log_sensitive_data', False)  # Whether to log sensitive data
         else:
-            # 字典类型
-            system_config = config.get('system', {})
+            # 字典类型或其他对象 (只有2参数get方法)
+            system_config = config.get('system', {}) if hasattr(config, 'get') else {}
             self.log_level = system_config.get('log_level', 'INFO')
             self.log_dir = system_config.get('data_dir', './data') + '/logs'
             self.log_max_size = system_config.get('log_max_size', 10)  # MB
@@ -82,22 +84,22 @@ class StructuredFormatter(logging.Formatter):
     包含丰富的上下文信息
     """
 
-    def __init__(self, fmt: str = None, datefmt: str = None, log_json: bool = False, style: str = '%'):
-        super().__init__(fmt, datefmt, style)
+    def __init__(self, fmt: Optional[str] = None, datefmt: Optional[str] = None, log_json: bool = False, style: Literal['%', '{', '$'] = '%'):
+        super().__init__(fmt or '%(message)s', datefmt, style)
         self.log_json = log_json
         self.log_format = fmt
 
     def format(self, record: logging.LogRecord) -> str:
         """格式化日志记录"""
-        # 添加额外的上下文信息
-        record.timestamp = datetime.datetime.fromtimestamp(record.created).isoformat()
-        record.thread_name = threading.current_thread().name
-        record.process_id = os.getpid()
+        # 添加额外的上下文信息 (动态添加属性到LogRecord)
+        record.timestamp = datetime.datetime.fromtimestamp(record.created).isoformat()  # type: ignore[attr-defined]
+        record.thread_name = threading.current_thread().name  # type: ignore[attr-defined]
+        record.process_id = os.getpid()  # type: ignore[attr-defined]
 
         if self.log_json:
             # JSON格式输出
             log_data = {
-                "timestamp": record.timestamp,
+                "timestamp": record.timestamp,  # type: ignore[attr-defined]
                 "level": record.levelname,
                 "logger": record.name,
                 "message": record.getMessage(),
@@ -105,9 +107,9 @@ class StructuredFormatter(logging.Formatter):
                 "function": record.funcName,
                 "line": record.lineno,
                 "thread": record.thread,
-                "thread_name": record.thread_name,
+                "thread_name": record.thread_name,  # type: ignore[attr-defined]
                 "process": record.process,
-                "process_id": record.process_id,
+                "process_id": record.process_id,  # type: ignore[attr-defined]
             }
             
             # 添加异常信息（如果存在）
@@ -117,9 +119,9 @@ class StructuredFormatter(logging.Formatter):
             
             # 添加自定义字段（如果存在）
             if hasattr(record, 'context'):
-                log_data["context"] = record.context
+                log_data["context"] = record.context  # type: ignore[attr-defined]
             if hasattr(record, 'custom_fields'):
-                log_data["custom_fields"] = record.custom_fields
+                log_data["custom_fields"] = record.custom_fields  # type: ignore[attr-defined]
                 
             return json.dumps(log_data, ensure_ascii=False, default=str)
         else:
@@ -139,8 +141,8 @@ class CustomFormatter(logging.Formatter):
     }
     RESET = '\033[0m'
 
-    def __init__(self, fmt: str = None, datefmt: str = None, use_color: bool = True):
-        super().__init__(fmt, datefmt)
+    def __init__(self, fmt: Optional[str] = None, datefmt: Optional[str] = None, use_color: bool = True):
+        super().__init__(fmt or '%(message)s', datefmt)
         self.use_color = use_color and hasattr(sys.stdout, 'isatty') and sys.stdout.isatty()
 
     def format(self, record: logging.LogRecord) -> str:
@@ -200,7 +202,7 @@ class EnterpriseLogger:
         
         # Set up a default config if none provided
         if config is None:
-            from .config_loader import ConfigLoader  # Import here to avoid circular import
+            from backend.utils.config_loader import ConfigLoader  # Use absolute import to avoid relative import issues
             config = ConfigLoader()
         
         # 设置日志级别
@@ -316,7 +318,7 @@ def setup_logger(
     return enterprise_logger.get_logger(name, config)
 
 
-def get_logger(name: str = None) -> logging.Logger:
+def get_logger(name: Optional[str] = None) -> logging.Logger:
     """获取已配置的日志记录器（兼容旧接口）"""
     if name is None:
         name = 'file-tools'

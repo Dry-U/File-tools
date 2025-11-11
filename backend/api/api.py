@@ -114,12 +114,22 @@ async def search(request: Request):
         formatted_results = []
         for result in results:
             converted_result = convert_types(result)
-            formatted_results.append({
-                "file_name": os.path.basename(converted_result["path"]),
-                "path": converted_result["path"],
-                "score": converted_result.get("score", 0.0),
-                "modified_time": converted_result.get("modified_time") or converted_result.get("modified")
-            })
+            # 确保converted_result是字典类型
+            if isinstance(converted_result, dict):
+                formatted_results.append({
+                    "file_name": os.path.basename(str(converted_result.get("path", ""))),
+                    "path": str(converted_result.get("path", "")),
+                    "score": float(converted_result.get("score", 0.0)),
+                    "modified_time": converted_result.get("modified_time") or converted_result.get("modified")
+                })
+            else:
+                # 如果不是字典，使用默认值
+                formatted_results.append({
+                    "file_name": "",
+                    "path": "",
+                    "score": 0.0,
+                    "modified_time": None
+                })
 
         return formatted_results
     except HTTPException:
@@ -181,12 +191,39 @@ async def rebuild_index():
         raise HTTPException(status_code=500, detail="File scanner not initialized")
 
     try:
+        logger.info("开始重建索引...")
+        # Log scan paths to verify configuration
+        scan_paths = getattr(file_scanner, 'scan_paths', 'Unknown')
+        logger.info(f"扫描路径: {scan_paths}")
+        logger.info(f"扫描路径数量: {len(scan_paths) if scan_paths != 'Unknown' else 0}")
+        
+        for i, path in enumerate(scan_paths):
+            import os
+            path_exists = os.path.exists(path)
+            path_isdir = os.path.isdir(path) if path_exists else False
+            logger.info(f"路径[{i}]: {path}, 存在: {path_exists}, 是目录: {path_isdir}")
+            
+            if path_exists and path_isdir:
+                try:
+                    file_count = sum(len(files) for _, _, files in os.walk(path))
+                    logger.info(f"路径[{i}] 包含 {file_count} 个文件")
+                except Exception as e:
+                    logger.error(f"无法访问路径[{i}] 内容: {str(e)}")
+        
+        logger.info(f"排除模式: {getattr(file_scanner, 'exclude_patterns', 'Unknown')}")
+        logger.info(f"目标扩展名: {getattr(file_scanner, 'all_extensions', 'Unknown')}")
+        
+        logger.info("调用 file_scanner.scan_and_index()")
         stats = file_scanner.scan_and_index()
+        logger.info(f"scan_and_index 返回结果: {stats}")
+        
+        logger.info(f"索引重建完成: 扫描 {stats.get('total_files_scanned', 0)} 个文件，索引 {stats.get('total_files_indexed', 0)} 个文件")
+        
         return {
             "status": "success",
-            "files_scanned": stats.get("files_scanned", 0),
-            "files_indexed": stats.get("files_indexed", 0),
-            "message": f"索引重建完成: 扫描 {stats.get('files_scanned', 0)} 个文件，索引 {stats.get('files_indexed', 0)} 个文件"
+            "files_scanned": stats.get("total_files_scanned", 0),
+            "files_indexed": stats.get("total_files_indexed", 0),
+            "message": f"索引重建完成: 扫描 {stats.get('total_files_scanned', 0)} 个文件，索引 {stats.get('total_files_indexed', 0)} 个文件"
         }
     except Exception as e:
         logger.error(f"Index rebuild error: {str(e)}")
