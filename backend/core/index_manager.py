@@ -8,13 +8,35 @@ import logging
 from whoosh import index
 from whoosh.fields import Schema, TEXT, ID, STORED, KEYWORD, DATETIME
 from whoosh.qparser import QueryParser, MultifieldParser
-from whoosh.analysis import StemmingAnalyzer
+from whoosh.analysis import StemmingAnalyzer, Tokenizer, Token
+import jieba
 import faiss
 import numpy as np
 # 延迟导入SentenceTransformer，避免在禁用时卡住
 # from sentence_transformers import SentenceTransformer
 from datetime import datetime
 import json
+
+class ChineseTokenizer(Tokenizer):
+    """中文分词器"""
+    def __call__(self, value, positions=False, chars=False, keeporiginal=False, 
+                 removestops=True, start_pos=0, start_char=0, mode='', **kwargs):
+        # 使用jieba进行中文分词
+        tokens = jieba.lcut(value)
+        token = Token(positions, chars, removestops, mode)
+        pos = start_pos
+        for t in tokens:
+            if t.strip():
+                token.__dict__.update({'text': t, 'pos': pos})
+                yield token
+                pos += 1
+
+
+class ChineseAnalyzer:
+    """中文分析器"""
+    def __call__(self):
+        return ChineseTokenizer()
+
 
 class IndexManager:
     """索引管理器类，负责创建、更新和查询索引"""
@@ -89,10 +111,12 @@ class IndexManager:
     def _init_whoosh_index(self):
         """初始化Whoosh索引"""
         # 定义索引模式
+        # 对于中文文本，使用自定义的中文分析器
+        chinese_analyzer = ChineseAnalyzer()
         self.schema = Schema(
             path=ID(stored=True, unique=True),  # 文件路径作为唯一标识符
-            filename=TEXT(stored=True, analyzer=StemmingAnalyzer()),  # 文件名
-            content=TEXT(stored=True, analyzer=StemmingAnalyzer()),  # 文件内容
+            filename=TEXT(stored=True, analyzer=chinese_analyzer),  # 文件名
+            content=TEXT(stored=True, analyzer=chinese_analyzer),  # 文件内容
             file_type=KEYWORD(stored=True),  # 文件类型
             size=STORED(),  # 文件大小
             created=DATETIME(stored=True),  # 创建时间
