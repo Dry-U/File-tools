@@ -20,9 +20,17 @@ class SearchEngine:
         search_config = config_loader.get('search')
         if search_config is None:
             search_config = {}
-        self.text_weight = float(search_config.get('text_weight', 0.5))
-        self.vector_weight = float(search_config.get('vector_weight', 0.5))
+        self.text_weight = float(search_config.get('text_weight', 0.6))
+        self.vector_weight = float(search_config.get('vector_weight', 0.4))
         self.max_results = int(search_config.get('max_results', 50))
+        
+        # 新增的高级搜索配置参数
+        self.bm25_k1 = float(search_config.get('bm25_k1', 1.5))
+        self.bm25_b = float(search_config.get('bm25_b', 0.75))
+        self.result_boost = bool(search_config.get('result_boost', True))
+        self.filename_boost = float(search_config.get('filename_boost', 1.5))
+        self.keyword_boost = float(search_config.get('keyword_boost', 1.2))
+        self.hybrid_boost = float(search_config.get('hybrid_boost', 1.1))
         
         # 确保权重之和为1，但如果其中一个为0，则另一个为1
         if self.text_weight == 0 and self.vector_weight == 0:
@@ -47,6 +55,9 @@ class SearchEngine:
         """执行搜索，整合文本搜索和向量搜索结果"""
         start_time = time.time()
         self.logger.info(f"执行搜索: {query}, 过滤器: {filters}")
+        
+        # 保存当前查询以供后续使用
+        self.current_query = query
         
         # 如果没有提供过滤器，使用默认空字典
         if filters is None:
@@ -107,7 +118,7 @@ class SearchEngine:
             return []
     
     def _combine_results(self, text_results, vector_results):
-        """合并文本搜索和向量搜索结果"""
+        """合并文本搜索和向量搜索结果 - 优化版本"""
         # 使用字典来跟踪每个文件路径的最高分数
         combined = {}
         
@@ -119,27 +130,71 @@ class SearchEngine:
                 # 确保文本搜索结果有search_type字段
                 if 'search_type' not in combined[path]:
                     combined[path]['search_type'] = 'text'
+                # 记录原始分数
+                combined[path]['text_score'] = result['score']
+                combined[path]['vector_score'] = 0.0
             else:
                 # 如果已经存在，取较高的分数
                 if result['score'] > combined[path]['score']:
                     combined[path]['score'] = result['score']
                     combined[path]['search_type'] = result['search_type']
+                combined[path]['text_score'] = result['score']
         
         # 添加向量搜索结果，并根据权重调整分数
         for result in vector_results:
             path = result['path']
             if path in combined:
-                # 如果文件路径已经存在，根据权重计算综合分数
-                combined_score = (combined[path]['score'] * self.text_weight + 
-                                 result['score'] * self.vector_weight)
+                # 如果文件路径已经存在，记录向量分数
+                combined[path]['vector_score'] = result['score']
+                
+                # 计算综合分数 - 使用加权几何平均而非算术平均，以提高结果质量
+                # 如果任一分数为0，则综合分数会显著降低
+                text_norm = combined[path]['text_score']
+                vector_norm = result['score']
+                
+                # 归一化分数到0-1范围
+                # 简单归一化方法 - 除以最大可能分数
+                text_norm = min(text_norm, 10.0) / 10.0  # 假设10是较高的文本分数
+                vector_norm = min(vector_norm, 1.0)  # 向量分数通常在0-1范围内
+                
+                # 使用加权几何平均
+                if text_norm > 0 and vector_norm > 0:
+                    combined_score = (text_norm ** self.text_weight) * (vector_norm ** self.vector_weight)
+                    combined_score *= 10.0  # 恢复到原始分数范围
+                elif text_norm > 0:
+                    combined_score = text_norm * 10.0 * self.text_weight
+                else:
+                    combined_score = vector_norm * 10.0 * self.vector_weight
+                
                 combined[path]['score'] = combined_score
                 combined[path]['search_type'] = 'hybrid'
             else:
                 # 如果是新文件路径，直接添加
                 combined[path] = result.copy()
+                combined[path]['text_score'] = 0.0
+                combined[path]['vector_score'] = result['score']
                 # 确保向量搜索结果有search_type字段
                 if 'search_type' not in combined[path]:
                     combined[path]['search_type'] = 'vector'
+        
+        # 应用额外的质量评估标准
+        for path, result in combined.items():
+            # 如果启用了结果增强
+            if self.result_boost:
+                # 如果是混合搜索结果，给予额外加分
+                if result['search_type'] == 'hybrid':
+                    # 混合结果通常更可靠，给予额外加分
+                    result['score'] *= self.hybrid_boost
+            
+            # 对文件名匹配给予额外加分
+            query_words = self._get_query_words()
+            filename = os.path.basename(path).lower()
+            filename_bonus = 0
+            for word in query_words:
+                if word.lower() in filename:
+                    filename_bonus += 0.2  # 每个匹配的词加0.2分
+            
+            result['score'] += filename_bonus
         
         # 转换为列表并按分数排序
         sorted_results = sorted(combined.values(), key=lambda x: x['score'], reverse=True)
@@ -299,3 +354,13 @@ class SearchEngine:
         # - 搜索类型分布等
         
         return stats
+    
+    def _get_query_words(self):
+        """从当前的搜索查询中提取查询词"""
+        if hasattr(self, 'current_query') and self.current_query:
+            # 简单的分词处理
+            import re
+            # 按空格和常见分隔符分割
+            words = re.findall(r'\w+', self.current_query)
+            return words
+        return []

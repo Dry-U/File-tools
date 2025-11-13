@@ -1,6 +1,9 @@
 [build-system]
-requires = ["setuptools>=61.0"]
+requires = ["setuptools>=61.0", "wheel", "more-itertools", "typing-extensions>=4.0", "scikit-build-core>=0.3.3"]
 build-backend = "setuptools.build_meta"
+
+[tool.uv]
+index-url = "https://pypi.tuna.tsinghua.edu.cn/simple/"
 
 [project]
 name = "file-tools"
@@ -8,19 +11,18 @@ version = "0.1.0"
 requires-python = ">=3.9,<4.0"
 description = "智能文件检索与问答系统 - 基于Python的本地文件智能管理工具"
 authors = [{name = "Darian", email = "Dar1an@126.com"}]
-license = {text = "MIT"}
+license = "MIT"
 
 dependencies = [
     "watchdog>=3.0.0",
     "Whoosh>=2.7.4",
     "faiss-cpu>=1.9.0",
     "pyyaml>=6.0",
-    "PyPDF2>=3.0.0",
+    "PyPDF2>=3.0.1",
     "pdfminer.six>=20221105",
     "pandas>=2.0.0",
     "openpyxl>=3.1.0",
     "sentence-transformers>=2.2.0",
-    "llama-cpp-python>=0.2.0",
     "psutil>=5.9.0",
     "python-docx>=1.1.0",
     "markdown>=3.4.0",
@@ -34,7 +36,10 @@ dependencies = [
     "fastapi>=0.104.0",
     "uvicorn[standard]>=0.24.0",
     "python-multipart>=0.0.6",
-    "jieba>=0.42.1"
+    "jieba>=0.42.1",
+    "typing-extensions>=4.0.0",
+    "charset-normalizer>=3.0.0",
+    "click>=8.0.0"
 ]
 
 [project.optional-dependencies]
@@ -42,6 +47,13 @@ gpu = [
     "faiss-gpu",
     "torch>=2.0.0"
 ]
+llm = [
+    "llama-cpp-python>=0.2.0"
+]
+
+[tool.setuptools.packages.find]
+where = ["backend"]
+exclude = ["tests", "tests.*", "test_*", "__pycache__"]
 
 [tool.basedpyright]
 typeCheckingMode = "basic"

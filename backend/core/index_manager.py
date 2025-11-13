@@ -18,24 +18,52 @@ from datetime import datetime
 import json
 
 class ChineseTokenizer(Tokenizer):
-    """中文分词器"""
+    """中文分词器 - 优化版本"""
+    def __init__(self):
+        # 初始化jieba分词器，添加自定义词典以提高分词准确性
+        try:
+            # 加载自定义词典（如果存在）
+            custom_dict_path = os.path.join(os.path.dirname(__file__), '..', '..', 'data', 'custom_dict.txt')
+            if os.path.exists(custom_dict_path):
+                jieba.load_userdict(custom_dict_path)
+                logging.getLogger(__name__).info(f"加载自定义词典: {custom_dict_path}")
+        except Exception as e:
+            logging.getLogger(__name__).warning(f"加载自定义词典失败: {str(e)}")
+    
     def __call__(self, value, positions=False, chars=False, keeporiginal=False, 
                  removestops=True, start_pos=0, start_char=0, mode='', **kwargs):
-        # 使用jieba进行中文分词
-        tokens = jieba.lcut(value)
-        token = Token(positions, chars, removestops, mode)
-        pos = start_pos
+        # 使用jieba进行中文分词，启用搜索引擎模式以提高分词准确性
+        tokens = jieba.lcut_for_search(value)  # 搜索引擎模式，更细粒度分词
+        
+        # 过滤空白字符和单字符（除非是重要词汇）
+        filtered_tokens = []
         for t in tokens:
-            if t.strip():
-                token.__dict__.update({'text': t, 'pos': pos})
-                yield token
-                pos += 1
+            if t.strip() and (len(t.strip()) > 1 or self._is_important_char(t.strip())):
+                filtered_tokens.append(t.strip())
+        
+        # 生成token对象
+        pos = start_pos
+        for t in filtered_tokens:
+            token = Token()
+            token.__dict__.update({'text': t, 'pos': pos})
+            yield token
+            pos += 1
+    
+    def _is_important_char(self, char):
+        """判断单个字符是否重要（不应被过滤）"""
+        # 常见重要的单个字符
+        important_chars = {'一', '二', '三', '四', '五', '六', '七', '八', '九', '十',
+                          '个', '种', '类', '型', '式', '法', '术', '学', '工', '程'}
+        return char in important_chars
 
 
 class ChineseAnalyzer:
-    """中文分析器"""
-    def __call__(self):
-        return ChineseTokenizer()
+    """中文分析器 - 优化版本"""
+    def __init__(self):
+        self.tokenizer = ChineseTokenizer()
+    
+    def __call__(self, *args, **kwargs):
+        return self.tokenizer
 
 
 class IndexManager:
@@ -290,7 +318,7 @@ class IndexManager:
             return False
     
     def search_text(self, query_str, limit=10):
-        """在文本索引中搜索"""
+        """在文本索引中搜索 - 优化版本"""
         if not self.whoosh_index:
             self.logger.error("Whoosh索引未初始化完成，无法搜索")
             return []
@@ -298,31 +326,78 @@ class IndexManager:
         try:
             results = []
             
+            # 获取搜索配置
+            search_config = self.config_loader.get('search') or {}
+            filename_boost = float(search_config.get('filename_boost', 1.5))
+            keyword_boost = float(search_config.get('keyword_boost', 1.2))
+            bm25_k1 = float(search_config.get('bm25_k1', 1.5))
+            bm25_b = float(search_config.get('bm25_b', 0.75))
+            
             with self.whoosh_index.searcher() as searcher:
-                # 使用多字段查询解析器
-                parser = MultifieldParser(['filename', 'content', 'keywords'], schema=self.schema)
+                # 使用多字段查询解析器，为不同字段设置不同的权重
+                parser = MultifieldParser(
+                    ['filename', 'content', 'keywords'], 
+                    schema=self.schema,
+                    fieldboosts={'filename': filename_boost, 'keywords': keyword_boost, 'content': 1.0}
+                )
+                
+                # 优化查询：使用Or查询而非默认的And查询，增加匹配概率
                 query = parser.parse(query_str)
                 
-                # 执行搜索
-                hits = searcher.search(query, limit=limit)
+                # 使用TermBoost提高搜索精度
+                # 设置相似度计算模型，使用配置中的参数
+                from whoosh import scoring
+                searcher.weighting = scoring.BM25F(B=bm25_b, K1=bm25_k1, content_B=bm25_b)
+                
+                # 执行搜索，增加limit获取更多候选结果
+                hits = searcher.search(query, limit=limit*2)
+                
+                # 计算内容匹配度（关键词出现频率）
+                query_terms = query_str.lower().split()
                 
                 # 处理搜索结果
                 for hit in hits:
+                    # 获取文档内容
+                    content = hit['content'].lower()
+                    
+                    # 计算关键词覆盖率
+                    coverage = 0
+                    for term in query_terms:
+                        if term in content:
+                            # 计算词频
+                            term_count = content.count(term)
+                            # 考虑文档长度
+                            coverage += term_count / max(1, len(content.split()))
+                    
+                    # 调整分数：结合BM25分数和关键词覆盖率
+                    adjusted_score = hit.score + (coverage * 0.2)
+                    
+                    # 对中文进行额外的相似度计算
+                    if any('\u4e00' <= char <= '\u9fff' for char in query_str):
+                        # 对中文查询使用Jaccard相似度补充
+                        content_chars = set(content)
+                        query_chars = set(query_str.lower())
+                        jaccard_sim = len(content_chars & query_chars) / max(1, len(content_chars | query_chars))
+                        adjusted_score += jaccard_sim * 0.3
+                    
                     results.append({
                         'path': hit['path'],
                         'filename': hit['filename'],
                         'content': hit['content'][:200] + ('...' if len(hit['content']) > 200 else ''),
                         'file_type': hit['file_type'],
-                        'score': hit.score
+                        'score': adjusted_score  # 使用调整后的分数
                     })
+                
+                # 按分数重新排序
+                results.sort(key=lambda x: x['score'], reverse=True)
             
-            return results
+            return results[:limit]
         except Exception as e:
             self.logger.error(f"文本搜索失败: {str(e)}")
             return []
     
     def search_vector(self, query_str, limit=10):
-        """在向量索引中搜索"""
+        """在向量索引中搜索 - 优化版本"""
         if not self.faiss_index:
             self.logger.error("FAISS索引未初始化完成，无法进行向量搜索")
             return []
@@ -339,7 +414,8 @@ class IndexManager:
             query_vector = np.array(query_vector, dtype=np.float32)
             
             # 执行向量搜索 - search(x, k) 返回 (distances, labels)
-            k = min(limit, self.faiss_index.ntotal) if self.faiss_index.ntotal > 0 else limit
+            # 获取更多候选结果以提高质量
+            k = min(limit*2, self.faiss_index.ntotal) if self.faiss_index.ntotal > 0 else limit*2
             distances, indices = self.faiss_index.search(query_vector, k)  # type: ignore
             
             # 处理搜索结果
@@ -347,14 +423,42 @@ class IndexManager:
             for i, idx in enumerate(indices[0]):
                 if idx != -1 and str(idx) in self.vector_metadata:
                     metadata = self.vector_metadata[str(idx)]
+                    
+                    # 计算相似度分数 - 使用更平滑的转换函数
+                    # 使用指数衰减函数而非简单倒数，提高区分度
+                    similarity = np.exp(-distances[0][i] / 2.0)
+                    
+                    # 对中文查询进行额外的字符匹配加分
+                    adjusted_similarity = similarity
+                    if any('\u4e00' <= char <= '\u9fff' for char in query_str):
+                        # 获取文档内容进行字符匹配
+                        try:
+                            # 尝试从Whoosh索引获取文档内容
+                            with self.whoosh_index.searcher() as searcher:
+                                doc = searcher.document(path=metadata['path'])
+                                if doc and 'content' in doc:
+                                    content = doc['content'].lower()
+                                    query_chars = set(query_str.lower())
+                                    content_chars = set(content)
+                                    
+                                    # 计算Jaccard相似度
+                                    jaccard_sim = len(content_chars & query_chars) / max(1, len(content_chars | query_chars))
+                                    # 为字符匹配添加额外分数，但权重不超过总分数的30%
+                                    adjusted_similarity = similarity + (jaccard_sim * similarity * 0.3)
+                        except Exception as e:
+                            # 如果获取内容失败，使用原始相似度
+                            self.logger.debug(f"获取文档内容失败: {str(e)}")
+                    
                     results.append({
                         'path': metadata['path'],
                         'filename': metadata['filename'],
                         'file_type': metadata['file_type'],
-                        'score': 1.0 / (1.0 + distances[0][i])  # 将距离转换为相似度分数
+                        'score': adjusted_similarity  # 使用调整后的相似度分数
                     })
             
-            return results
+            # 按分数排序
+            results.sort(key=lambda x: x['score'], reverse=True)
+            return results[:limit]
         except Exception as e:
             self.logger.error(f"向量搜索失败: {str(e)}")
             return []

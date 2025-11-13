@@ -54,8 +54,14 @@ search:
   highlight: true
   max_results: 50
   min_score: 0.3
-  text_weight: 0.5
-  vector_weight: 0.5
+  text_weight: 0.6  # 增加文本搜索权重，提高精确匹配
+  vector_weight: 0.4  # 降低向量搜索权重，减少不相关语义匹配
+  bm25_k1: 1.5  # BM25参数，控制词频饱和度
+  bm25_b: 0.75  # BM25参数，控制文档长度标准化
+  result_boost: true  # 启用结果增强
+  filename_boost: 1.5  # 文件名匹配增强系数
+  keyword_boost: 1.2  # 关键词匹配增强系数
+  hybrid_boost: 1.1  # 混合搜索结果增强系数
 system:
   app_name: 智能文件检索与问答系统
   cache_dir: ./data/cache
