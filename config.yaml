@@ -30,9 +30,10 @@ interface:
   splitter_pos: 300
   theme: light
 embedding:
-  model_name: all-MiniLM-L6-v2
-  enabled: true  # 设为true以启用语义搜索功能
-  cache_dir: D:\Models\all-MiniLM-L6-v2
+  enabled: true
+  provider: fastembed
+  model_name: bge-large-zh
+  cache_dir: D:\Models\bge-large-zh-v1.5
 
 ai_model:
   enabled: false  # 设为true以启用AI问答功能

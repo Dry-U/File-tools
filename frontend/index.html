@@ -5,7 +5,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css">
     <link rel="stylesheet" href="static/css/style.css">
     <style>
     </style>
@@ -13,7 +13,7 @@
 <body>
     <div class="app-header text-center">
         <div class="container">
-            <h1><i class="fas fa-search me-2"></i>智能文件检索与问答系统</h1>
+            <h1><i class="bi bi-search me-2"></i>智能文件检索与问答系统</h1>
             <p class="mb-0">基于Python的本地文件智能管理工具</p>
         </div>
     </div>
@@ -22,22 +22,22 @@
         <!-- Controls -->
         <div class="controls d-flex justify-content-center mb-4">
             <button class="btn btn-outline-primary control-btn" onclick="toggleAdvancedFilter()">
-                <i class="fas fa-filter me-1"></i>高级筛选
+                <i class="bi bi-funnel me-1"></i>高级筛选
             </button>
             <button class="btn btn-outline-success control-btn" onclick="rebuildIndex()">
-                <i class="fas fa-sync me-1"></i>重建索引
+                <i class="bi bi-arrow-repeat me-1"></i>重建索引
             </button>
             <button class="btn btn-outline-info control-btn" onclick="exportResults()">
-                <i class="fas fa-download me-1"></i>导出结果
+                <i class="bi bi-download me-1"></i>导出结果
             </button>
         </div>
 
         <!-- Advanced Filter Panel -->
         <div class="card mb-4" id="advancedFilterPanel" style="display: none;">
             <div class="card-header d-flex justify-content-between align-items-center">
-                <h5 class="mb-0"><i class="fas fa-sliders-h me-2"></i>高级筛选</h5>
+                <h5 class="mb-0"><i class="bi bi-sliders me-2"></i>高级筛选</h5>
                 <button class="btn btn-sm btn-outline-secondary" onclick="toggleAdvancedFilter()">
-                    <i class="fas fa-times"></i>
+                    <i class="bi bi-x"></i>
                 </button>
             </div>
             <div class="card-body">
@@ -83,7 +83,7 @@
             <div class="input-group mb-3">
                 <input type="text" id="searchInput" class="form-control search-input" placeholder="输入搜索关键词..." onkeypress="handleKeyPress(event)">
                 <button class="btn btn-primary search-btn" type="button" onclick="performSearch()">
-                    <i class="fas fa-search me-2"></i>搜索
+                    <i class="bi bi-search me-2"></i>搜索
                 </button>
             </div>
         </div>
@@ -96,7 +96,7 @@
         <!-- Results -->
         <div class="card mt-4" id="resultsCard" style="display: none;">
             <div class="card-header d-flex justify-content-between align-items-center">
-                <h5 class="mb-0"><i class="fas fa-list me-2"></i>搜索结果</h5>
+                <h5 class="mb-0"><i class="bi bi-list-ul me-2"></i>搜索结果</h5>
                 <span id="resultCount">0 条结果</span>
             </div>
             <div class="card-body p-0" id="resultsContainer">

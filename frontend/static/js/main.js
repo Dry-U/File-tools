@@ -67,7 +67,7 @@ function displayResults(results, query) {
     const resultCount = document.getElementById('resultCount');
 
     if (!results || results.length === 0) {
-        resultsContainer.innerHTML = '<div class="p-4 text-center text-muted"><i class="fas fa-search me-2"></i>未找到匹配的文件</div>';
+        resultsContainer.innerHTML = '<div class="p-4 text-center text-muted"><i class="bi bi-search me-2"></i>未找到匹配的文件</div>';
         resultsCard.style.display = 'block';
         resultCount.textContent = '0 条结果';
         return;
@@ -98,9 +98,9 @@ function displayResults(results, query) {
             </div>
             <div id="preview-${index}" class="preview-content" style="display: none;">
                 <div class="d-flex justify-content-between align-items-center mb-2">
-                    <h6><i class="fas fa-eye me-2"></i>文件预览</h6>
+                    <h6><i class="bi bi-eye me-2"></i>文件预览</h6>
                     <button class="btn btn-sm btn-outline-secondary" onclick="event.stopPropagation(); closePreview('${index}')">
-                        <i class="fas fa-times"></i>
+                        <i class="bi bi-x"></i>
                     </button>
                 </div>
                 <div class="preview-text">加载中...</div>
@@ -115,27 +115,27 @@ function displayResults(results, query) {
 function getFileIcon(filePath) {
     const ext = filePath.toLowerCase().split('.').pop();
     const iconMap = {
-        'pdf': 'fas fa-file-pdf text-danger',
-        'doc': 'fas fa-file-word text-primary',
-        'docx': 'fas fa-file-word text-primary',
-        'xls': 'fas fa-file-excel text-success',
-        'xlsx': 'fas fa-file-excel text-success',
-        'ppt': 'fas fa-file-powerpoint text-warning',
-        'pptx': 'fas fa-file-powerpoint text-warning',
-        'txt': 'fas fa-file-alt text-info',
-        'py': 'fab fa-python text-warning',
-        'js': 'fab fa-js text-warning',
-        'html': 'fab fa-html5 text-danger',
-        'css': 'fab fa-css3-alt text-primary',
-        'jpg': 'fas fa-file-image text-info',
-        'jpeg': 'fas fa-file-image text-info',
-        'png': 'fas fa-file-image text-info',
-        'gif': 'fas fa-file-image text-info',
-        'zip': 'fas fa-file-archive text-success',
-        'rar': 'fas fa-file-archive text-success',
-        '7z': 'fas fa-file-archive text-success'
+        'pdf': 'bi bi-filetype-pdf',
+        'doc': 'bi bi-filetype-doc',
+        'docx': 'bi bi-filetype-docx',
+        'xls': 'bi bi-filetype-xls',
+        'xlsx': 'bi bi-filetype-xlsx',
+        'ppt': 'bi bi-filetype-ppt',
+        'pptx': 'bi bi-filetype-pptx',
+        'txt': 'bi bi-filetype-txt',
+        'py': 'bi bi-filetype-py',
+        'js': 'bi bi-filetype-js',
+        'html': 'bi bi-filetype-html',
+        'css': 'bi bi-filetype-css',
+        'jpg': 'bi bi-file-image',
+        'jpeg': 'bi bi-file-image',
+        'png': 'bi bi-file-image',
+        'gif': 'bi bi-file-image',
+        'zip': 'bi bi-file-zip',
+        'rar': 'bi bi-file-zip',
+        '7z': 'bi bi-file-zip'
     };
-    return iconMap[ext] || 'fas fa-file';
+    return iconMap[ext] || 'bi bi-file-earmark';
 }
 
 async function togglePreview(index, filePath, query) {
@@ -148,7 +148,7 @@ async function togglePreview(index, filePath, query) {
 
     // Show loading state
     const previewText = previewDiv.querySelector('.preview-text');
-    previewText.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i>加载中...';
+    previewText.innerHTML = '<span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>加载中...';
     previewDiv.style.display = 'block';
 
     try {
@@ -187,12 +187,12 @@ async function rebuildIndex() {
         <div class="modal-dialog">
             <div class="modal-content">
                 <div class="modal-header">
-                    <h5 class="modal-title"><i class="fas fa-sync-alt me-2"></i>重建索引</h5>
+                    <h5 class="modal-title"><i class="bi bi-arrow-repeat me-2"></i>重建索引</h5>
                     <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
                 </div>
                 <div class="modal-body">
                     <p>重建索引将重新扫描所有文件，可能需要较长时间。</p>
-                    <p class="text-warning"><i class="fas fa-exclamation-triangle me-2"></i>确定要继续吗？</p>
+                    <p class="text-warning"><i class="bi bi-exclamation-triangle me-2"></i>确定要继续吗？</p>
                 </div>
                 <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
@@ -229,7 +229,7 @@ async function confirmRebuild() {
 
     // Show progress indicator
     const statusText = document.getElementById('statusText');
-    statusText.innerHTML = '正在重建索引... <i class="fas fa-spinner fa-spin"></i>';
+    statusText.innerHTML = '正在重建索引... <span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>';
 
     try {
         const response = await fetch('/api/rebuild-index', {
@@ -263,7 +263,7 @@ function exportResults() {
         <div class="modal-dialog">
             <div class="modal-content">
                 <div class="modal-header">
-                    <h5 class="modal-title"><i class="fas fa-download me-2"></i>导出搜索结果</h5>
+                    <h5 class="modal-title"><i class="bi bi-download me-2"></i>导出搜索结果</h5>
                     <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
         </div>
         <div class="modal-body">

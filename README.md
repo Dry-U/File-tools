@@ -14,15 +14,22 @@
 
 ## 技术栈
 
-- **编程语言**：Python 3.9+
-- **GUI 框架**：PyQt5 (桌面界面), FastAPI (Web 界面)
-- **文本索引**：Whoosh
-- **向量检索**：FAISS
-- **AI 模型**：Sentence-BERT (嵌入), LLaMA (本地推理)
-- **文档处理**：PyPDF2, python-docx, pandas
-- **文件监控**：Watchdog
-- **日志系统**：企业级结构化日志，支持 JSON 输出
-- **打包工具**：PyInstaller
+本系统采用一套经过精心筛选的、统一的高性能技术栈，以实现轻量、高速、易于部署的目标。
+
+- **核心框架 (Core Framework):** `FastAPI`
+  - **理由:** 异步、高性能的现代化 Python Web 框架，提供稳定可靠的 API 服务。
+- **全文检索 (Full-Text Search):** `tantivy`
+  - **理由:** 基于 Rust 的高性能搜索引擎，提供卓越的索引和查询速度，内存占用低。
+- **向量检索 (Vector Search):** `hnswlib`
+  - **理由:** 轻量级、零依赖的向量检索库，性能优异且易于在 Windows/Linux/macOS 等多平台部署。
+- **嵌入模型 (Embedding Model):** `fastembed` with `bge-small-zh`
+  - **理由:** 专为速度优化的嵌入计算库，通过 ONNX Runtime 实现极速加载和推理，资源消耗小。
+- **LLM 推理 (LLM Inference):** `llama-cpp-python` (本地) 或 OpenAI 兼容 API (远程)
+  - **策略:** 默认关闭，按需启用，以节约资源。
+- **文档处理 (Document Processing):** `pdfminer.six`, `python-docx`, `openpyxl`, `markdown`
+  - **策略:** 选用轻量级、专注的解析库，避免引入 `pandas` 等大型依赖。
+- **前端资源 (Frontend):** `Bootstrap`, 原生 `JS`, `bootstrap-icons`
+  - **策略:** 保持前端资源的轻量化，优化加载速度。
 
 ## 项目结构
 
