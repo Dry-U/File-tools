@@ -22,14 +22,28 @@ def run_web_ui():
     from backend.run_web import run_web_interface
     import uvicorn
     from backend.api.api import app
+    import socket
 
     # Initialize logger
     from backend.utils.logger import setup_logger
     logger = setup_logger()
     logger.info("Web application (FastAPI)启动")
 
-    # Run the web interface
-    uvicorn.run(app, host="127.0.0.1", port=8000, log_level="info")
+    def _find_available_port(start=8000, end=8010):
+        for p in range(start, end + 1):
+            try:
+                s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+                s.bind(("127.0.0.1", p))
+                s.close()
+                return p
+            except OSError:
+                continue
+        return start
+
+    port = _find_available_port(8000, 8010)
+    logger.info(f"Web 端口: {port}")
+    uvicorn.run(app, host="127.0.0.1", port=port, log_level="info")
 
 
 def main():

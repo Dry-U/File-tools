@@ -105,7 +105,14 @@ async def search(request: Request):
             elif isinstance(obj, (list, tuple)):
                 return [convert_types(item) for item in obj]
             elif isinstance(obj, dict):
-                return {key: convert_types(value) for key, value in obj.items()}
+                result_dict = {}
+                for key, value in obj.items():
+                    converted_value = convert_types(value)
+                    # 确保分数不超过100
+                    if key == 'score':
+                        converted_value = min(float(converted_value), 100.0)
+                    result_dict[key] = converted_value
+                return result_dict
             elif hasattr(obj, 'isoformat'):  # datetime对象
                 return obj.isoformat()
             else:

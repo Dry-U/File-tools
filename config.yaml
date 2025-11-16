@@ -78,3 +78,8 @@ system:
   log_sensitive_data: false
   temp_dir: ./data/temp
   version: 1.0.0
+
+index:
+  tantivy_path: ./data/tantivy_index
+  hnsw_path: ./data/hnsw_index
+  metadata_path: ./data/metadata

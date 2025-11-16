@@ -50,8 +50,9 @@ function getFilters() {
     // 文件大小
     const minSize = document.getElementById('minSize').value;
     const maxSize = document.getElementById('maxSize').value;
-    if (minSize) filters.size_min = parseFloat(minSize) * 1024 * 1024; // 转换为字节
-    if (maxSize) filters.size_max = parseFloat(maxSize) * 1024 * 1024; // 转换为字节
+    if (minSize) filters.min_size = parseFloat(minSize) * 1024 * 1024; // 转换为字节
+    if (maxSize) filters.max_size = parseFloat(maxSize) * 1024 * 1024; // 转换为字节
+
     // 其他选项
     filters.case_sensitive = document.getElementById('caseSensitive')?.checked || false;
     filters.match_whole_word = document.getElementById('matchWholeWord')?.checked || false;
@@ -176,20 +177,7 @@ function closePreview(index) {
 
 function toggleAdvancedFilter() {
     const panel = document.getElementById('advancedFilterPanel');
-    const btn = document.getElementById('advancedFilterBtn');
-    const willShow = panel.style.display === 'none';
-    panel.style.display = willShow ? 'block' : 'none';
-    if (panel.style.display === 'block') {
-        btn.classList.remove('btn-outline-primary');
-        btn.classList.add('btn-primary');
-        btn.classList.add('active');
-        updateStatus('高级筛选已开启');
-    } else {
-        btn.classList.remove('btn-primary');
-        btn.classList.remove('active');
-        btn.classList.add('btn-outline-primary');
-        updateStatus('高级筛选已关闭');
-    }
+    panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
 }
 
 async function rebuildIndex() {
@@ -280,7 +268,7 @@ function exportResults() {
         </div>
         <div class="modal-body">
             <p>导出功能正在开发中...</p>
-            <p class="text-muted">我们将支持导出为CSV、Excel等格式。</p>
+            <p class="text-muted">我们将支持导出为CSV、Excel等格式</p>
         </div>
         <div class="modal-footer">
             <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">关闭</button>
@@ -353,28 +341,10 @@ document.querySelectorAll('.file-type-btn').forEach(btn => {
             this.classList.remove('btn-primary');
             this.classList.add('btn-outline-primary');
         }
-        const q = document.getElementById('searchInput').value.trim();
-        if (q) {
-            performSearch();
-        }
     });
 });
 
 // Initialize with focus on search input
 document.addEventListener('DOMContentLoaded', function() {
     document.getElementById('searchInput').focus();
-    const panel = document.getElementById('advancedFilterPanel');
-    const btn = document.getElementById('advancedFilterBtn');
-    if (panel && btn) {
-        const visible = panel.style.display !== 'none';
-        if (visible) {
-            btn.classList.remove('btn-outline-primary');
-            btn.classList.add('btn-primary');
-            btn.classList.add('active');
-        } else {
-            btn.classList.remove('btn-primary');
-            btn.classList.remove('active');
-            btn.classList.add('btn-outline-primary');
-        }
-    }
 });
