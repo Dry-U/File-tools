@@ -54,7 +54,8 @@ File-tools/
 ├── tests/                  # 测试代码
 ├── data/                   # 数据存储
 │   ├── index/              # 文本索引
-│   ├── faiss_index/        # 向量索引
+│   ├── tantivy_index/      # Tantivy 索引
+│   ├── hnsw_index/         # HNSWLib 索引
 │   ├── metadata/           # 元数据
 │   ├── cache/              # 缓存文件
 │   └── logs/               # 日志文件

@@ -154,14 +154,14 @@ cython_debug/
 data/cache/*
 data/temp/*
 data/index/*
-data/faiss_index/*
-data/whoosh_index/*
 data/metadata/*
+data/tantivy_index/*
+data/hnsw_index/*
 
 # Keep directory structure
 !data/cache/.gitkeep
 !data/temp/.gitkeep
 !data/index/.gitkeep
-!data/faiss_index/.gitkeep
-!data/whoosh_index/.gitkeep
+!data/tantivy_index/.gitkeep
+!data/hnsw_index/.gitkeep
 !data/metadata/.gitkeep

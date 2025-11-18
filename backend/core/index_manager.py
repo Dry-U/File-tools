@@ -88,12 +88,19 @@ class IndexManager:
         self._init_tantivy_index()
         self._init_hnsw_index()
         self.index_ready = self.is_index_ready()
+        self.schema_updated = False
+        try:
+            self._ensure_schema_version()
+        except Exception:
+            pass
 
     def _init_tantivy_index(self):
         schema_builder = tantivy.SchemaBuilder()
         self.t_path = schema_builder.add_text_field('path', stored=True, tokenizer_name='raw')
         self.t_filename = schema_builder.add_text_field('filename', stored=True)
+        self.t_filename_chars = schema_builder.add_text_field('filename_chars', stored=True)
         self.t_content = schema_builder.add_text_field('content', stored=True)
+        self.t_content_chars = schema_builder.add_text_field('content_chars', stored=True)
         self.t_keywords = schema_builder.add_text_field('keywords', stored=True)
         self.t_file_type = schema_builder.add_text_field('file_type', stored=True)
         self.t_size = schema_builder.add_integer_field('size', stored=True)
@@ -134,6 +141,27 @@ class IndexManager:
             self.vector_metadata = {}
             self.next_id = 0
 
+    def _ensure_schema_version(self):
+        expected_fields = ['path','filename','filename_chars','content','content_chars','keywords','file_type','size','created','modified']
+        version_file = os.path.join(self.metadata_path, 'schema_version.json')
+        current = {}
+        try:
+            if os.path.exists(version_file):
+                with open(version_file, 'r', encoding='utf-8') as f:
+                    current = json.load(f)
+        except Exception:
+            current = {}
+        current_fields = current.get('fields', [])
+        if current_fields != expected_fields:
+            try:
+                self.logger.info('检测到索引模式变化，重建索引以支持单字符检索')
+                self.rebuild_index()
+                self.schema_updated = True
+                with open(version_file, 'w', encoding='utf-8') as f:
+                    json.dump({'fields': expected_fields}, f, ensure_ascii=False, indent=2)
+            except Exception as e:
+                self.logger.error(f'更新索引模式失败: {str(e)}')
+
     def _segment(self, text):
         try:
             tokens = jieba.lcut_for_search(text or '')
@@ -148,11 +176,19 @@ class IndexManager:
             seg_filename = self._segment(document['filename'])
             seg_content = self._segment(document['content'])
             seg_keywords = self._segment(document.get('keywords', ''))
+            fname_chars = ' '.join([c for c in document['filename']])
+            try:
+                raw_content = document['content'] or ''
+            except Exception:
+                raw_content = ''
+            content_chars = ' '.join([c for c in str(raw_content)[:5000]])
             with self.tantivy_index.writer() as writer:
                 tdoc = tantivy.Document(
                     path=document['path'],
                     filename=[seg_filename],
+                    filename_chars=[fname_chars],
                     content=[seg_content],
+                    content_chars=[content_chars],
                     file_type=[document['file_type']],
                     size=int(document['size']),
                     created=int(time.mktime(document['created'].timetuple())) if isinstance(document['created'], datetime) else int(document['created']),
@@ -196,10 +232,21 @@ class IndexManager:
         if not getattr(self, 'tantivy_index', None):
             return False
         try:
-            with self.tantivy_index.writer() as writer:
-                term = tantivy.Term(self.t_path, file_path)
-                writer.delete_term(term)
-                writer.commit()
+            try:
+                with self.tantivy_index.writer() as writer:
+                    try:
+                        query = self.tantivy_index.parse_query(f'"{file_path}"', ['path'])
+                        # 尝试通过查询删除，某些版本的python-tantivy不支持Term
+                        if hasattr(writer, 'delete_query'):
+                            writer.delete_query(query)
+                        elif hasattr(writer, 'delete_documents'):
+                            writer.delete_documents(query)
+                        # 若均不支持，则跳过删除，依赖结果去重与重建索引
+                    except Exception:
+                        pass
+                    writer.commit()
+            except Exception:
+                pass
             old_doc_id = None
             for doc_id, metadata in list(self.vector_metadata.items()):
                 if metadata.get('path') == file_path:
@@ -223,20 +270,27 @@ class IndexManager:
             searcher = self.tantivy_index.searcher()
             queries_to_try = []
             try:
-                query1 = self.tantivy_index.parse_query(seg_query, ['filename', 'content', 'keywords'])
+                query1 = self.tantivy_index.parse_query(seg_query, ['filename', 'content', 'keywords', 'filename_chars', 'content_chars'])
                 queries_to_try.append(query1)
             except Exception:
                 pass
             try:
-                query2 = self.tantivy_index.parse_query(query_str, ['filename', 'content', 'keywords'])
+                query2 = self.tantivy_index.parse_query(query_str, ['filename', 'content', 'keywords', 'filename_chars', 'content_chars'])
                 queries_to_try.append(query2)
             except Exception:
                 pass
             try:
                 for word in seg_query.split():
                     if word.strip():
-                        word_query = self.tantivy_index.parse_query(word, ['filename', 'content', 'keywords'])
+                        word_query = self.tantivy_index.parse_query(word, ['filename', 'content', 'keywords', 'filename_chars', 'content_chars'])
                         queries_to_try.append(word_query)
+            except Exception:
+                pass
+            try:
+                import re
+                for ch in re.findall(r'\w', query_str or ''):
+                    ch_query = self.tantivy_index.parse_query(ch, ['filename_chars', 'content_chars'])
+                    queries_to_try.append(ch_query)
             except Exception:
                 pass
             all_hits = []

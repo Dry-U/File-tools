@@ -63,6 +63,8 @@ class SearchEngine:
         if filters is None:
             filters = {}
         
+        # 保持查询与类型筛选相互独立：不再基于查询自动推断文件类型过滤
+        
         # 执行文本搜索
         text_results = self._search_text(query, filters)
         self.logger.info(f"文本搜索返回 {len(text_results)} 条结果")
@@ -121,6 +123,7 @@ class SearchEngine:
         """合并文本搜索和向量搜索结果 - 优化版本"""
         # 使用字典来跟踪每个文件路径的最高分数
         combined = {}
+        max_text_score = 0.0
         
         # 添加文本搜索结果
         for result in text_results:
@@ -133,12 +136,16 @@ class SearchEngine:
                 # 记录原始分数
                 combined[path]['text_score'] = result['score']
                 combined[path]['vector_score'] = 0.0
+                if result['score'] > max_text_score:
+                    max_text_score = result['score']
             else:
                 # 如果已经存在，取较高的分数
                 if result['score'] > combined[path]['score']:
                     combined[path]['score'] = result['score']
                     combined[path]['search_type'] = result['search_type']
                 combined[path]['text_score'] = result['score']
+                if result['score'] > max_text_score:
+                    max_text_score = result['score']
         
         # 添加向量搜索结果，并根据权重调整分数
         for result in vector_results:
@@ -178,6 +185,16 @@ class SearchEngine:
                 # 确保向量搜索结果有search_type字段
                 if 'search_type' not in combined[path]:
                     combined[path]['search_type'] = 'vector'
+
+        if (not vector_results) or (self.vector_weight == 0):
+            if max_text_score <= 0:
+                max_text_score = 1.0
+            for path, result in combined.items():
+                ts = float(result.get('text_score', 0.0))
+                vs = float(result.get('vector_score', 0.0))
+                if vs == 0.0:
+                    result['score'] = min((ts / max_text_score) * 100.0, 100.0)
+                    result['search_type'] = 'text'
         
         # 应用额外的质量评估标准
         for path, result in combined.items():
@@ -212,7 +229,6 @@ class SearchEngine:
         """应用过滤器"""
         if not filters:
             return results
-        
         filtered = []
         
         for result in results:

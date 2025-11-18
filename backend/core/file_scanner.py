@@ -10,6 +10,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import List, Dict, Set, Optional
 import logging
+from backend.core.document_parser import DocumentParser
 
 class FileScanner:
     """文件扫描器类，负责扫描文件系统并识别可索引文件"""
@@ -33,7 +34,7 @@ class FileScanner:
         self.all_extensions: List[str] = [ext for exts in self.target_extensions.values() for ext in exts]
         
         # 依赖组件
-        self.document_parser = document_parser
+        self.document_parser = document_parser or DocumentParser(config_loader)
         self.index_manager = index_manager
         
         # 进度回调
@@ -442,6 +443,13 @@ class FileScanner:
     def _read_file_content(self, file_path: str, file_ext: str) -> str:
         """读取文件内容"""
         try:
+            if self.document_parser:
+                try:
+                    parsed = self.document_parser.extract_text(file_path)
+                    if isinstance(parsed, str) and parsed.strip():
+                        return parsed
+                except Exception:
+                    pass
             # 对于文本类文件，直接读取
             if file_ext in ['.txt', '.md', '.json', '.xml', '.csv', '.log', '.py', '.js', '.java', '.cpp', '.c', '.h']:
                 try:

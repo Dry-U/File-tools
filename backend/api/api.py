@@ -53,6 +53,14 @@ async def startup_event():
         # Initialize file scanner
         file_scanner = FileScanner(config_loader, None, index_manager)
 
+        try:
+            if getattr(index_manager, 'schema_updated', False):
+                logger.info("检测到索引模式更新，自动重建并扫描索引...")
+                stats = file_scanner.scan_and_index()
+                logger.info(f"自动重建索引完成: {stats}")
+        except Exception as e:
+            logger.error(f"自动重建索引失败: {str(e)}")
+
         logger.info("Web application initialized successfully")
     except Exception as e:
         logger.error(f"Error initializing web application: {str(e)}")
@@ -193,12 +201,23 @@ async def preview_file(request: Request):
 @api_router.post("/rebuild-index")
 async def rebuild_index():
     """Rebuild the search index"""
-    global file_scanner
+    global file_scanner, index_manager
     if not file_scanner:
         raise HTTPException(status_code=500, detail="File scanner not initialized")
 
     try:
         logger.info("开始重建索引...")
+        try:
+            if index_manager:
+                logger.info("先删除旧索引目录并重新初始化索引...")
+                ok = index_manager.rebuild_index()
+                if not ok:
+                    logger.warning("重建索引目录失败，继续执行全量扫描以覆盖旧数据")
+            else:
+                logger.warning("IndexManager 未初始化，无法删除旧索引目录")
+        except Exception as e:
+            logger.error(f"删除旧索引目录失败: {str(e)}")
+        
         # Log scan paths to verify configuration
         scan_paths = getattr(file_scanner, 'scan_paths', 'Unknown')
         logger.info(f"扫描路径: {scan_paths}")
