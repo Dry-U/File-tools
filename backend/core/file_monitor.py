@@ -14,9 +14,10 @@ if TYPE_CHECKING:
 
 class FileMonitor:
     """文件监控器类，负责监控指定目录的文件变化"""
-    def __init__(self, config_loader, index_manager=None):
+    def __init__(self, config_loader, index_manager=None, file_scanner=None):
         self.config_loader = config_loader
         self.index_manager: Optional['IndexManager'] = index_manager
+        self.file_scanner = file_scanner
         self.logger = logging.getLogger(__name__)
         
         # 监控配置 - 使用ConfigLoader获取配置
@@ -282,6 +283,14 @@ class FileMonitor:
     
     def _update_index_for_file(self, file_path):
         """更新文件在索引中的信息"""
+        if self.file_scanner:
+            try:
+                self.file_scanner.index_file(file_path)
+                self.logger.debug(f"已通过FileScanner更新文件索引: {file_path}")
+                return
+            except Exception as e:
+                self.logger.error(f"FileScanner更新索引失败 {file_path}: {str(e)}")
+        
         if self.index_manager is None:
             self.logger.warning(f"索引管理器未初始化，跳过文件索引更新: {file_path}")
             return

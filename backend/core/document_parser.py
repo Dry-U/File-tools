@@ -18,6 +18,10 @@ except ImportError:
 from PIL import Image
 import exifread
 import datetime
+try:
+    import win32com.client
+except ImportError:
+    win32com = None
 
 class DocumentParser:
     """文档解析器类，用于提取各种格式文档的内容和元数据"""
@@ -29,6 +33,7 @@ class DocumentParser:
         self.parser_map = {
             'pdf': self._parse_pdf,
             'docx': self._parse_docx,
+            'doc': self._parse_doc_win32,
             'txt': self._parse_text,
             'md': self._parse_markdown,
             'csv': self._parse_csv,
@@ -152,6 +157,30 @@ class DocumentParser:
             # 如果没有textract或解析失败，返回错误信息
             return f"错误: 无法解析Word内容\n{str(e)}"
     
+    def _parse_doc_win32(self, file_path):
+        """使用win32com解析.doc文件 (仅Windows)"""
+        if not win32com:
+            # 尝试使用textract作为后备
+            if textract:
+                try:
+                    return textract.process(file_path).decode('utf-8', errors='ignore')
+                except Exception as te:
+                    self.logger.warning(f"无法使用textract解析.doc文件 {file_path}: {str(te)}")
+            return "错误: 无法解析.doc内容 (缺少 pywin32 依赖或非Windows环境)"
+        
+        try:
+            word = win32com.client.Dispatch("Word.Application")
+            word.Visible = False
+            abs_path = os.path.abspath(file_path)
+            doc = word.Documents.Open(abs_path)
+            text = doc.Content.Text
+            doc.Close()
+            # word.Quit() # 不要退出Word，可能影响其他进程，或者保持Word后台运行
+            return text
+        except Exception as e:
+            self.logger.error(f"Win32解析.doc失败 {file_path}: {str(e)}")
+            return f"错误: 无法解析.doc内容\n{str(e)}"
+
     def _parse_text(self, file_path):
         """解析文本文件"""
         try:
@@ -196,10 +225,36 @@ class DocumentParser:
     def _parse_excel(self, file_path):
         """解析Excel文件"""
         try:
+            # pandas read_excel 自动处理 .xls (需要xlrd) 和 .xlsx (需要openpyxl)
             df = pd.read_excel(file_path)
             return df.to_string()
         except Exception as e:
             self.logger.error(f"Excel解析失败 {file_path}: {str(e)}")
+            # 尝试使用win32com作为后备 (仅Windows)
+            if win32com:
+                try:
+                    excel = win32com.client.Dispatch("Excel.Application")
+                    excel.Visible = False
+                    abs_path = os.path.abspath(file_path)
+                    wb = excel.Workbooks.Open(abs_path)
+                    text = ""
+                    for sheet in wb.Sheets:
+                        try:
+                            # 获取已使用区域的值
+                            used_range = sheet.UsedRange
+                            if used_range.Value:
+                                # 将元组转换为字符串
+                                text += f"Sheet: {sheet.Name}\n"
+                                for row in used_range.Value:
+                                    if row:
+                                        text += " ".join([str(cell) for cell in row if cell is not None]) + "\n"
+                        except Exception:
+                            pass
+                    wb.Close(False)
+                    return text
+                except Exception as we:
+                    self.logger.warning(f"Win32解析Excel失败 {file_path}: {str(we)}")
+
             # 尝试使用textract作为后备
             if textract:
                 try:

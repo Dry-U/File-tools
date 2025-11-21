@@ -29,11 +29,13 @@ logger = get_logger(__name__)
 search_engine = None
 file_scanner = None
 index_manager = None
+rag_pipeline = None
+file_monitor = None
 
 @app.on_event("startup")
 async def startup_event():
     """Initialize core components when the application starts"""
-    global search_engine, file_scanner, index_manager
+    global search_engine, file_scanner, index_manager, rag_pipeline, file_monitor
 
     try:
         # Load configuration
@@ -43,6 +45,9 @@ async def startup_event():
         from backend.core.index_manager import IndexManager
         from backend.core.search_engine import SearchEngine
         from backend.core.file_scanner import FileScanner
+        from backend.core.model_manager import ModelManager
+        from backend.core.rag_pipeline import RAGPipeline
+        from backend.core.file_monitor import FileMonitor
 
         # Initialize index manager
         index_manager = IndexManager(config_loader)
@@ -52,6 +57,21 @@ async def startup_event():
 
         # Initialize file scanner
         file_scanner = FileScanner(config_loader, None, index_manager)
+        
+        # Initialize file monitor
+        file_monitor = FileMonitor(config_loader, index_manager, file_scanner)
+        if config_loader.getboolean('monitor', 'enabled', False):
+            file_monitor.start_monitoring()
+            logger.info("文件监控已启动")
+
+        # Initialize RAG pipeline if AI model is enabled
+        if config_loader.getboolean('ai_model', 'enabled', False):
+            try:
+                model_manager = ModelManager(config_loader)
+                rag_pipeline = RAGPipeline(model_manager, config_loader, search_engine)
+                logger.info("RAG Pipeline initialized")
+            except Exception as e:
+                logger.error(f"Failed to initialize RAG Pipeline: {e}")
 
         try:
             if getattr(index_manager, 'schema_updated', False):
@@ -65,6 +85,14 @@ async def startup_event():
     except Exception as e:
         logger.error(f"Error initializing web application: {str(e)}")
         raise
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    """Cleanup when application stops"""
+    global file_monitor
+    if file_monitor:
+        file_monitor.stop_monitoring()
+
 
 
 @app.get("/")
@@ -135,7 +163,8 @@ async def search(request: Request):
                     "file_name": os.path.basename(str(converted_result.get("path", ""))),
                     "path": str(converted_result.get("path", "")),
                     "score": float(converted_result.get("score", 0.0)),
-                    "modified_time": converted_result.get("modified_time") or converted_result.get("modified")
+                    "modified_time": converted_result.get("modified_time") or converted_result.get("modified"),
+                    "snippet": converted_result.get("snippet", "")  # 添加摘要字段
                 })
             else:
                 # 如果不是字典，使用默认值
@@ -143,7 +172,8 @@ async def search(request: Request):
                     "file_name": "",
                     "path": "",
                     "score": 0.0,
-                    "modified_time": None
+                    "modified_time": None,
+                    "snippet": ""
                 })
 
         return formatted_results
@@ -158,6 +188,7 @@ async def search(request: Request):
 @api_router.post("/preview")
 async def preview_file(request: Request):
     """Preview file content"""
+    global index_manager
     try:
         # 从请求体获取路径
         body = await request.json()
@@ -169,11 +200,28 @@ async def preview_file(request: Request):
         # 验证路径安全性，防止路径遍历攻击
         import os
         # 解析并规范路径
+        # 移除可能存在的引号
+        path = path.strip('"').strip("'")
         normalized_path = os.path.normpath(path)
+        
+        logger.info(f"尝试预览文件: {normalized_path}")
 
         # Check file size to prevent loading huge files
         if not os.path.exists(normalized_path):
-            return {"content": "错误：文件不存在"}
+            logger.error(f"文件不存在: {normalized_path}")
+            # 尝试使用原始路径
+            if os.path.exists(path):
+                normalized_path = path
+                logger.info(f"使用原始路径成功: {normalized_path}")
+            else:
+                return {"content": f"错误：文件不存在 ({normalized_path})"}
+        
+        # 优先使用IndexManager获取内容（支持PDF/DOCX等已索引文件）
+        if index_manager:
+            content = index_manager.get_document_content(normalized_path)
+            if content:
+                return {"content": content}
+
         if os.path.getsize(normalized_path) > 5 * 1024 * 1024:  # 5MB limit
             return {"content": "文件过大（超过5MB），无法预览"}
 
@@ -181,12 +229,12 @@ async def preview_file(request: Request):
         ext = os.path.splitext(normalized_path)[1].lower()
 
         # Preview text-based files
-        if ext in ['.txt', '.md', '.csv', '.json', '.xml', '.py', '.js', '.html', '.css', '.sql', '.log']:
+        if ext in ['.txt', '.md', '.csv', '.json', '.xml', '.py', '.js', '.html', '.css', '.sql', '.log', '.bat', '.sh', '.yaml', '.yml', '.ini', '.conf']:
             with open(normalized_path, 'r', encoding='utf-8', errors='replace') as f:
-                content = f.read(2000)  # Limit content to 2000 chars
+                content = f.read(5000)  # Limit content to 5000 chars
             return {"content": content}
         else:
-            return {"content": f"不支持预览 {ext} 格式的文件"}
+            return {"content": f"不支持预览 {ext} 格式的文件，且该文件未被索引内容"}
     except FileNotFoundError:
         logger.error(f"Preview error: File not found")
         return {"content": "预览失败: 文件不存在"}
@@ -260,6 +308,32 @@ async def rebuild_index():
 async def health_check():
     """Health check endpoint"""
     return {"status": "healthy", "message": "Web API is running"}
+
+
+@api_router.post("/chat")
+async def chat(request: Request):
+    """Chat with the RAG system"""
+    global rag_pipeline
+    
+    if not rag_pipeline:
+        # Check if it's disabled in config
+        config_loader = ConfigLoader()
+        if not config_loader.getboolean('ai_model', 'enabled', False):
+             return {"answer": "AI问答功能未启用。请在配置文件中设置 ai_model.enabled = true。", "sources": []}
+        raise HTTPException(status_code=500, detail="RAG pipeline not initialized")
+
+    try:
+        body = await request.json()
+        query = body.get("query", "")
+        
+        if not query:
+            raise HTTPException(status_code=400, detail="Query cannot be empty")
+            
+        result = rag_pipeline.query(query)
+        return result
+    except Exception as e:
+        logger.error(f"Chat error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Chat failed: {str(e)}")
 
 
 # Include the API router with /api prefix

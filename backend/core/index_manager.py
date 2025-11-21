@@ -38,50 +38,22 @@ class IndexManager:
         self.embedding_provider = config_loader.get('embedding', 'provider', 'fastembed')
         model_enabled = config_loader.get('embedding', 'enabled', False)
         if model_enabled:
-            if str(self.embedding_provider).lower() in ['sentence_transformers', 'sentence-transformers']:
+            try:
+                from fastembed import TextEmbedding
+                model_name = config_loader.get('embedding', 'model_name', 'bge-small-zh')
+                cache_dir = config_loader.get('embedding', 'cache_dir', None)
+                if cache_dir:
+                    self.embedding_model = TextEmbedding(model_name=model_name, cache_dir=cache_dir)
+                else:
+                    self.embedding_model = TextEmbedding(model_name=model_name)
                 try:
-                    from sentence_transformers import SentenceTransformer
-                    model_path = config_loader.get('embedding', 'model_path', None)
-                    model_name = config_loader.get('embedding', 'model_name', None)
-                    if model_path:
-                        try:
-                            if os.path.isfile(model_path):
-                                model_path = os.path.dirname(model_path)
-                            self.embedding_model = SentenceTransformer(model_path, local_files_only=True)
-                        except Exception:
-                            self.embedding_model = SentenceTransformer(model_path)
-                    elif model_name:
-                        try:
-                            self.embedding_model = SentenceTransformer(model_name, local_files_only=True)
-                        except Exception:
-                            self.embedding_model = SentenceTransformer(model_name)
-                    else:
-                        self.embedding_model = SentenceTransformer('BAAI/bge-small-zh')
-                    try:
-                        self.vector_dim = self.embedding_model.get_sentence_embedding_dimension()
-                    except Exception:
-                        sample_vec = self.embedding_model.encode(['test'])[0]
-                        self.vector_dim = len(sample_vec)
+                    vec = next(self.embedding_model.embed(['test']))
+                    self.vector_dim = len(vec)
                 except Exception:
-                    self.embedding_model = None
                     self.vector_dim = 384
-            else:
-                try:
-                    from fastembed import TextEmbedding
-                    model_name = config_loader.get('embedding', 'model_name', 'bge-small-zh')
-                    cache_dir = config_loader.get('embedding', 'cache_dir', None)
-                    if cache_dir:
-                        self.embedding_model = TextEmbedding(model_name=model_name, cache_dir=cache_dir)
-                    else:
-                        self.embedding_model = TextEmbedding(model_name=model_name)
-                    try:
-                        vec = next(self.embedding_model.embed(['test']))
-                        self.vector_dim = len(vec)
-                    except Exception:
-                        self.vector_dim = 384
-                except Exception:
-                    self.embedding_model = None
-                    self.vector_dim = 384
+            except Exception:
+                self.embedding_model = None
+                self.vector_dim = 384
         else:
             self.embedding_model = None
             self.vector_dim = 384
@@ -260,6 +232,177 @@ class IndexManager:
             self.logger.error(f"从索引中删除文档失败 {file_path}: {str(e)}")
             return False
 
+    def _highlight_text(self, content, query, window_size=60, max_snippets=3):
+        """生成带有高亮关键词的多段文本摘要"""
+        if not content or not query:
+            return content[:200] + '...' if content and len(content) > 200 else (content or '')
+        
+        try:
+            import re
+            # 提取查询中的关键词
+            keywords = [k for k in re.split(r'[\s,;，；]+', query) if k.strip()]
+            if not keywords:
+                return content[:200] + '...' if len(content) > 200 else content
+            
+            lower_content = content.lower()
+            matches = []
+            
+            # 找到所有关键词的所有出现位置
+            for kw in keywords:
+                kw_lower = kw.lower()
+                start = 0
+                while True:
+                    idx = lower_content.find(kw_lower, start)
+                    if idx == -1:
+                        break
+                    matches.append((idx, idx + len(kw)))
+                    start = idx + len(kw)
+            
+            # 如果没有匹配，返回开头
+            if not matches:
+                return content[:200] + '...' if len(content) > 200 else content
+            
+            # 按位置排序
+            matches.sort(key=lambda x: x[0])
+            
+            # 合并邻近的匹配窗口
+            windows = []
+            for start, end in matches:
+                # 定义当前匹配的窗口范围
+                win_start = max(0, start - window_size // 2)
+                win_end = min(len(content), end + window_size // 2)
+                
+                # 尝试合并到上一个窗口
+                if windows and win_start < windows[-1][1]:
+                    windows[-1] = (windows[-1][0], max(windows[-1][1], win_end))
+                else:
+                    windows.append((win_start, win_end))
+            
+            # 限制摘要数量
+            selected_windows = windows[:max_snippets]
+            
+            snippets = []
+            for start, end in selected_windows:
+                # 调整边界以避免截断单词（简单优化）
+                # 向前寻找空格
+                while start > 0 and content[start] not in ' \t\n\r.,;，。；':
+                    start -= 1
+                if start > 0: start += 1 # 跳过分隔符
+                
+                # 向后寻找空格
+                while end < len(content) and content[end] not in ' \t\n\r.,;，。；':
+                    end += 1
+                
+                text_chunk = content[start:end].strip()
+                if text_chunk:
+                    snippets.append(text_chunk)
+            
+            final_snippet = ' ... '.join(snippets)
+            
+            # 高亮关键词
+            for kw in keywords:
+                pattern = re.compile(re.escape(kw), re.IGNORECASE)
+                final_snippet = pattern.sub(lambda m: f'<span class="text-danger fw-bold">{m.group(0)}</span>', final_snippet)
+                
+            return final_snippet
+        except Exception as e:
+            self.logger.error(f"生成摘要失败: {str(e)}")
+            return content[:200] + '...'
+
+    def get_document_content(self, path):
+        # 尝试从Tantivy索引中获取内容
+        if getattr(self, 'tantivy_index', None):
+            try:
+                self.tantivy_index.reload()
+                searcher = self.tantivy_index.searcher()
+                
+                # 1. 尝试精确路径查询 (注意转义反斜杠)
+                escaped_path = path.replace('\\', '\\\\').replace('"', '\\"')
+                query_str = f'path:"{escaped_path}"'
+                try:
+                    query = self.tantivy_index.parse_query(query_str)
+                    hits = searcher.search(query, 1).hits
+                    if hits:
+                        _, doc_addr = hits[0]
+                        doc = searcher.doc(doc_addr)
+                        content = doc.get_first('content')
+                        if content: return content
+                except Exception:
+                    pass
+
+                # 2. 如果精确路径失败，尝试通过文件名查询 (作为后备)
+                filename = os.path.basename(path)
+                escaped_filename = filename.replace('"', '\\"')
+                query_str = f'filename:"{escaped_filename}"'
+                try:
+                    query = self.tantivy_index.parse_query(query_str)
+                    hits = searcher.search(query, 5).hits # 获取前5个同名文件
+                    for _, doc_addr in hits:
+                        doc = searcher.doc(doc_addr)
+                        idx_path = doc.get_first('path')
+                        # 在Python层面验证路径是否匹配 (忽略大小写和分隔符差异)
+                        if os.path.normpath(idx_path).lower() == os.path.normpath(path).lower():
+                            content = doc.get_first('content')
+                            if content: return content
+                except Exception:
+                    pass
+                    
+            except Exception as e:
+                self.logger.error(f"从索引获取内容失败: {str(e)}")
+        
+        # 降级方案：使用DocumentParser解析文件
+        try:
+            # 动态导入以避免循环依赖
+            from backend.core.document_parser import DocumentParser
+            parser = DocumentParser(self.config_loader)
+            content = parser.extract_text(path)
+            if content and not content.startswith("错误"):
+                return content
+        except Exception as e:
+            self.logger.error(f"使用DocumentParser解析失败: {str(e)}")
+            
+        # 最后的降级方案：直接读取文件
+        try:
+            # 扩展支持的文本格式列表
+            ext = os.path.splitext(path)[1].lower()
+            text_exts = ['.txt', '.md', '.py', '.json', '.xml', '.csv', '.log', '.js', '.html', '.css', '.bat', '.sh', '.yaml', '.yml', '.ini', '.conf', '.sql', '.properties', '.gradle', '.java', '.c', '.cpp', '.h', '.hpp']
+            if ext in text_exts:
+                if os.path.exists(path):
+                    with open(path, 'r', encoding='utf-8', errors='ignore') as f:
+                        return f.read(10000) # 增加读取长度
+        except Exception:
+            pass
+        return ''
+
+    def _format_result(self, path, filename, content, file_type, size, modified, score, query_str):
+        """格式化搜索结果"""
+        # 生成高亮摘要
+        snippet = self._highlight_text(content, query_str)
+        
+        # 转换时间戳
+        modified_time = None
+        if modified:
+            try:
+                import datetime
+                if isinstance(modified, (int, float)):
+                    modified_time = datetime.datetime.fromtimestamp(modified).strftime('%Y-%m-%d %H:%M:%S')
+                else:
+                    modified_time = str(modified)
+            except:
+                pass
+
+        return {
+            'path': path,
+            'filename': filename,
+            'file_name': filename,
+            'content': content, # 保留原始内容以便后续处理
+            'snippet': snippet,     # 添加高亮摘要
+            'file_type': file_type,
+            'size': size,
+            'modified': modified_time, # 添加修改时间
+            'score': score
+        }
+
     def search_text(self, query_str, limit=10):
         if not getattr(self, 'tantivy_index', None):
             return []
@@ -269,30 +412,32 @@ class IndexManager:
             self.tantivy_index.reload()
             searcher = self.tantivy_index.searcher()
             queries_to_try = []
+            
+            # 简化查询构建逻辑
+            fields = ['filename', 'content', 'keywords', 'filename_chars', 'content_chars']
             try:
-                query1 = self.tantivy_index.parse_query(seg_query, ['filename', 'content', 'keywords', 'filename_chars', 'content_chars'])
-                queries_to_try.append(query1)
-            except Exception:
-                pass
-            try:
-                query2 = self.tantivy_index.parse_query(query_str, ['filename', 'content', 'keywords', 'filename_chars', 'content_chars'])
-                queries_to_try.append(query2)
-            except Exception:
-                pass
+                queries_to_try.append(self.tantivy_index.parse_query(seg_query, fields))
+            except Exception: pass
+            
+            if query_str != seg_query:
+                try:
+                    queries_to_try.append(self.tantivy_index.parse_query(query_str, fields))
+                except Exception: pass
+                
+            # 尝试单词查询
             try:
                 for word in seg_query.split():
                     if word.strip():
-                        word_query = self.tantivy_index.parse_query(word, ['filename', 'content', 'keywords', 'filename_chars', 'content_chars'])
-                        queries_to_try.append(word_query)
-            except Exception:
-                pass
+                        queries_to_try.append(self.tantivy_index.parse_query(word, fields))
+            except Exception: pass
+            
+            # 尝试字符查询
             try:
                 import re
                 for ch in re.findall(r'\w', query_str or ''):
-                    ch_query = self.tantivy_index.parse_query(ch, ['filename_chars', 'content_chars'])
-                    queries_to_try.append(ch_query)
-            except Exception:
-                pass
+                    queries_to_try.append(self.tantivy_index.parse_query(ch, ['filename_chars', 'content_chars']))
+            except Exception: pass
+            
             all_hits = []
             for query in queries_to_try:
                 try:
@@ -300,13 +445,16 @@ class IndexManager:
                     all_hits.extend(hits)
                 except Exception:
                     continue
+            
             unique_docs = {}
             for score, doc_address in all_hits:
                 addr_key = str(doc_address)
                 if addr_key not in unique_docs or unique_docs[addr_key][0] < score:
                     unique_docs[addr_key] = (score, doc_address)
+            
             sorted_hits = sorted(unique_docs.values(), key=lambda x: x[0], reverse=True)
             final_hits = sorted_hits[:limit]
+            
             for score, doc_address in final_hits:
                 doc = searcher.doc(doc_address)
                 try:
@@ -315,18 +463,16 @@ class IndexManager:
                     content_val = doc.get_first('content') or ''
                     file_type_val = doc.get_first('file_type') or ''
                     size_val = doc.get_first('size') or 0
+                    modified_val = doc.get_first('modified') or 0
                 except Exception:
                     continue
+                
                 normalized_score = min(float(score), 100.0)
-                results.append({
-                    'path': path_val,
-                    'filename': filename_val,
-                    'file_name': filename_val,
-                    'content': content_val[:200] + ('...' if len(content_val) > 200 else ''),
-                    'file_type': file_type_val,
-                    'size': size_val,
-                    'score': normalized_score
-                })
+                results.append(self._format_result(
+                    path_val, filename_val, content_val, file_type_val, 
+                    size_val, modified_val, normalized_score, query_str
+                ))
+                
             results.sort(key=lambda x: x['score'], reverse=True)
             return results
         except Exception as e:
@@ -348,15 +494,16 @@ class IndexManager:
                     metadata = self.vector_metadata[str(idx)]
                     d = distances[0][i]
                     sim = 1.0 - float(d)
-                    adjusted = sim * 100.0
-                    adjusted = min(adjusted, 100.0)
-                    results.append({
-                        'path': metadata['path'],
-                        'filename': metadata['filename'],
-                        'file_name': metadata['filename'],
-                        'file_type': metadata['file_type'],
-                        'score': adjusted
-                    })
+                    adjusted = min(sim * 100.0, 100.0)
+                    
+                    path = metadata['path']
+                    content = self.get_document_content(path)
+                    
+                    results.append(self._format_result(
+                        path, metadata['filename'], content, metadata['file_type'],
+                        0, metadata.get('modified'), adjusted, query_str
+                    ))
+                    
             results.sort(key=lambda x: x['score'], reverse=True)
             return results[:limit]
         except Exception as e:
@@ -365,12 +512,8 @@ class IndexManager:
 
     def _encode_text(self, text: str):
         try:
-            if str(getattr(self, 'embedding_provider', 'fastembed')).lower() in ['sentence_transformers', 'sentence-transformers']:
-                vec = self.embedding_model.encode([text])[0]
-                return np.array(vec, dtype=np.float32)
-            else:
-                vec = next(self.embedding_model.embed([text]))
-                return np.array(vec, dtype=np.float32)
+            vec = next(self.embedding_model.embed([text]))
+            return np.array(vec, dtype=np.float32)
         except Exception:
             return np.zeros(getattr(self, 'vector_dim', 384), dtype=np.float32)
 
@@ -416,8 +559,29 @@ class IndexManager:
             return False
 
     def get_document_content(self, path):
+        # 尝试从Tantivy索引中获取内容（支持所有已索引的文件类型）
+        if getattr(self, 'tantivy_index', None):
+            try:
+                self.tantivy_index.reload()
+                searcher = self.tantivy_index.searcher()
+                # 使用路径精确查询
+                query = self.tantivy_index.parse_query(f'"{path}"', ['path'])
+                hits = searcher.search(query, 1).hits
+                if hits:
+                    _, doc_addr = hits[0]
+                    doc = searcher.doc(doc_addr)
+                    content = doc.get_first('content')
+                    if content:
+                        return content
+            except Exception:
+                pass
+        
+        # 降级方案：直接读取文件（仅限文本文件）
         try:
-            with open(path, 'r', encoding='utf-8', errors='ignore') as f:
-                return f.read(5000)
+            ext = os.path.splitext(path)[1].lower()
+            if ext in ['.txt', '.md', '.py', '.json', '.xml', '.csv', '.log', '.js', '.html', '.css', '.bat', '.sh', '.yaml', '.yml', '.ini', '.conf']:
+                with open(path, 'r', encoding='utf-8', errors='ignore') as f:
+                    return f.read(5000)
         except Exception:
-            return ''
+            pass
+        return ''

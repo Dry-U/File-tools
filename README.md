@@ -40,11 +40,8 @@ File-tools/
 │   │   ├── file_monitor.py         # 文件监控器
 │   │   ├── index_manager.py        # 索引管理器
 │   │   ├── search_engine.py        # 搜索引擎
-│   │   ├── vector_engine.py        # 向量引擎
 │   │   ├── model_manager.py        # 模型管理器
-│   │   ├── rag_pipeline.py         # RAG 问答流水线
-│   │   ├── smart_indexer.py        # 智能索引器
-│   │   └── universal_parser.py     # 通用解析器
+│   │   └── rag_pipeline.py         # RAG 问答流水线
 │   └── utils/              # 工具模块
 │       ├── config_loader.py        # 配置加载
 │       └── logger.py               # 日志系统
@@ -92,6 +89,10 @@ pip install -e .
 编辑 `config.yaml` 设置扫描路径和其他参数：
 
 ```yaml
+ai_model:
+  enabled: true  # 启用 AI 问答功能 (默认 false)
+  provider: "openai" # 或 "local"
+
 file_scanner:
   scan_paths:
     - "C:/Users/YourName/Documents"
@@ -131,11 +132,12 @@ python main.py
 - **语义检索**：基于 HNSWLib 的向量相似度检索
 - **混合排序**：按权重融合文本与向量分数（默认等权），提升相关性
 
-### 3. 智能问答
+### 3. 智能问答 (Smart Chat)
 
-- 基于检索增强生成（RAG）技术
-- 支持本地 LLaMA 模型或在线 API
-- 提供答案来源和文档引用
+- **交互式界面**：全新的聊天对话界面，支持上下文连续问答
+- **RAG 技术**：基于检索增强生成，精准回答用户提问
+- **引用溯源**：回答中包含来源文档引用，点击即可查看原文
+- **模型支持**：支持本地 LLaMA 模型或 OpenAI 兼容 API
 
 ### 4. 文件监控
 

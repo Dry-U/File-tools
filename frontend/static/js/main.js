@@ -1,4 +1,5 @@
 let currentPreviewPath = '';
+let searchResults = []; // Store search results globally
 
 async function performSearch() {
     const query = document.getElementById('searchInput').value.trim();
@@ -29,6 +30,7 @@ async function performSearch() {
         }
 
         const results = await response.json();
+        searchResults = results; // Update global results
         displayResults(results, query);
         updateStatus(`找到 ${results.length} 个结果`);
     } catch (error) {
@@ -81,28 +83,40 @@ function displayResults(results, query) {
         const fileName = result.file_name || result.path.split('/').pop().split('\\\\').pop();
         const scorePercent = Math.min(parseFloat(result.score), 100.0).toFixed(2);
         const lastModified = result.modified_time ? new Date(result.modified_time).toLocaleString() : '未知';
+        const snippet = result.snippet || '';
 
         html += `
-        <div class="result-card card">
-            <div class="card-body" style="cursor: pointer;" onclick="togglePreview('${index}', '${result.path}', '${query}')">
-                <div class="d-flex align-items-center">
-                    <div class="file-icon"><i class="${icon}"></i></div>
+        <div class="result-card card mb-3">
+            <div class="card-body" style="cursor: pointer;" onclick="togglePreview(${index})">
+                <div class="d-flex align-items-start">
+                    <div class="file-icon me-3 mt-1"><i class="${icon} fs-4"></i></div>
                     <div class="flex-grow-1">
-                        <div class="file-name">${fileName}</div>
-                        <div class="file-path">${result.path}</div>
-                        <small class="text-muted">修改时间: ${lastModified}</small>
+                        <div class="d-flex justify-content-between align-items-center">
+                            <h5 class="card-title mb-1 text-primary">${fileName}</h5>
+                            <span class="badge bg-light text-dark border score-badge">匹配度: ${scorePercent}%</span>
+                        </div>
+                        <div class="file-path text-muted small mb-2"><i class="bi bi-folder2-open me-1"></i>${result.path}</div>
+                        
+                        <!-- Snippet Display -->
+                        ${snippet ? `<div class="search-snippet p-2 bg-light rounded border-start border-4 border-primary mb-2" style="font-size: 0.9rem; color: #555;">${snippet}</div>` : ''}
+                        
+                        <div class="d-flex justify-content-between align-items-center mt-2">
+                            <small class="text-muted"><i class="bi bi-clock me-1"></i>修改时间: ${lastModified}</small>
+                            <button class="btn btn-sm btn-outline-primary" onclick="event.stopPropagation(); togglePreview(${index})">
+                                <i class="bi bi-eye me-1"></i>预览
+                            </button>
+                        </div>
                     </div>
-                    <span class="badge score-badge">${scorePercent}%</span>
                 </div>
             </div>
-            <div id="preview-${index}" class="preview-content" style="display: none;">
+            <div id="preview-${index}" class="preview-content border-top p-3 bg-light" style="display: none;">
                 <div class="d-flex justify-content-between align-items-center mb-2">
-                    <h6><i class="bi bi-eye me-2"></i>文件预览</h6>
-                    <button class="btn btn-sm btn-outline-secondary" onclick="event.stopPropagation(); closePreview('${index}')">
-                        <i class="bi bi-x"></i>
+                    <h6 class="mb-0"><i class="bi bi-file-text me-2"></i>文件预览</h6>
+                    <button class="btn btn-sm btn-outline-secondary" onclick="event.stopPropagation(); closePreview(${index})">
+                        <i class="bi bi-x-lg"></i>
                     </button>
                 </div>
-                <div class="preview-text">加载中...</div>
+                <div class="preview-text bg-white p-3 border rounded" style="max-height: 400px; overflow-y: auto; white-space: pre-wrap; font-family: monospace;">加载中...</div>
             </div>
         </div>
         `;
@@ -114,31 +128,36 @@ function displayResults(results, query) {
 function getFileIcon(filePath) {
     const ext = filePath.toLowerCase().split('.').pop();
     const iconMap = {
-        'pdf': 'bi bi-filetype-pdf',
-        'doc': 'bi bi-filetype-doc',
-        'docx': 'bi bi-filetype-docx',
-        'xls': 'bi bi-filetype-xls',
-        'xlsx': 'bi bi-filetype-xlsx',
-        'ppt': 'bi bi-filetype-ppt',
-        'pptx': 'bi bi-filetype-pptx',
-        'txt': 'bi bi-filetype-txt',
-        'py': 'bi bi-filetype-py',
-        'js': 'bi bi-filetype-js',
-        'html': 'bi bi-filetype-html',
-        'css': 'bi bi-filetype-css',
-        'jpg': 'bi bi-file-image',
-        'jpeg': 'bi bi-file-image',
-        'png': 'bi bi-file-image',
-        'gif': 'bi bi-file-image',
-        'zip': 'bi bi-file-zip',
-        'rar': 'bi bi-file-zip',
-        '7z': 'bi bi-file-zip'
+        'pdf': 'bi bi-file-earmark-pdf text-danger',
+        'doc': 'bi bi-file-earmark-word text-primary',
+        'docx': 'bi bi-file-earmark-word text-primary',
+        'xls': 'bi bi-file-earmark-excel text-success',
+        'xlsx': 'bi bi-file-earmark-excel text-success',
+        'ppt': 'bi bi-file-earmark-ppt text-warning',
+        'pptx': 'bi bi-file-earmark-ppt text-warning',
+        'txt': 'bi bi-file-earmark-text text-secondary',
+        'py': 'bi bi-file-earmark-code text-info',
+        'js': 'bi bi-file-earmark-code text-warning',
+        'html': 'bi bi-file-earmark-code text-danger',
+        'css': 'bi bi-file-earmark-code text-primary',
+        'json': 'bi bi-file-earmark-code text-warning',
+        'xml': 'bi bi-file-earmark-code text-success',
+        'jpg': 'bi bi-file-earmark-image text-info',
+        'jpeg': 'bi bi-file-earmark-image text-info',
+        'png': 'bi bi-file-earmark-image text-info',
+        'gif': 'bi bi-file-earmark-image text-info',
+        'zip': 'bi bi-file-earmark-zip text-secondary',
+        'rar': 'bi bi-file-earmark-zip text-secondary',
+        '7z': 'bi bi-file-earmark-zip text-secondary'
     };
-    return iconMap[ext] || 'bi bi-file-earmark';
+    return iconMap[ext] || 'bi bi-file-earmark text-secondary';
 }
 
-async function togglePreview(index, filePath, query) {
+async function togglePreview(index) {
     const previewDiv = document.getElementById(`preview-${index}`);
+    const result = searchResults[index];
+    
+    if (!result) return;
 
     if (previewDiv.style.display === 'block') {
         previewDiv.style.display = 'none';
@@ -147,7 +166,7 @@ async function togglePreview(index, filePath, query) {
 
     // Show loading state
     const previewText = previewDiv.querySelector('.preview-text');
-    previewText.innerHTML = '<span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>加载中...';
+    previewText.innerHTML = '<div class="text-center py-3"><span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>正在加载文件内容...</div>';
     previewDiv.style.display = 'block';
 
     try {
@@ -156,7 +175,7 @@ async function togglePreview(index, filePath, query) {
             headers: {
                 'Content-Type': 'application/json',
             },
-            body: JSON.stringify({ path: filePath })
+            body: JSON.stringify({ path: result.path })
         });
 
         if (!response.ok) {
@@ -164,9 +183,16 @@ async function togglePreview(index, filePath, query) {
         }
 
         const data = await response.json();
-        previewText.textContent = data.content;
+        // Check if content is empty or error
+        if (data.content && (data.content.startsWith('错误') || data.content.startsWith('不支持'))) {
+             previewText.innerHTML = `<div class="alert alert-warning mb-0">${data.content}</div>`;
+        } else if (!data.content) {
+             previewText.innerHTML = `<div class="alert alert-info mb-0">该文件内容为空或无法提取文本内容。</div>`;
+        } else {
+             previewText.textContent = data.content;
+        }
     } catch (error) {
-        previewText.innerHTML = '<p class="text-danger">预览失败: ' + error.message + '</p>';
+        previewText.innerHTML = `<div class="alert alert-danger mb-0">预览失败: ${error.message}</div>`;
     }
 }
 
@@ -359,6 +385,87 @@ document.querySelectorAll('.file-type-btn').forEach(btn => {
         }
     });
 });
+
+// Chat functionality
+function handleChatKeyPress(event) {
+    if (event.key === 'Enter') {
+        sendChatMessage();
+    }
+}
+
+async function sendChatMessage() {
+    const input = document.getElementById('chatInput');
+    const message = input.value.trim();
+    if (!message) return;
+
+    // Clear input
+    input.value = '';
+
+    // Add user message
+    appendMessage('user', message);
+
+    // Show loading
+    const loadingId = appendMessage('system', '<span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>正在思考...');
+
+    try {
+        const response = await fetch('/api/chat', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ query: message })
+        });
+
+        if (!response.ok) {
+            throw new Error(`请求失败: ${response.status}`);
+        }
+
+        const data = await response.json();
+        
+        // Remove loading message
+        const loadingEl = document.getElementById(loadingId);
+        if (loadingEl) loadingEl.remove();
+
+        // Format answer with sources
+        let answerHtml = data.answer.replace(/\n/g, '<br>');
+        if (data.sources && data.sources.length > 0) {
+            answerHtml += '<div class="source-list"><strong>参考来源:</strong><br>';
+            data.sources.forEach(source => {
+                answerHtml += `<span class="source-item"><i class="bi bi-file-earmark-text me-1"></i>${source}</span>`;
+            });
+            answerHtml += '</div>';
+        }
+
+        appendMessage('system', answerHtml);
+
+    } catch (error) {
+        // Remove loading message
+        const loadingEl = document.getElementById(loadingId);
+        if (loadingEl) loadingEl.remove();
+        
+        appendMessage('system', `<span class="text-danger">错误: ${error.message}</span>`);
+    }
+}
+
+function appendMessage(type, content) {
+    const container = document.getElementById('chatContainer');
+    const id = 'msg-' + Date.now();
+    
+    const msgDiv = document.createElement('div');
+    msgDiv.className = `chat-message ${type}-message`;
+    msgDiv.id = id;
+    
+    msgDiv.innerHTML = `
+        <div class="message-content">
+            ${content}
+        </div>
+    `;
+    
+    container.appendChild(msgDiv);
+    container.scrollTop = container.scrollHeight;
+    
+    return id;
+}
 
 // Initialize with focus on search input
 document.addEventListener('DOMContentLoaded', function() {

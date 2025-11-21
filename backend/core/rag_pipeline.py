@@ -3,7 +3,7 @@ import os
 import sys
 from typing import Dict, List, Any, Optional
 
-# 修复 torch DLL 加载问题：添加 torch lib 目录到 DLL 搜索路径
+# 修复 torch DLL 加载问题
 try:
     import torch
     torch_lib_path = os.path.join(os.path.dirname(torch.__file__), 'lib')
@@ -12,169 +12,66 @@ try:
 except Exception:
     pass
 
-# 统一导入 BaseLLM，优先使用 langchain_core 版本
-def create_custom_llm_class():
-    # 延迟导入以避免类型检查冲突
-    try:
-        base_llm_class = __import__('langchain_core.language_models.llms', fromlist=['LLM']).LLM
-    except ImportError:
-        try:
-            base_llm_class = __import__('langchain.llms.base', fromlist=['LLM']).LLM
-        except ImportError:
-            # 如果都导入失败，创建一个占位基类
-            from abc import ABC, abstractmethod
-            class BaseLLMClass(ABC):
-                @abstractmethod
-                def _call(self, prompt: str, stop: Optional[List[str]] = None) -> str:
-                    pass
-                @property
-                @abstractmethod
-                def _llm_type(self) -> str:
-                    pass
-            base_llm_class = BaseLLMClass
-    
-    from langchain_core.callbacks import CallbackManagerForLLMRun
-    from typing import Any, Optional, List
-    from langchain_core.outputs import GenerationChunk
-    from backend.utils.config_loader import ConfigLoader
-    from backend.core.model_manager import ModelManager
-    
-    # 临时定义缺失的类，实际项目中应创建对应的文件
-    class PrivacyFilter:
-        def __init__(self, config):
-            self.config = config
-        def sanitize(self, text):
-            return text
-
-    class SecurityManager:
-        def __init__(self, config):
-            self.config = config
-            self.current_user_role = "user"
-        def check_permission(self, permission):
-            return True
-        def log_audit(self, action, details):
-            pass
-
-    class CustomLLM(base_llm_class):  # type: ignore
-        """自定义LangChain LLM：包装ModelManager的generate"""
-        model_manager: ModelManager
-
-        def __init__(self, model_manager: ModelManager):
-            # Initialize with pydantic
-            super().__init__()  # Initialize the pydantic model
-            self.model_manager = model_manager
-            # 使用model_manager的config_loader
-            self.privacy_filter = PrivacyFilter(model_manager.config_loader)
-            self.security = SecurityManager(model_manager.config_loader)
-
-        @property
-        def _llm_type(self) -> str:
-            return "custom_llm"
-
-        def _generate(
-            self,
-            prompts: List[str],
-            stop: Optional[List[str]] = None,
-            run_manager: Optional[CallbackManagerForLLMRun] = None,
-            **kwargs: Any,
-        ):
-            """LangChain LLM required method"""
-            # For now, process the first prompt
-            if prompts:
-                response = ''.join(self.model_manager.generate(prompts[0]))
-                return {
-                    "generations": [[{
-                        "text": response,
-                        "generation_info": {}
-                    }]],
-                    "llm_output": None
-                }
-            return {"generations": [], "llm_output": None}
-
-        def _stream(
-            self,
-            prompt: str,
-            stop: Optional[List[str]] = None,
-            run_manager: Optional[CallbackManagerForLLMRun] = None,
-            **kwargs: Any,
-        ):
-            """Stream implementation for newer LangChain versions"""
-            # Not implemented, but required
-            raise NotImplementedError("Streaming not implemented")
-
-        def _call(
-            self,
-            prompt: str,
-            stop: Optional[List[str]] = None,
-            run_manager: Optional[CallbackManagerForLLMRun] = None,
-            **kwargs: Any,
-        ) -> str:
-            """同步调用（LangChain默认）"""
-            response = ''.join(self.model_manager.generate(prompt))
-            return response
-            
-    return CustomLLM
-
-try:
-    from langchain.chains import RetrievalQA
-except ImportError:
-    # 新版本 langchain 没有这个类，先设置为 None
-    RetrievalQA = None
-try:
-    from langchain.prompts import PromptTemplate
-except ImportError:
-    from langchain_core.prompts import PromptTemplate
-try:
-    from langchain.schema import Document as LangDocument  # LangChain的Document
-except ImportError:
-    from langchain_core.documents import Document as LangDocument
 from backend.utils.logger import setup_logger
 from backend.utils.config_loader import ConfigLoader
 from backend.core.model_manager import ModelManager
-
-# 临时定义缺失的类，实际项目中应创建对应的文件
-class HybridRetriever:
-    def __init__(self, config_loader, vector_engine):
-        self.config_loader = config_loader
-        self.vector_engine = vector_engine
-    def search(self, query, top_k=5):
-        return []
-
-class Document:
-    def __init__(self, content="", metadata={}):
-        self.content = content
-        self.metadata = metadata
-
-class PrivacyFilter:
-    def __init__(self, config):
-        self.config = config
-    def sanitize(self, text):
-        return text
-
-class SecurityManager:
-    def __init__(self, config):
-        self.config = config
-        self.current_user_role = "user"
-    def check_permission(self, permission):
-        return True
-    def log_audit(self, action, details):
-        pass
+from backend.core.search_engine import SearchEngine
 
 logger = setup_logger()
 
-class RAGPipeline:
-    """RAG问答管道：使用LangChain实现数据感知和主动性（基于文档3.3）"""
+# 尝试导入 LangChain 组件
+try:
+    from langchain.prompts import PromptTemplate
+    from langchain.schema import Document as LangDocument
+    from langchain.chains import RetrievalQA
+    from langchain_core.language_models.llms import LLM
+    from langchain_core.callbacks import CallbackManagerForLLMRun
+except ImportError:
+    logger.warning("LangChain 未安装或版本不兼容，RAG功能将不可用")
+    LLM = object
+    RetrievalQA = None
+    LangDocument = None
 
-    def __init__(self, model_manager: ModelManager, config_loader: ConfigLoader, retriever: HybridRetriever):
+class CustomLLM(LLM):
+    """自定义LangChain LLM：包装ModelManager的generate"""
+    model_manager: Any = None
+
+    def __init__(self, model_manager):
+        super().__init__()
+        self.model_manager = model_manager
+
+    @property
+    def _llm_type(self) -> str:
+        return "custom_llm"
+
+    def _call(
+        self,
+        prompt: str,
+        stop: Optional[List[str]] = None,
+        run_manager: Optional[CallbackManagerForLLMRun] = None,
+        **kwargs: Any,
+    ) -> str:
+        """同步调用"""
+        if not self.model_manager:
+            return "Model Manager not initialized"
+        # ModelManager.generate 返回生成器，我们需要合并结果
+        response = ''.join(self.model_manager.generate(prompt))
+        return response
+
+class RAGPipeline:
+    """RAG问答管道"""
+
+    def __init__(self, model_manager: ModelManager, config_loader: ConfigLoader, search_engine: SearchEngine):
         self.model_manager = model_manager
         self.config_loader = config_loader
-        self.retriever = retriever
-        # 创建CustomLLM类
-        CustomLLM = create_custom_llm_class()
-        self.llm = CustomLLM(model_manager)
-        self.privacy_filter = PrivacyFilter(config_loader)
-        self.security = SecurityManager(config_loader)
-        self.qa_chain = self._build_qa_chain()
+        self.search_engine = search_engine
+        self.qa_chain = None
+        
+        if LLM is not object and RetrievalQA is not None:
+            self.llm = CustomLLM(model_manager)
+            self.qa_chain = self._build_qa_chain()
+        else:
+            logger.warning("LangChain依赖缺失，RAG管道未完全初始化")
 
     def _build_qa_chain(self) -> Any:
         """构建LangChain RetrievalQA链"""
@@ -190,50 +87,57 @@ class RAGPipeline:
         """
         prompt = PromptTemplate(template=prompt_template, input_variables=["context", "question"])
 
-        def lang_retriever(query: str) -> List[LangDocument]:
-            """适配LangChain检索器：从HybridRetriever获取"""
-            docs = self.retriever.search(query)
-            return [LangDocument(page_content=doc.content, metadata=doc.metadata) for doc in docs]
+        # 创建一个简单的检索器适配器
+        class SearchEngineRetriever:
+            def __init__(self, search_engine):
+                self.search_engine = search_engine
 
-        if RetrievalQA is None:
-            logger.warning("RetrievalQA 不可用，返回None")
-            return None
+            def get_relevant_documents(self, query: str) -> List[LangDocument]:
+                # 使用SearchEngine进行搜索
+                results = self.search_engine.search(query)
+                docs = []
+                for res in results[:5]: # 取前5个结果
+                    content = res.get('content', '')
+                    metadata = {
+                        'source': res.get('path', ''),
+                        'filename': res.get('filename', ''),
+                        'score': res.get('score', 0)
+                    }
+                    docs.append(LangDocument(page_content=content, metadata=metadata))
+                return docs
             
+            # LangChain 新版可能需要这个方法
+            def invoke(self, input: str, config: Optional[Any] = None) -> List[LangDocument]:
+                return self.get_relevant_documents(input)
+
+        retriever = SearchEngineRetriever(self.search_engine)
+
         qa = RetrievalQA.from_chain_type(
             llm=self.llm,
             chain_type="stuff",
-            retriever=lang_retriever.as_retriever(search_kwargs={"k": 5}),
+            retriever=retriever,
             return_source_documents=True,
             chain_type_kwargs={"prompt": prompt}
         )
         return qa
 
     def query(self, query: str) -> Dict[str, Any]:
-        """执行RAG查询：检索+生成，返回answer和sources"""
-        if not self.security.check_permission('query'):
-             return {"answer": "权限不足。", "sources": []}
-        
+        """执行RAG查询"""
         if self.qa_chain is None:
-            return {"answer": "错误：QA链未初始化。", "sources": []}
+            return {"answer": "错误：RAG组件未初始化（可能是缺少依赖）。", "sources": []}
             
         try:
-            result = self.qa_chain({"query": query})
-            answer = result["result"]
-            sources = [doc.metadata.get('file_path', '未知') for doc in result["source_documents"]]
-            
-            # 主动性：如果检索结果为空，触发文件重新扫描（环境交互示例）
-            if not sources:
-                logger.info("无相关文档，触发主动扫描")
-                # 调用FileScanner（假设注入或全局访问；实际可通过事件）
-                from backend.core.file_scanner import FileScanner  # 延迟导入避免循环
-                scanner = FileScanner(self.config_loader)
-                scanner.scan_and_index()  # 主动更新索引
-                # 重新查询
+            # LangChain invoke or call
+            if hasattr(self.qa_chain, 'invoke'):
+                result = self.qa_chain.invoke({"query": query})
+            else:
                 result = self.qa_chain({"query": query})
-                answer = self.privacy_filter.sanitize(result["result"])
-                self.security.log_audit("query_executed", {"query": query, "user_role": self.security.current_user_role})
-    
+                
+            answer = result.get("result", "")
+            source_docs = result.get("source_documents", [])
+            sources = [doc.metadata.get('source', '未知') for doc in source_docs]
+            
             return {"answer": answer, "sources": sources}
         except Exception as e:
             logger.error(f"RAG查询失败: {e}")
-            return {"answer": "错误：无法处理查询。", "sources": []}
+            return {"answer": f"错误：处理查询时发生异常 ({str(e)})。", "sources": []}

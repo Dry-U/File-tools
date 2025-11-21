@@ -391,6 +391,10 @@ class FileScanner:
 
         return False
 
+    def index_file(self, file_path: str) -> bool:
+        """索引单个文件 (公开方法，供FileMonitor调用)"""
+        return self._index_file(file_path)
+
     def _index_file(self, file_path: str) -> bool:
         """索引单个文件"""
         if not self.index_manager:
