@@ -8,11 +8,11 @@ file_scanner:
   exclude_patterns: .git;.svn;.hg;__pycache__;.idea;.vscode;node_modules;venv;env;.DS_Store;Thumbs.db
   file_types:
     archive: .zip,.rar,.7z,.tar,.gz
-    audio: .mp3,.wav,.flac,.ogg,.m4a
+    # audio: .mp3,.wav,.flac,.ogg,.m4a
     code: .py,.js,.java,.cpp,.c,.h,.cs,.go,.rs,.php,.rb,.swift
     document: .txt,.md,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.csv,.json,.xml
-    image: .jpg,.jpeg,.png,.gif,.bmp,.tiff,.svg
-    video: .mp4,.avi,.mov,.mkv,.wmv
+    # image: .jpg,.jpeg,.png,.gif,.bmp,.tiff,.svg
+    # video: .mp4,.avi,.mov,.mkv,.wmv
   max_file_size: 100
   recursive: true
   scan_paths: 'D:\\Garbage\\Career\\Senior\\Thesis'  

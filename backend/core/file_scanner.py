@@ -122,9 +122,11 @@ class FileScanner:
         # 默认支持的文件类型
         default_extensions = {
             'document': ['.txt', '.md', '.pdf', '.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx'],
-            'image': ['.jpg', '.jpeg', '.png', '.gif', '.bmp', '.tiff'],
-            'audio': ['.mp3', '.wav', '.flac', '.ogg'],
-            'video': ['.mp4', '.avi', '.mov', '.mkv']
+            # 移除图片
+            # 'image': ['.jpg', '.jpeg', '.png', '.gif', '.bmp', '.tiff'],
+            # 移除音视频
+            # 'audio': ['.mp3', '.wav', '.flac', '.ogg'],
+            # 'video': ['.mp4', '.avi', '.mov', '.mkv']
         }
         
         # 从配置中获取自定义文件类型
@@ -153,6 +155,13 @@ class FileScanner:
                         type_name = type_name.strip()
                         exts = [ext.strip() for ext in ext_list.split(',')]
                         result[type_name] = exts
+                
+                # 强制移除图片、音频、视频类型，即使配置中有
+                for forbidden in ['image', 'audio', 'video']:
+                    if forbidden in result:
+                        self.logger.warning(f"强制移除不支持的文件类型: {forbidden}")
+                        del result[forbidden]
+                
                 self.logger.info(f"从配置加载文件类型: {result}")
                 return result if result else default_extensions
         except Exception as e:
@@ -327,6 +336,14 @@ class FileScanner:
         
         # 检查文件扩展名
         file_ext = file_path.suffix.lower()
+        
+        # 强制拒绝图片和媒体扩展名
+        if file_ext in ['.jpg', '.jpeg', '.png', '.gif', '.bmp', '.tiff', '.svg', '.webp', 
+                       '.mp3', '.wav', '.flac', '.ogg', '.m4a',
+                       '.mp4', '.avi', '.mov', '.mkv', '.wmv']:
+             self.logger.info(f"强制跳过媒体文件: {path}")
+             return False
+
         self.logger.info(f"检查文件扩展名: {path}, 扩展名: {file_ext}, 支持的扩展名: {self.all_extensions}")
         if not any(file_ext == ext for ext in self.all_extensions):
             self.logger.info(f"跳过不支持的文件类型: {path}")
@@ -356,9 +373,7 @@ class FileScanner:
         document_extensions = {'.pdf', '.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx', 
                               '.txt', '.md', '.csv', '.json', '.xml', '.rtf', '.html', '.htm', '.py',
                               '.js', '.java', '.cpp', '.c', '.h', '.cs', '.go', '.rs', '.php', '.rb', 
-                              '.swift', '.zip', '.rar', '.7z', '.tar', '.gz', '.mp3', '.wav', '.flac', 
-                              '.ogg', '.m4a', '.jpg', '.jpeg', '.png', '.gif', '.bmp', '.tiff', '.svg', 
-                              '.mp4', '.avi', '.mov', '.mkv', '.wmv'}
+                              '.swift', '.zip', '.rar', '.7z', '.tar', '.gz'}
         
         if file_ext in document_extensions:
             # 对于已知文档类型，只检查路径模式，不检查可执行头

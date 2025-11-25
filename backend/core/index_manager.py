@@ -72,6 +72,7 @@ class IndexManager:
         self.t_filename = schema_builder.add_text_field('filename', stored=True)
         self.t_filename_chars = schema_builder.add_text_field('filename_chars', stored=True)
         self.t_content = schema_builder.add_text_field('content', stored=True)
+        self.t_content_raw = schema_builder.add_text_field('content_raw', stored=True, tokenizer_name='raw')
         self.t_content_chars = schema_builder.add_text_field('content_chars', stored=True)
         self.t_keywords = schema_builder.add_text_field('keywords', stored=True)
         self.t_file_type = schema_builder.add_text_field('file_type', stored=True)
@@ -114,7 +115,7 @@ class IndexManager:
             self.next_id = 0
 
     def _ensure_schema_version(self):
-        expected_fields = ['path','filename','filename_chars','content','content_chars','keywords','file_type','size','created','modified']
+        expected_fields = ['path','filename','filename_chars','content','content_raw','content_chars','keywords','file_type','size','created','modified']
         version_file = os.path.join(self.metadata_path, 'schema_version.json')
         current = {}
         try:
@@ -153,13 +154,15 @@ class IndexManager:
                 raw_content = document['content'] or ''
             except Exception:
                 raw_content = ''
-            content_chars = ' '.join([c for c in str(raw_content)[:5000]])
+            raw_excerpt = str(raw_content)[:5000]
+            content_chars = ' '.join([c for c in raw_excerpt])
             with self.tantivy_index.writer() as writer:
                 tdoc = tantivy.Document(
                     path=document['path'],
                     filename=[seg_filename],
                     filename_chars=[fname_chars],
                     content=[seg_content],
+                    content_raw=[raw_excerpt],
                     content_chars=[content_chars],
                     file_type=[document['file_type']],
                     size=int(document['size']),
@@ -232,81 +235,160 @@ class IndexManager:
             self.logger.error(f"从索引中删除文档失败 {file_path}: {str(e)}")
             return False
 
-    def _highlight_text(self, content, query, window_size=60, max_snippets=3):
-        """生成带有高亮关键词的多段文本摘要"""
+    def _highlight_text(self, content, query, window_size=100, max_snippets=5):
+        """生成带有高亮关键词的多段文本摘要，并兼容常见的空格/大小写差异"""
         if not content or not query:
             return content[:200] + '...' if content and len(content) > 200 else (content or '')
-        
+
         try:
             import re
-            # 提取查询中的关键词
-            keywords = [k for k in re.split(r'[\s,;，；]+', query) if k.strip()]
+            import jieba
+
+            def _clean_keyword(token: str) -> str:
+                return token.strip()
+
+            def _build_pattern(token: str):
+                # 允许字符之间穿插空白，适配 "J a v a" 这类被拆分的文本
+                pieces = [f"{re.escape(ch)}\\s*" for ch in token]
+                pattern = ''.join(pieces)
+                return re.compile(pattern, re.IGNORECASE)
+
+            def _expand_ascii_span(text: str, start: int, end: int):
+                # 向左右扩展，确保高亮完整的ASCII单词（如JavaScript）
+                while start > 0 and text[start-1].isascii() and text[start-1].isalnum():
+                    start -= 1
+                while end < len(text) and text[end].isascii() and text[end].isalnum():
+                    end += 1
+                return start, end
+
+            def _collect_matches(full_text: str, patterns):
+                spans = []
+                seen = set()
+                for pat in patterns:
+                    for match in pat.finditer(full_text):
+                        span = _expand_ascii_span(full_text, match.start(), match.end())
+                        if span not in seen:
+                            seen.add(span)
+                            spans.append(span)
+                return spans
+
+            # 构建关键词集合
+            keywords = set()
+            raw_tokens = [k.strip() for k in re.split(r'[\s,;，；]+', query) if k.strip()]
+            for token in raw_tokens:
+                cleaned = _clean_keyword(token)
+                if cleaned:
+                    keywords.add(cleaned)
+                for seg in jieba.lcut_for_search(token):
+                    seg_clean = _clean_keyword(seg)
+                    if seg_clean:
+                        keywords.add(seg_clean)
+
             if not keywords:
                 return content[:200] + '...' if len(content) > 200 else content
-            
-            lower_content = content.lower()
-            matches = []
-            
-            # 找到所有关键词的所有出现位置
-            for kw in keywords:
-                kw_lower = kw.lower()
-                start = 0
-                while True:
-                    idx = lower_content.find(kw_lower, start)
-                    if idx == -1:
+
+            patterns = [_build_pattern(token) for token in keywords if token]
+            if not patterns:
+                return content[:200] + '...' if len(content) > 200 else content
+
+            matches = _collect_matches(content, patterns)
+
+            if not matches:
+                # fallback: 如果仍然没有匹配，则尝试直接定位（兼容极端情况）
+                lowered = content.lower()
+                for token in keywords:
+                    idx = lowered.find(token.lower())
+                    if idx != -1:
+                        match_span = _expand_ascii_span(content, idx, idx + len(token))
+                        matches.append(match_span)
                         break
-                    matches.append((idx, idx + len(kw)))
-                    start = idx + len(kw)
-            
-            # 如果没有匹配，返回开头
+
             if not matches:
                 return content[:200] + '...' if len(content) > 200 else content
-            
-            # 按位置排序
+
             matches.sort(key=lambda x: x[0])
-            
-            # 合并邻近的匹配窗口
+
+            # 合并窗口
             windows = []
             for start, end in matches:
-                # 定义当前匹配的窗口范围
                 win_start = max(0, start - window_size // 2)
                 win_end = min(len(content), end + window_size // 2)
-                
-                # 尝试合并到上一个窗口
                 if windows and win_start < windows[-1][1]:
                     windows[-1] = (windows[-1][0], max(windows[-1][1], win_end))
                 else:
                     windows.append((win_start, win_end))
-            
-            # 限制摘要数量
-            selected_windows = windows[:max_snippets]
-            
+
+            scored_windows = []
+            lowered_content = content.lower()
+            for win_start, win_end in windows:
+                chunk = lowered_content[win_start:win_end]
+                score = 0
+                for token in keywords:
+                    if token.lower() in chunk:
+                        score += 1
+                scored_windows.append((score, win_start, win_end))
+
+            scored_windows.sort(key=lambda x: x[0], reverse=True)
+            selected_windows = [(s, e) for _, s, e in scored_windows[:max_snippets]]
+            selected_windows.sort(key=lambda x: x[0])
+
             snippets = []
             for start, end in selected_windows:
-                # 调整边界以避免截断单词（简单优化）
-                # 向前寻找空格
-                while start > 0 and content[start] not in ' \t\n\r.,;，。；':
-                    start -= 1
-                if start > 0: start += 1 # 跳过分隔符
-                
-                # 向后寻找空格
-                while end < len(content) and content[end] not in ' \t\n\r.,;，。；':
-                    end += 1
-                
-                text_chunk = content[start:end].strip()
-                if text_chunk:
-                    snippets.append(text_chunk)
-            
-            final_snippet = ' ... '.join(snippets)
-            
-            # 高亮关键词
-            for kw in keywords:
-                pattern = re.compile(re.escape(kw), re.IGNORECASE)
-                final_snippet = pattern.sub(lambda m: f'<span class="text-danger fw-bold">{m.group(0)}</span>', final_snippet)
-                
+                curr_start = start
+                while curr_start > 0 and curr_start > start - 20 and content[curr_start] not in ' \t\n\r.,;，。；':
+                    curr_start -= 1
+                if curr_start > 0:
+                    curr_start += 1
+
+                curr_end = end
+                while curr_end < len(content) and curr_end < end + 20 and content[curr_end] not in ' \t\n\r.,;，。；':
+                    curr_end += 1
+
+                chunk = content[curr_start:curr_end].strip()
+                if chunk:
+                    snippets.append(chunk)
+
+            if not snippets:
+                for token in keywords:
+                    pat = re.compile(re.escape(token), re.IGNORECASE)
+                    match = pat.search(content)
+                    if match:
+                        start = max(0, match.start() - 50)
+                        end = min(len(content), match.end() + 50)
+                        snippets.append(content[start:end])
+                        break
+
+            if not snippets:
+                return content[:200] + '...' if len(content) > 200 else content
+
+            def _apply_highlight(text: str):
+                spans = _collect_matches(text, patterns)
+                if not spans:
+                    return text
+                spans.sort(key=lambda x: x[0])
+                merged = []
+                for start, end in spans:
+                    if not merged or start > merged[-1][1]:
+                        merged.append([start, end])
+                    else:
+                        merged[-1][1] = max(merged[-1][1], end)
+
+                highlighted = []
+                last = 0
+                for start, end in merged:
+                    if start < last:
+                        continue
+                    highlighted.append(text[last:start])
+                    highlighted.append(f'<span class="text-danger fw-bold">{text[start:end]}</span>')
+                    last = end
+                highlighted.append(text[last:])
+                return ''.join(highlighted)
+
+            processed_snippets = [_apply_highlight(chunk) for chunk in snippets]
+            final_snippet = '<br>...<br>'.join(processed_snippets) if len(processed_snippets) > 1 else processed_snippets[0]
             return final_snippet
-        except Exception as e:
-            self.logger.error(f"生成摘要失败: {str(e)}")
+        except Exception as exc:
+            self.logger.error(f"生成摘要失败: {str(exc)}")
             return content[:200] + '...'
 
     def get_document_content(self, path):
@@ -325,8 +407,13 @@ class IndexManager:
                     if hits:
                         _, doc_addr = hits[0]
                         doc = searcher.doc(doc_addr)
-                        content = doc.get_first('content')
-                        if content: return content
+                        raw_val = doc.get_first('content_raw')
+                        content_val = raw_val or doc.get_first('content')
+                        if raw_val:
+                            return raw_val
+                        if content_val:
+                            parsed = self._parse_file_direct(path)
+                            return parsed if parsed else content_val
                 except Exception:
                     pass
 
@@ -342,8 +429,13 @@ class IndexManager:
                         idx_path = doc.get_first('path')
                         # 在Python层面验证路径是否匹配 (忽略大小写和分隔符差异)
                         if os.path.normpath(idx_path).lower() == os.path.normpath(path).lower():
-                            content = doc.get_first('content')
-                            if content: return content
+                            raw_val = doc.get_first('content_raw')
+                            content_val = raw_val or doc.get_first('content')
+                            if raw_val:
+                                return raw_val
+                            if content_val:
+                                parsed = self._parse_file_direct(path)
+                                return parsed if parsed else content_val
                 except Exception:
                     pass
                     
@@ -352,12 +444,9 @@ class IndexManager:
         
         # 降级方案：使用DocumentParser解析文件
         try:
-            # 动态导入以避免循环依赖
-            from backend.core.document_parser import DocumentParser
-            parser = DocumentParser(self.config_loader)
-            content = parser.extract_text(path)
-            if content and not content.startswith("错误"):
-                return content
+            parsed = self._parse_file_direct(path)
+            if parsed:
+                return parsed
         except Exception as e:
             self.logger.error(f"使用DocumentParser解析失败: {str(e)}")
             
@@ -374,10 +463,39 @@ class IndexManager:
             pass
         return ''
 
-    def _format_result(self, path, filename, content, file_type, size, modified, score, query_str):
+    def _parse_file_direct(self, path):
+        try:
+            from backend.core.document_parser import DocumentParser
+            parser = DocumentParser(self.config_loader)
+            content = parser.extract_text(path)
+            if content and not content.startswith("错误"):
+                return content
+        except Exception as exc:
+            self.logger.debug(f"直接解析文件失败: {exc}")
+        return ''
+
+    def _format_result(self, path, filename, content, raw_content, file_type, size, modified, score, query_str):
         """格式化搜索结果"""
+        display_content = raw_content if raw_content else content or ''
+        norm_query = (query_str or '').strip()
+        norm_query_lower = norm_query.lower()
+        display_lower = display_content.lower() if display_content else ''
+        contains_query = bool(norm_query and norm_query_lower in display_lower)
+
         # 生成高亮摘要
-        snippet = self._highlight_text(content, query_str)
+        snippet = self._highlight_text(display_content, norm_query)
+
+        # 如果没有生成高亮或缺少命中，再尝试解析原文
+        if norm_query and (not snippet or 'text-danger' not in snippet or not contains_query):
+            try:
+                fallback = self.get_document_content(path)
+                if fallback and fallback != display_content:
+                    display_content = fallback
+                    display_lower = display_content.lower()
+                    contains_query = norm_query_lower in display_lower
+                    snippet = self._highlight_text(display_content, norm_query)
+            except Exception:
+                pass
         
         # 转换时间戳
         modified_time = None
@@ -395,12 +513,13 @@ class IndexManager:
             'path': path,
             'filename': filename,
             'file_name': filename,
-            'content': content, # 保留原始内容以便后续处理
+            'content': display_content,
             'snippet': snippet,     # 添加高亮摘要
             'file_type': file_type,
             'size': size,
             'modified': modified_time, # 添加修改时间
-            'score': score
+            'score': score,
+            'has_query': contains_query
         }
 
     def search_text(self, query_str, limit=10):
@@ -412,9 +531,18 @@ class IndexManager:
             self.tantivy_index.reload()
             searcher = self.tantivy_index.searcher()
             queries_to_try = []
+            exact_fields = ['content_raw', 'filename']
+
+            # 0. 优先尝试精确短语匹配，确保完全命中的文档排在前面
+            try:
+                trimmed = query_str.strip()
+                if trimmed:
+                    queries_to_try.append(self.tantivy_index.parse_query(f'"{trimmed}"', exact_fields))
+            except Exception:
+                pass
             
             # 简化查询构建逻辑
-            fields = ['filename', 'content', 'keywords', 'filename_chars', 'content_chars']
+            fields = ['filename', 'content', 'content_raw', 'keywords', 'filename_chars', 'content_chars']
             try:
                 queries_to_try.append(self.tantivy_index.parse_query(seg_query, fields))
             except Exception: pass
@@ -461,6 +589,7 @@ class IndexManager:
                     path_val = doc.get_first('path') or ''
                     filename_val = doc.get_first('filename') or ''
                     content_val = doc.get_first('content') or ''
+                    content_raw_val = doc.get_first('content_raw') or ''
                     file_type_val = doc.get_first('file_type') or ''
                     size_val = doc.get_first('size') or 0
                     modified_val = doc.get_first('modified') or 0
@@ -469,12 +598,36 @@ class IndexManager:
                 
                 normalized_score = min(float(score), 100.0)
                 results.append(self._format_result(
-                    path_val, filename_val, content_val, file_type_val, 
+                    path_val, filename_val, content_val, content_raw_val, file_type_val, 
                     size_val, modified_val, normalized_score, query_str
                 ))
                 
             results.sort(key=lambda x: x['score'], reverse=True)
-            return results
+
+            if query_str and results:
+                # 先将包含高亮的结果排列到前面，但保留其他候选
+                highlighted = [r for r in results if 'text-danger' in (r.get('snippet') or '')]
+                if highlighted:
+                    non_highlighted = [r for r in results if r not in highlighted]
+                    results = highlighted + non_highlighted
+
+                primary = [r for r in results if r.get('has_query')]
+                secondary = [r for r in results if not r.get('has_query')]
+                if primary:
+                    results = primary + secondary
+
+            # 同一路径仅保留得分最高的一个结果
+            deduped_results = []
+            seen_paths = set()
+            for item in results:
+                path_key = (item.get('path') or '').lower()
+                if path_key and path_key in seen_paths:
+                    continue
+                if path_key:
+                    seen_paths.add(path_key)
+                deduped_results.append(item)
+
+            return deduped_results
         except Exception as e:
             self.logger.error(f"文本搜索失败: {str(e)}")
             return []
@@ -500,8 +653,8 @@ class IndexManager:
                     content = self.get_document_content(path)
                     
                     results.append(self._format_result(
-                        path, metadata['filename'], content, metadata['file_type'],
-                        0, metadata.get('modified'), adjusted, query_str
+                        path, metadata['filename'], content, content,
+                        metadata['file_type'], 0, metadata.get('modified'), adjusted, query_str
                     ))
                     
             results.sort(key=lambda x: x['score'], reverse=True)
@@ -557,31 +710,3 @@ class IndexManager:
             return os.path.exists(self.tantivy_index_path)
         except Exception:
             return False
-
-    def get_document_content(self, path):
-        # 尝试从Tantivy索引中获取内容（支持所有已索引的文件类型）
-        if getattr(self, 'tantivy_index', None):
-            try:
-                self.tantivy_index.reload()
-                searcher = self.tantivy_index.searcher()
-                # 使用路径精确查询
-                query = self.tantivy_index.parse_query(f'"{path}"', ['path'])
-                hits = searcher.search(query, 1).hits
-                if hits:
-                    _, doc_addr = hits[0]
-                    doc = searcher.doc(doc_addr)
-                    content = doc.get_first('content')
-                    if content:
-                        return content
-            except Exception:
-                pass
-        
-        # 降级方案：直接读取文件（仅限文本文件）
-        try:
-            ext = os.path.splitext(path)[1].lower()
-            if ext in ['.txt', '.md', '.py', '.json', '.xml', '.csv', '.log', '.js', '.html', '.css', '.bat', '.sh', '.yaml', '.yml', '.ini', '.conf']:
-                with open(path, 'r', encoding='utf-8', errors='ignore') as f:
-                    return f.read(5000)
-        except Exception:
-            pass
-        return ''

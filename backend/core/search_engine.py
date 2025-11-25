@@ -81,8 +81,31 @@ class SearchEngine:
         filtered_results = self._apply_filters(combined_results, filters)
         self.logger.info(f"过滤后 {len(filtered_results)} 条结果")
         
+        # 优先返回真正包含查询词的结果，剩余语义匹配结果追加在后
+        limited_results = filtered_results
+        if query and filtered_results:
+            primary_hits = []
+            semantic_hits = []
+            for item in filtered_results:
+                snippet = item.get('snippet') or ''
+                has_highlight = 'text-danger' in snippet
+                if has_highlight or item.get('has_query'):
+                    primary_hits.append(item)
+                else:
+                    # 标记语义结果，避免用户误以为缺少高亮是 bug
+                    if snippet:
+                        item['snippet'] = f'（未直接匹配搜索词，展示语义相关内容）<br>{snippet}'
+                    else:
+                        item['snippet'] = '（未直接匹配搜索词，展示语义相关内容）'
+                    semantic_hits.append(item)
+
+            if primary_hits:
+                limited_results = primary_hits + semantic_hits
+            else:
+                limited_results = semantic_hits
+
         # 限制结果数量
-        limited_results = filtered_results[:self.max_results]
+        limited_results = limited_results[:self.max_results]
         
         search_time = time.time() - start_time
         self.logger.info(f"搜索完成，找到 {len(limited_results)} 条结果，耗时: {search_time:.3f}秒")

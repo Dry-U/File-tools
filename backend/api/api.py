@@ -95,6 +95,15 @@ async def shutdown_event():
 
 
 
+@app.get("/favicon.ico")
+async def favicon():
+    """Serve favicon.ico"""
+    favicon_path = Path("frontend/static/favicon.ico")
+    if favicon_path.exists():
+        return HTMLResponse(content=favicon_path.read_bytes(), media_type="image/x-icon")
+    # Return a 204 No Content if no favicon exists to stop 404 errors
+    return HTMLResponse(content=b"", status_code=204)
+
 @app.get("/")
 async def read_root():
     """Serve the main HTML page"""
@@ -221,6 +230,17 @@ async def preview_file(request: Request):
             content = index_manager.get_document_content(normalized_path)
             if content:
                 return {"content": content}
+        
+        # 如果IndexManager没有返回内容，尝试直接使用DocumentParser解析
+        try:
+            from backend.core.document_parser import DocumentParser
+            config_loader = ConfigLoader()
+            parser = DocumentParser(config_loader)
+            content = parser.extract_text(normalized_path)
+            if content and not content.startswith("错误"):
+                return {"content": content}
+        except Exception as e:
+            logger.warning(f"直接解析失败: {str(e)}")
 
         if os.path.getsize(normalized_path) > 5 * 1024 * 1024:  # 5MB limit
             return {"content": "文件过大（超过5MB），无法预览"}

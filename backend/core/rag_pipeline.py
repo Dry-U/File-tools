@@ -1,7 +1,7 @@
 # src/core/rag_pipeline.py
 import os
-import sys
-from typing import Dict, List, Any, Optional
+import re
+from typing import Dict, List, Any
 
 # 修复 torch DLL 加载问题
 try:
@@ -19,125 +19,117 @@ from backend.core.search_engine import SearchEngine
 
 logger = setup_logger()
 
-# 尝试导入 LangChain 组件
-try:
-    from langchain.prompts import PromptTemplate
-    from langchain.schema import Document as LangDocument
-    from langchain.chains import RetrievalQA
-    from langchain_core.language_models.llms import LLM
-    from langchain_core.callbacks import CallbackManagerForLLMRun
-except ImportError:
-    logger.warning("LangChain 未安装或版本不兼容，RAG功能将不可用")
-    LLM = object
-    RetrievalQA = None
-    LangDocument = None
+DEFAULT_PROMPT = (
+    "你是一名专业的中文文档助理，请严格依据提供的文档内容回答用户的问题。"
+    "如果文档中没有相关信息，请明确说明无法找到答案，不要自行编造。\n\n"
+    "文档集合:\n{context}\n\n"
+    "问题: {question}\n\n"
+    "请用清晰、简洁的语言作答。"
+)
 
-class CustomLLM(LLM):
-    """自定义LangChain LLM：包装ModelManager的generate"""
-    model_manager: Any = None
-
-    def __init__(self, model_manager):
-        super().__init__()
-        self.model_manager = model_manager
-
-    @property
-    def _llm_type(self) -> str:
-        return "custom_llm"
-
-    def _call(
-        self,
-        prompt: str,
-        stop: Optional[List[str]] = None,
-        run_manager: Optional[CallbackManagerForLLMRun] = None,
-        **kwargs: Any,
-    ) -> str:
-        """同步调用"""
-        if not self.model_manager:
-            return "Model Manager not initialized"
-        # ModelManager.generate 返回生成器，我们需要合并结果
-        response = ''.join(self.model_manager.generate(prompt))
-        return response
 
 class RAGPipeline:
-    """RAG问答管道"""
+    """本地RAG问答管道，依赖检索结果与模型推理"""
 
     def __init__(self, model_manager: ModelManager, config_loader: ConfigLoader, search_engine: SearchEngine):
         self.model_manager = model_manager
         self.config_loader = config_loader
         self.search_engine = search_engine
-        self.qa_chain = None
-        
-        if LLM is not object and RetrievalQA is not None:
-            self.llm = CustomLLM(model_manager)
-            self.qa_chain = self._build_qa_chain()
-        else:
-            logger.warning("LangChain依赖缺失，RAG管道未完全初始化")
 
-    def _build_qa_chain(self) -> Any:
-        """构建LangChain RetrievalQA链"""
-        prompt_template = """
-        使用以下上下文回答问题。如果不知道答案，就说不知道。
+        try:
+            rag_config = config_loader.get('rag') or {}
+        except Exception:
+            rag_config = {}
 
-        上下文:
-        {context}
+        self.max_docs = int(rag_config.get('max_docs', 3))
+        self.max_context_chars = int(rag_config.get('max_context_chars', 1200))
+        self.max_output_tokens = int(rag_config.get('max_output_tokens', 512))
+        self.temperature = float(rag_config.get('temperature', 0.7))
+        self.prompt_template = rag_config.get('prompt_template', DEFAULT_PROMPT)
 
-        问题: {question}
+    @staticmethod
+    def _strip_tags(text: str) -> str:
+        clean = re.sub(r'<[^>]+>', '', text or '')
+        return clean.replace('\xa0', ' ').strip()
 
-        回答:
-        """
-        prompt = PromptTemplate(template=prompt_template, input_variables=["context", "question"])
+    def _collect_documents(self, query: str) -> List[Dict[str, Any]]:
+        results = self.search_engine.search(query) or []
+        documents: List[Dict[str, Any]] = []
 
-        # 创建一个简单的检索器适配器
-        class SearchEngineRetriever:
-            def __init__(self, search_engine):
-                self.search_engine = search_engine
+        seen_paths = set()
+        for res in results:
+            path = res.get('path', '')
+            if path and path.lower() in seen_paths:
+                continue
+            if path:
+                seen_paths.add(path.lower())
 
-            def get_relevant_documents(self, query: str) -> List[LangDocument]:
-                # 使用SearchEngine进行搜索
-                results = self.search_engine.search(query)
-                docs = []
-                for res in results[:5]: # 取前5个结果
-                    content = res.get('content', '')
-                    metadata = {
-                        'source': res.get('path', ''),
-                        'filename': res.get('filename', ''),
-                        'score': res.get('score', 0)
-                    }
-                    docs.append(LangDocument(page_content=content, metadata=metadata))
-                return docs
-            
-            # LangChain 新版可能需要这个方法
-            def invoke(self, input: str, config: Optional[Any] = None) -> List[LangDocument]:
-                return self.get_relevant_documents(input)
+            raw_content = res.get('content') or ''
+            snippet = res.get('snippet') or ''
+            cleaned = self._strip_tags(raw_content) if raw_content else self._strip_tags(snippet)
+            if not cleaned:
+                continue
 
-        retriever = SearchEngineRetriever(self.search_engine)
+            if len(cleaned) > self.max_context_chars:
+                cleaned = cleaned[: self.max_context_chars] + '...'
 
-        qa = RetrievalQA.from_chain_type(
-            llm=self.llm,
-            chain_type="stuff",
-            retriever=retriever,
-            return_source_documents=True,
-            chain_type_kwargs={"prompt": prompt}
-        )
-        return qa
+            documents.append({
+                'path': path,
+                'filename': res.get('filename') or res.get('file_name') or os.path.basename(path),
+                'score': float(res.get('score', 0.0)),
+                'content': cleaned
+            })
+
+            if len(documents) >= self.max_docs:
+                break
+
+        return documents
+
+    def _build_prompt(self, query: str, documents: List[Dict[str, Any]]) -> str:
+        if not documents:
+            return ''
+
+        context_sections = []
+        for idx, doc in enumerate(documents, start=1):
+            section = (
+                f"[文档{idx}] {doc.get('filename', '未知文件')}\n"
+                f"路径: {doc.get('path', '未知路径')}\n"
+                f"相关性: {doc.get('score', 0.0):.2f}\n"
+                f"内容:\n{doc.get('content', '')}"
+            )
+            context_sections.append(section)
+
+        context_text = "\n\n".join(context_sections)
+        template = self.prompt_template or DEFAULT_PROMPT
+        try:
+            return template.format(context=context_text, question=query).strip()
+        except KeyError:
+            # 当模板缺少占位符时退回默认模板，避免崩溃
+            logger.warning("RAG提示模板缺少必要占位符，已使用默认模板")
+            return DEFAULT_PROMPT.format(context=context_text, question=query).strip()
 
     def query(self, query: str) -> Dict[str, Any]:
-        """执行RAG查询"""
-        if self.qa_chain is None:
-            return {"answer": "错误：RAG组件未初始化（可能是缺少依赖）。", "sources": []}
-            
+        """执行检索增强生成流程"""
         try:
-            # LangChain invoke or call
-            if hasattr(self.qa_chain, 'invoke'):
-                result = self.qa_chain.invoke({"query": query})
-            else:
-                result = self.qa_chain({"query": query})
-                
-            answer = result.get("result", "")
-            source_docs = result.get("source_documents", [])
-            sources = [doc.metadata.get('source', '未知') for doc in source_docs]
-            
+            documents = self._collect_documents(query)
+            if not documents:
+                return {"answer": "未找到相关文档，暂时无法回答该问题。", "sources": []}
+
+            prompt = self._build_prompt(query, documents)
+            if not prompt:
+                return {"answer": "构建回答提示失败。", "sources": []}
+
+            chunks: List[str] = []
+            for piece in self.model_manager.generate(prompt, max_tokens=self.max_output_tokens, temperature=self.temperature):
+                if piece:
+                    chunks.append(str(piece))
+
+            answer = ''.join(chunks).strip()
+            if not answer:
+                answer = "未能生成回答。"
+
+            sources = [doc.get('path') or doc.get('filename') for doc in documents]
             return {"answer": answer, "sources": sources}
-        except Exception as e:
-            logger.error(f"RAG查询失败: {e}")
-            return {"answer": f"错误：处理查询时发生异常 ({str(e)})。", "sources": []}
+        except Exception as exc:
+            logger.error(f"RAG查询失败: {exc}")
+            return {"answer": f"错误：处理查询时发生异常 ({str(exc)})。", "sources": []}

@@ -46,6 +46,9 @@ dependencies = [
     "tantivy>=0.22.0",
     "pycryptodome>=3.23.0",
     "pydantic>=2.12.4",
+    "pdfplumber>=0.11.8",
+    "six==1.16.0",
+    "pymupdf>=1.26.5",
 ]
 
 [project.optional-dependencies]

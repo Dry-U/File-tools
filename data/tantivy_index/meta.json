@@ -5,12 +5,17 @@
   },
   "segments": [
     {
-      "segment_id": "114ff2e4-cb27-4de0-86f2-fa7b8dca4589",
+      "segment_id": "8d347e01-2daa-424e-a216-69765aa04f45",
       "max_doc": 15,
       "deletes": null
     },
     {
-      "segment_id": "a42e3a54-f46e-4d3a-838e-af4ca5cce879",
+      "segment_id": "0e4b2574-394f-4cde-95c9-986ab84928ec",
+      "max_doc": 1,
+      "deletes": null
+    },
+    {
+      "segment_id": "256d56f9-cabc-466c-944b-84b6df7b26e7",
       "max_doc": 1,
       "deletes": null
     }
@@ -63,6 +68,19 @@
           "record": "position",
           "fieldnorms": true,
           "tokenizer": "default"
+        },
+        "stored": true,
+        "fast": false
+      }
+    },
+    {
+      "name": "content_raw",
+      "type": "text",
+      "options": {
+        "indexing": {
+          "record": "position",
+          "fieldnorms": true,
+          "tokenizer": "raw"
         },
         "stored": true,
         "fast": false
@@ -138,5 +156,5 @@
       }
     }
   ],
-  "opstamp": 96
+  "opstamp": 102
 }

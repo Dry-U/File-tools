@@ -7,6 +7,14 @@ import logging
 import PyPDF2
 import pdfminer.high_level
 import pdfminer.layout
+try:
+    import pdfplumber
+except ImportError:
+    pdfplumber = None
+try:
+    import fitz  # PyMuPDF
+except ImportError:
+    fitz = None
 from docx import Document as DocxDocument
 import pandas as pd
 import markdown
@@ -15,8 +23,8 @@ try:
     import textract
 except ImportError:
     textract = None
-from PIL import Image
-import exifread
+# from PIL import Image
+# import exifread
 import datetime
 try:
     import win32com.client
@@ -25,6 +33,36 @@ except ImportError:
 
 class DocumentParser:
     """文档解析器类，用于提取各种格式文档的内容和元数据"""
+    def _parse_pptx(self, file_path):
+        """解析PPTX文件"""
+        try:
+            # 延迟导入以避免启动时依赖检查失败
+            import pptx
+            prs = pptx.Presentation(file_path)
+            text = ""
+            for slide in prs.slides:
+                for shape in slide.shapes:
+                    if hasattr(shape, "text"):
+                        text += shape.text + "\n"
+            return text
+        except ImportError:
+            self.logger.warning(f"缺少 python-pptx 库，无法解析 PPTX 文件: {file_path}")
+            if textract:
+                try:
+                    return textract.process(file_path).decode('utf-8', errors='ignore')
+                except Exception as te:
+                    self.logger.warning(f"无法使用textract解析PPTX文件 {file_path}: {str(te)}")
+            return "错误: 缺少 python-pptx 库"
+        except Exception as e:
+            self.logger.error(f"PPTX解析失败 {file_path}: {str(e)}")
+            # 尝试使用textract作为后备
+            if textract:
+                try:
+                    return textract.process(file_path).decode('utf-8', errors='ignore')
+                except Exception as te:
+                    self.logger.warning(f"无法使用textract解析PPTX文件 {file_path}: {str(te)}")
+            return f"错误: 无法解析PPTX内容\n{str(e)}"
+
     def __init__(self, config_loader):
         self.config_loader = config_loader
         self.logger = logging.getLogger(__name__)
@@ -34,15 +72,12 @@ class DocumentParser:
             'pdf': self._parse_pdf,
             'docx': self._parse_docx,
             'doc': self._parse_doc_win32,
+            'pptx': self._parse_pptx,
             'txt': self._parse_text,
             'md': self._parse_markdown,
             'csv': self._parse_csv,
             'xlsx': self._parse_excel,
             'xls': self._parse_excel,
-            'jpg': self._parse_image,
-            'jpeg': self._parse_image,
-            'png': self._parse_image,
-            'gif': self._parse_image,
             # 代码文件
             'py': self._parse_text,
             'java': self._parse_text,
@@ -52,6 +87,55 @@ class DocumentParser:
             'css': self._parse_text,
         }
     
+    def _clean_text(self, text):
+        """清理文本中的控制字符和乱码"""
+        if not text:
+            return ""
+        import re
+        # 1. 移除常见的不可见控制字符 (保留换行\n, 回车\r, 制表符\t)
+        # \x00-\x08: NULL, SOH, STX, ETX, EOT, ENQ, ACK, BEL, BS
+        # \x0b-\x0c: VT, FF
+        # \x0e-\x1f: SO, SI, DLE, DC1-4, NAK, SYN, ETB, CAN, EM, SUB, ESC, FS, GS, RS, US
+        text = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f]', '', text)
+        
+        # 2. 移除特殊的Unicode空白和控制字符
+        # \uE000-\uF8FF: 私有使用区 (Private Use Area)，常用于图标字体或特殊符号，PDF提取常出现乱码
+        # \u200b-\u200f: 零宽字符等
+        # \u3000: 全角空格 (保留，中文常用)
+        # \ue5d2, \ue5d3 等特定乱码
+        # 扩展到所有私有使用区 (Plane 15, 16)
+        # \U000F0000-\U000FFFFF: Supplementary Private Use Area-A
+        # \U00100000-\U0010FFFF: Supplementary Private Use Area-B
+        text = re.sub(r'[\ue000-\uf8ff\U000f0000-\U000fffff\U00100000-\U0010ffff]', '', text)
+        
+        # 3. 移除连续的特殊符号，如   (这些通常在私有区，已被上面规则覆盖，但为了保险)
+        # 如果还有其他特定乱码，可以在这里添加
+        
+        # 4. 规范化空白字符：将连续的多个空格合并为一个，但保留换行结构
+        text = re.sub(r'[ \t]+', ' ', text) 
+        
+        # 5. 合并中文之间的空格 (例如 "微 型 电 脑" -> "微型电脑")
+        # 使用lookahead (?=...) 确保重叠匹配被正确处理
+        # 匹配: 中文 + 空格(可能多个) + (后面紧跟中文)
+        text = re.sub(r'([\u4e00-\u9fa5])\s+(?=[\u4e00-\u9fa5])', r'\1', text)
+        
+        # 6. 合并中文和数字/字母之间的异常空格 (针对PDF提取常见问题)
+        # 例如 "论 文 1" -> "论文 1" (保留必要的间隔，但合并异常分割)
+        # 这里比较激进，假设中文后紧跟空格再跟中文标点或数字通常是异常
+        # 但为了安全，我们主要关注 "中文 空格 中文" 已经在上面处理了
+        # 尝试处理 "中文 空格 全角字符"
+        # 匹配: 中文 + 空格 + (后面紧跟全角字符)
+        text = re.sub(r'([\u4e00-\u9fa5])\s+(?=[\uff00-\uffef])', r'\1', text)
+        # 匹配: 全角字符 + 空格 + (后面紧跟中文)
+        text = re.sub(r'([\uff00-\uffef])\s+(?=[\u4e00-\u9fa5])', r'\1', text)
+        
+        # 7. 移除重复的词组 (针对 "作者 简介 作者简介" 这种OCR/提取错误)
+        # 匹配: 词 + 空格 + 相同的词 (仅限中文，长度2-10)
+        # 例如: "作者简介 作者简介" -> "作者简介"
+        text = re.sub(r'([\u4e00-\u9fa5]{2,10})\s+\1', r'\1', text)
+
+        return text.strip()
+
     def extract_text(self, file_path):
         """提取文件文本内容"""
         if not os.path.exists(file_path):
@@ -60,13 +144,20 @@ class DocumentParser:
         
         file_ext = os.path.splitext(file_path)[1].lower()[1:]  # 获取文件扩展名，去除点号
         
+        # 明确拒绝图片格式，防止进入通用解析器
+        if file_ext in ['jpg', 'jpeg', 'png', 'gif', 'bmp', 'tiff', 'svg', 'webp']:
+            return ""
+
         try:
+            text = ""
             # 尝试使用特定的解析器
             if file_ext in self.parser_map:
-                return self.parser_map[file_ext](file_path)
+                text = self.parser_map[file_ext](file_path)
             else:
                 # 尝试使用通用解析器作为后备
-                return self._parse_generic(file_path)
+                text = self._parse_generic(file_path)
+            
+            return self._clean_text(text)
         except Exception as e:
             self.logger.error(f"解析文件失败 {file_path}: {str(e)}")
             return f"错误: 无法解析文件内容\n{str(e)}"
@@ -99,9 +190,10 @@ class DocumentParser:
             elif file_ext == 'docx':
                 docx_metadata = self._extract_docx_metadata(file_path)
                 metadata.update(docx_metadata)
-            elif file_ext in ['jpg', 'jpeg', 'png', 'gif']:
-                image_metadata = self._extract_image_metadata(file_path)
-                metadata.update(image_metadata)
+            # 移除图片元数据提取
+            # elif file_ext in ['jpg', 'jpeg', 'png', 'gif']:
+            #     image_metadata = self._extract_image_metadata(file_path)
+            #     metadata.update(image_metadata)
             
         except Exception as e:
             self.logger.error(f"提取元数据失败 {file_path}: {str(e)}")
@@ -111,32 +203,63 @@ class DocumentParser:
     
     def _parse_pdf(self, file_path):
         """解析PDF文件"""
-        try:
-            # 尝试使用PyPDF2
-            with open(file_path, 'rb') as file:
-                reader = PyPDF2.PdfReader(file)
-                text = ""
-                pages = reader.pages
-                if pages:
-                    for page_num in range(len(pages)):
-                        page = pages[page_num]
-                        text += page.extract_text() or ""
-                
-                # 如果PyPDF2提取的文本为空，尝试使用pdfminer
-                if not text.strip():
-                    text = pdfminer.high_level.extract_text(file_path)
-                
-                return text
-        except Exception as e:
-            self.logger.error(f"PDF解析失败 {file_path}: {str(e)}")
-            # 尝试使用textract作为后备
+        text = ""
+        
+        # 1. 优先使用PyMuPDF (fitz)
+        # PyMuPDF非常健壮，能处理许多pdfminer无法处理的损坏PDF，且对中文支持较好
+        if fitz:
+            try:
+                doc = fitz.open(file_path)
+                for page in doc:
+                    # sort=True 尝试按阅读顺序排序文本块，对多栏布局有帮助
+                    text += page.get_text("text", sort=True) + "\n"
+                doc.close()
+            except Exception as e:
+                self.logger.warning(f"PyMuPDF解析PDF失败 {file_path}: {str(e)}")
+
+        # 2. 如果PyMuPDF失败或结果为空，尝试pdfplumber (基于pdfminer.six)
+        if (not text or not text.strip()) and pdfplumber:
+            try:
+                with pdfplumber.open(file_path) as pdf:
+                    for page in pdf.pages:
+                        # extract_text() 自动处理布局
+                        page_text = page.extract_text()
+                        if page_text:
+                            text += page_text + "\n"
+            except Exception as e:
+                self.logger.warning(f"pdfplumber解析PDF失败 {file_path}: {str(e)}")
+        
+        # 3. 如果pdfplumber也失败或结果为空，尝试pdfminer.high_level
+        if not text or not text.strip():
+            try:
+                # 尝试使用pdfminer，因为它在处理中文和布局方面通常比PyPDF2更好
+                text = pdfminer.high_level.extract_text(file_path)
+            except Exception as e:
+                self.logger.warning(f"pdfminer解析PDF失败 {file_path}: {str(e)}")
+        
+        # 4. 如果pdfminer失败或结果为空，尝试PyPDF2
+        if not text or not text.strip():
+            try:
+                with open(file_path, 'rb') as file:
+                    reader = PyPDF2.PdfReader(file)
+                    pages = reader.pages
+                    if pages:
+                        for page_num in range(len(pages)):
+                            page = pages[page_num]
+                            text += page.extract_text() or ""
+            except Exception as e:
+                self.logger.error(f"PyPDF2解析PDF失败 {file_path}: {str(e)}")
+        
+        # 5. 如果仍然为空，尝试textract
+        if not text or not text.strip():
             if textract:
                 try:
                     return textract.process(file_path).decode('utf-8', errors='ignore')
                 except Exception as te:
                     self.logger.warning(f"无法使用textract解析PDF文件 {file_path}: {str(te)}")
-            # 如果没有textract或解析失败，返回错误信息
-            return f"错误: 无法解析PDF内容\n{str(e)}"
+            return f"错误: 无法解析PDF内容"
+            
+        return text
     
     def _parse_docx(self, file_path):
         """解析Word文档"""
@@ -264,41 +387,13 @@ class DocumentParser:
             # 如果没有textract或解析失败，返回错误信息
             return f"错误: 无法解析Excel内容\n{str(e)}"
     
-    def _parse_image(self, file_path):
-        """解析图像文件"""
-        try:
-            # 对于图像，我们主要提取元数据而不是内容
-            # 这里可以添加OCR功能，但需要额外的依赖
-            with Image.open(file_path) as img:
-                width, height = img.size
-                mode = img.mode
-                format_ = img.format
-                
-                content = f"图像文件信息:\n"
-                content += f"- 尺寸: {width}x{height}\n"
-                content += f"- 模式: {mode}\n"
-                content += f"- 格式: {format_}\n"
-                
-                # 尝试提取EXIF信息
-                try:
-                    with open(file_path, 'rb') as f:
-                        exif_data = exifread.process_file(f)
-                        if exif_data:
-                            content += "\nEXIF信息:\n"
-                            # 只显示一些关键的EXIF信息
-                            for tag in ['EXIF DateTimeOriginal', 'Image Make', 'Image Model', 'GPS GPSLatitude']:
-                                if tag in exif_data:
-                                    content += f"- {tag}: {exif_data[tag]}\n"
-                except:
-                    pass
-                
-                return content
-        except Exception as e:
-            self.logger.error(f"图像解析失败 {file_path}: {str(e)}")
-            return f"错误: 无法解析图像内容\n{str(e)}"
-    
     def _parse_generic(self, file_path):
         """通用解析器，用于处理不支持的文件格式"""
+        file_ext = os.path.splitext(file_path)[1].lower()[1:]
+        # 再次检查防止图片进入
+        if file_ext in ['jpg', 'jpeg', 'png', 'gif', 'bmp', 'tiff', 'svg', 'webp']:
+            return ""
+
         # 使用textract尝试提取内容
         if textract:
             try:
@@ -359,42 +454,5 @@ class DocumentParser:
                 metadata["Word-段落数"] = len(paragraphs)
         except Exception as e:
             self.logger.error(f"提取Word元数据失败 {file_path}: {str(e)}")
-        
-        return metadata
-    
-    def _extract_image_metadata(self, file_path):
-        """提取图像文件特定的元数据"""
-        metadata = {}
-        try:
-            with Image.open(file_path) as img:
-                metadata["图像-尺寸"] = f"{img.width}x{img.height}"
-                metadata["图像-模式"] = img.mode
-                metadata["图像-格式"] = img.format
-                colors = img.getcolors(maxcolors=2**24) if img.mode != 'RGB' else None
-                metadata["图像-颜色数"] = len(colors) if colors else 'millions'
-            
-            # 尝试提取EXIF信息
-            try:
-                with open(file_path, 'rb') as f:
-                    exif_data = exifread.process_file(f)
-                    if exif_data:
-                        # 提取一些常见的EXIF标签
-                        exif_tags = {
-                            'EXIF DateTimeOriginal': '拍摄时间',
-                            'Image Make': '相机制造商',
-                            'Image Model': '相机型号',
-                            'EXIF FNumber': '光圈',
-                            'EXIF ExposureTime': '曝光时间',
-                            'EXIF ISOSpeedRatings': 'ISO',
-                            'EXIF FocalLength': '焦距'
-                        }
-                        
-                        for tag, label in exif_tags.items():
-                            if tag in exif_data:
-                                metadata[f"图像-{label}"] = str(exif_data[tag])
-            except Exception as e:
-                self.logger.warning(f"提取EXIF信息失败 {file_path}: {str(e)}")
-        except Exception as e:
-            self.logger.error(f"提取图像元数据失败 {file_path}: {str(e)}")
         
         return metadata

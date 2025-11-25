@@ -12,7 +12,8 @@ except ImportError:
 from backend.utils.logger import setup_logger
 from backend.utils.config_loader import ConfigLoader
 from backend.core.vram_manager import VRAMManager
-
+        produced = False
+        try:
 # 临时定义缺失的类
 class InferenceOptimizer:
     def __init__(self, model_manager):
@@ -20,7 +21,6 @@ class InferenceOptimizer:
     def generate(self, prompt, session_id=None, max_tokens=512, temperature=0.7):
         # 模拟生成
         yield "模拟响应: " + prompt
-
 logger = setup_logger()
 
 class ModelManager:
@@ -81,43 +81,55 @@ class ModelManager:
                 print(f"检查模型启用状态失败: {str(e)}")
                 logger.error(f"检查模型启用状态失败: {str(e)}")
             
+            produced = False
+
             # 根据接口类型选择不同的生成方式
             if self.interface_type == 'local' and not model_enabled:
-                # 如果是本地模式但模型被禁用，使用模拟响应
-                yield from self._mock_generate(prompt)
+                for chunk in self._mock_generate(prompt):
+                    produced = True
+                    yield chunk
             elif self.interface_type == 'local':
-                # 本地模型生成
                 model = self.get_model()
                 if model:
                     for token in model(prompt, max_tokens=max_tokens, temperature=temperature, stream=True):
-                        # 修复类型检查问题，先检查token是否为字典类型
                         if isinstance(token, dict):
                             choices = token.get('choices', [])
                             if choices and isinstance(choices, list) and len(choices) > 0:
                                 choice = choices[0]
                                 if isinstance(choice, dict):
                                     text = choice.get('text', '')
-                                    yield text
+                                    if text:
+                                        produced = True
+                                        yield text
                         else:
-                            # 如果token不是字典，尝试直接转换为字符串
+                            produced = True
                             yield str(token)
                     self.vram_manager.update_last_used(self.current_model_name)
                 else:
+                    produced = True
                     yield "错误：无法加载本地模型。"
             elif self.interface_type == 'wsl':
-                # WSL API生成
-                yield from self._wsl_generate(prompt, max_tokens, temperature)
+                for chunk in self._wsl_generate(prompt, max_tokens, temperature):
+                    produced = True
+                    yield chunk
             elif self.interface_type == 'api':
-                # 通用API生成
-                yield from self._api_generate(prompt, max_tokens, temperature)
+                for chunk in self._api_generate(prompt, max_tokens, temperature):
+                    produced = True
+                    yield chunk
             else:
+                produced = True
                 yield f"错误：未知的AI接口类型: {self.interface_type}"
         except Exception as e:
             logger.error(f"生成失败: {e}")
             yield f"错误：{str(e)}"
+            produced = True
         
-        # 使用优化器进一步处理
-        yield from self.optimizer.generate(prompt, session_id, max_tokens, temperature)
+        if not locals().get('produced'):  # 安全检查，避免未定义
+            produced = False
+
+        if not produced:
+            for chunk in self.optimizer.generate(prompt, session_id, max_tokens, temperature):
+                yield chunk
 
     def _wsl_generate(self, prompt: str, max_tokens: int, temperature: float) -> Generator[str, None, None]:
         """WSL API生成"""
@@ -158,7 +170,6 @@ class ModelManager:
             for line in response.iter_lines():
                 if line:
                     # 根据不同API的响应格式进行处理
-                    # 这里简单处理，实际使用时需要根据具体API的响应格式进行调整
                     yield line.decode('utf-8')
         except Exception as e:
             logger.error(f"API调用失败: {e}")
@@ -167,3 +178,4 @@ class ModelManager:
     def _mock_generate(self, prompt: str) -> Generator[str, None, None]:
         """模拟生成响应，用于模型禁用时"""
         yield "模拟响应: " + prompt
+                        produced = False

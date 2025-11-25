@@ -294,45 +294,6 @@ async function confirmRebuild() {
     }
 }
 
-function exportResults() {
-    // Create modal dialog
-    const modalHtml = `
-    <div class="modal fade" id="exportModal" tabindex="-1">
-        <div class="modal-dialog">
-            <div class="modal-content">
-                <div class="modal-header">
-                    <h5 class="modal-title"><i class="bi bi-download me-2"></i>导出搜索结果</h5>
-                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-        </div>
-        <div class="modal-body">
-            <p>导出功能正在开发中...</p>
-            <p class="text-muted">我们将支持导出为CSV、Excel等格式。</p>
-        </div>
-        <div class="modal-footer">
-            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">关闭</button>
-        </div>
-        </div>
-    </div>`;
-
-    // Add modal to body if not already present
-    if (!document.getElementById('exportModal')) {
-        document.body.insertAdjacentHTML('beforeend', modalHtml);
-    } else {
-        // Update existing modal
-        const existingModal = document.getElementById('exportModal');
-        if (existingModal) {
-            existingModal.outerHTML = modalHtml;
-        } else {
-            document.body.insertAdjacentHTML('beforeend', modalHtml);
-        }
-    }
-
-    // Show modal
-    const modalElement = document.getElementById('exportModal');
-    const modal = new bootstrap.Modal(modalElement);
-    modal.show();
-}
-
 function handleKeyPress(event) {
     if (event.key === 'Enter') {
         performSearch();

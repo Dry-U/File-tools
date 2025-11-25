@@ -315,12 +315,6 @@ class FileMonitor:
             # 简单的文件类型分类
             if file_ext in ['.txt', '.md', '.json', '.xml', '.csv', '.log', '.py', '.js', '.java', '.cpp', '.c', '.h']:
                 file_type = 'document'
-            elif file_ext in ['.jpg', '.jpeg', '.png', '.gif', '.bmp', '.tiff', '.svg']:
-                file_type = 'image'
-            elif file_ext in ['.mp3', '.wav', '.flac', '.ogg', '.m4a']:
-                file_type = 'audio'
-            elif file_ext in ['.mp4', '.avi', '.mov', '.mkv', '.wmv']:
-                file_type = 'video'
             elif file_ext in ['.zip', '.rar', '.7z', '.tar', '.gz']:
                 file_type = 'archive'
             else:
