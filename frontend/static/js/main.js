@@ -1,5 +1,19 @@
 let currentPreviewPath = '';
 let searchResults = []; // Store search results globally
+let messageCounter = 0; // Ensure unique chat message IDs
+let pendingLoadingMessageId = null;
+
+function updateMessageContent(messageId, html) {
+    if (!messageId) return;
+    const el = document.getElementById(messageId);
+    if (!el) return;
+    const contentEl = el.querySelector('.message-content');
+    if (contentEl) {
+        contentEl.innerHTML = html;
+    } else {
+        el.innerHTML = html;
+    }
+}
 
 async function performSearch() {
     const query = document.getElementById('searchInput').value.trim();
@@ -363,10 +377,16 @@ async function sendChatMessage() {
     input.value = '';
 
     // Add user message
-    appendMessage('user', message);
+    const safeMessage = message.replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    appendMessage('user', safeMessage);
 
     // Show loading
+    if (pendingLoadingMessageId) {
+        updateMessageContent(pendingLoadingMessageId, '<span class="text-muted">请求已取消，正在等待新的问题...</span>');
+        pendingLoadingMessageId = null;
+    }
     const loadingId = appendMessage('system', '<span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>正在思考...');
+    pendingLoadingMessageId = loadingId;
 
     try {
         const response = await fetch('/api/chat', {
@@ -383,12 +403,7 @@ async function sendChatMessage() {
 
         const data = await response.json();
         
-        // Remove loading message
-        const loadingEl = document.getElementById(loadingId);
-        if (loadingEl) loadingEl.remove();
-
-        // Format answer with sources
-        let answerHtml = data.answer.replace(/\n/g, '<br>');
+        let answerHtml = (data.answer || '').replace(/\n/g, '<br>');
         if (data.sources && data.sources.length > 0) {
             answerHtml += '<div class="source-list"><strong>参考来源:</strong><br>';
             data.sources.forEach(source => {
@@ -396,21 +411,20 @@ async function sendChatMessage() {
             });
             answerHtml += '</div>';
         }
-
-        appendMessage('system', answerHtml);
-
+        updateMessageContent(loadingId, answerHtml);
     } catch (error) {
-        // Remove loading message
-        const loadingEl = document.getElementById(loadingId);
-        if (loadingEl) loadingEl.remove();
-        
-        appendMessage('system', `<span class="text-danger">错误: ${error.message}</span>`);
+        updateMessageContent(loadingId, `<span class="text-danger">错误: ${error.message}</span>`);
+    } finally {
+        if (pendingLoadingMessageId === loadingId) {
+            pendingLoadingMessageId = null;
+        }
     }
 }
 
 function appendMessage(type, content) {
     const container = document.getElementById('chatContainer');
-    const id = 'msg-' + Date.now();
+    messageCounter += 1;
+    const id = `msg-${Date.now()}-${messageCounter}`;
     
     const msgDiv = document.createElement('div');
     msgDiv.className = `chat-message ${type}-message`;

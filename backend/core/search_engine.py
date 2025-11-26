@@ -62,6 +62,12 @@ class SearchEngine:
         # 如果没有提供过滤器，使用默认空字典
         if filters is None:
             filters = {}
+        else:
+            filters = filters.copy()
+
+        file_type_filter = self._detect_file_type_filter(query)
+        if file_type_filter:
+            filters['file_types'] = file_type_filter
         
         # 保持查询与类型筛选相互独立：不再基于查询自动推断文件类型过滤
         
@@ -111,6 +117,24 @@ class SearchEngine:
         self.logger.info(f"搜索完成，找到 {len(limited_results)} 条结果，耗时: {search_time:.3f}秒")
         
         return limited_results
+
+    def _detect_file_type_filter(self, query: str):
+        q = (query or '').strip().lower()
+        if not q:
+            return None
+        mapping = {
+            '.pdf': {'pdf', 'pdf文件', '找pdf', '搜索pdf', 'pdf资料', '全部pdf'},
+            '.doc': {'doc', 'doc文件', 'word文档'},
+            '.docx': {'docx', 'docx文件'},
+            '.ppt': {'ppt', 'ppt文件'},
+            '.pptx': {'pptx', 'pptx文件'},
+            '.xls': {'xls', 'excel', 'excel表', '表格'},
+            '.xlsx': {'xlsx'},
+        }
+        for ext, keywords in mapping.items():
+            if q in keywords:
+                return [ext]
+        return None
     
     def _search_text(self, query, filters=None):
         """执行文本搜索"""

@@ -36,14 +36,61 @@ embedding:
   cache_dir: D:\Models\bge-large-zh-v1.5
 
 ai_model:
-  enabled: false  # 设为true以启用AI问答功能
-  model_path: "D:\\Models\\Qwen2.5-3B-YiLin.Q4_K_M.gguf"
-  interface_type: local  # 可选值: local, wsl, api
-  api_url: http://localhost:8000/v1/completions
+  enabled: true
+  interface_type: api  # 可选值: local, wsl, api
+  api_format: openai_chat
+  api_url: http://127.0.0.1:8080/v1/chat/completions
+  api_model: local-runtime
   api_key: ''
-  max_tokens: 2048
-  temperature: 0.7
+  system_prompt: |
+    你是一名严谨的中文文档助理。请根据提供的检索上下文作答，保持事实准确，
+    不要杜撰或引用未在文档中出现的信息。如无法确定答案，请明确说明未知。
+  max_tokens: 1024
+  temperature: 0.6
+  request_timeout: 60
   use_gpu: true
+
+rag:
+  max_docs: 4
+  max_context_chars: 1400
+  max_context_chars_total: 3200
+  max_output_tokens: 512
+  temperature: 0.6
+  prompt_template: |
+    你是一位友好且专业的智能文档助手“FileTools Copilot”。
+    - 首先以自然、口语化的中文回应用户，与对方保持轻松礼貌的交流氛围。
+    - 若文档片段提供了信息，请据此回答，必要时用简洁条目或步骤说明。
+    - 如果上下文与问题无关，需明确指出并说明你仍可协助查找其它资料或重新检索。
+    - 避免编造文档中不存在的事实，也不要重复原文标题。
+    - 若用户只是打招呼或提问泛泛内容，即使缺乏上下文，也要介绍你能提供的帮助。
+
+    文档片段：
+    {context}
+
+    用户问题：{question}
+
+    请输出一段简洁、准确且友善的中文回答。
+  fallback_response: |
+    我在本地索引中暂时没有找到与“{query}”直接对应的正文内容。
+    你可以：
+    1. 再提供更具体的描述（如文件名、章节、作者、时间等）；
+    2. 指明文件类型或格式，例如“PDF 报告”“Word 文档”；
+    3. 如果需要的是操作指南或检索策略，也欢迎直接告诉我，我会给出建议。
+    告诉我更详细的线索后，我会立即在全部已扫描文件中再次检索。
+  greeting_response: |
+    你好呀，我是 FileTools Copilot，本地文件的智能助手。
+    我可以帮你搜索 PDF、Word、PPT 甚至代码，把结果整理成摘要或问答。
+    需要查资料、找报告要点、生成概览或者验证内容都可以直接告诉我。
+    只要说出关键词或问题，我就能立刻从本地库里找到相关内容。
+  greeting_keywords:
+    - 你好
+    - 您好
+    - hi
+    - hello
+    - 嗨
+    - 嘿
+    - 在吗
+    - 在不
 monitor:
   debounce_time: 0.5
   directories: '~'

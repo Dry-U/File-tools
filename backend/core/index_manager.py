@@ -154,15 +154,16 @@ class IndexManager:
                 raw_content = document['content'] or ''
             except Exception:
                 raw_content = ''
-            raw_excerpt = str(raw_content)[:5000]
-            content_chars = ' '.join([c for c in raw_excerpt])
+            raw_text = str(raw_content)
+            content_chars_source = raw_text
+            content_chars = ' '.join([c for c in content_chars_source])
             with self.tantivy_index.writer() as writer:
                 tdoc = tantivy.Document(
                     path=document['path'],
                     filename=[seg_filename],
                     filename_chars=[fname_chars],
                     content=[seg_content],
-                    content_raw=[raw_excerpt],
+                    content_raw=[raw_text],
                     content_chars=[content_chars],
                     file_type=[document['file_type']],
                     size=int(document['size']),
