@@ -2,6 +2,8 @@ let currentPreviewPath = '';
 let searchResults = []; // Store search results globally
 let messageCounter = 0; // Ensure unique chat message IDs
 let pendingLoadingMessageId = null;
+// Generate a stable session id per page load to isolate chat history
+const chatSessionId = (crypto.randomUUID ? crypto.randomUUID() : `sess-${Date.now()}-${Math.random().toString(16).slice(2)}`);
 
 function updateMessageContent(messageId, html) {
     if (!messageId) return;
@@ -394,7 +396,7 @@ async function sendChatMessage() {
             headers: {
                 'Content-Type': 'application/json',
             },
-            body: JSON.stringify({ query: message })
+            body: JSON.stringify({ query: message, session_id: chatSessionId })
         });
 
         if (!response.ok) {

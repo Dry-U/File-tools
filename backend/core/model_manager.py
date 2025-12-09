@@ -192,6 +192,11 @@ class ModelManager:
 
             if self.api_format == 'openai_chat':
                 messages = []
+                # 如果 prompt 已经包含了系统指令（例如 RAGPipeline 组装的），则不重复添加 system_prompt
+                # 或者，我们可以将 system_prompt 作为 system role，而 prompt 作为 user role
+                # 但 RAGPipeline 的 prompt 已经是一个完整的指令块。
+                # 策略：如果 system_prompt 存在，作为 system message。
+                # RAGPipeline 传来的 prompt 作为 user message。
                 if self.system_prompt:
                     messages.append({"role": "system", "content": self.system_prompt})
                 messages.append({"role": "user", "content": prompt})

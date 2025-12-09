@@ -345,11 +345,12 @@ async def chat(request: Request):
     try:
         body = await request.json()
         query = body.get("query", "")
+        session_id = body.get("session_id")
         
         if not query:
             raise HTTPException(status_code=400, detail="Query cannot be empty")
             
-        result = rag_pipeline.query(query)
+        result = rag_pipeline.query(query, session_id=session_id)
         return result
     except Exception as e:
         logger.error(f"Chat error: {str(e)}")
