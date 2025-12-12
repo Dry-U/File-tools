@@ -191,9 +191,19 @@ class RAGPipeline:
             if path:
                 seen_paths.add(path.lower())
 
+            # 优先获取完整内容，而不是截断的索引内容
+            # 从索引中获取完整内容
             raw_content = res.get('content') or ''
             snippet = res.get('snippet') or ''
-            cleaned = self._strip_tags(raw_content) if raw_content else self._strip_tags(snippet)
+
+            # 尝试从索引获取完整内容（避免索引中存储的截断内容）
+            full_content = self.search_engine.index_manager.get_document_content(path) if hasattr(self.search_engine, 'index_manager') else ''
+
+            # 如果索引中没有完整内容，使用原始检索到的内容
+            if full_content:
+                cleaned = self._strip_tags(full_content)
+            else:
+                cleaned = self._strip_tags(raw_content) if raw_content else self._strip_tags(snippet)
 
             # 优先使用路径获取真实文件名，避免索引返回的 filename 字段可能存在的截断或分词问题
             if path:
@@ -219,8 +229,19 @@ class RAGPipeline:
             if not cleaned:
                 cleaned = f"文件名匹配：{filename}" if filename else "文件名匹配"
 
+            # 仅在必要时进行截断，并且保留更多内容
             if len(cleaned) > self.max_context_chars:
-                cleaned = cleaned[: self.max_context_chars] + '...'
+                # 尝试保留最重要的部分：先保留开头，然后是结尾
+                max_len = self.max_context_chars
+                if max_len > 200:  # 如果允许的空间足够，使用头尾截断
+                    head_size = min(max_len // 2, 500)  # 保留前500字符
+                    tail_size = max_len - head_size - 3  # 剩余给尾部的空间
+                    if tail_size > 0:
+                        cleaned = cleaned[:head_size] + '...' + cleaned[-tail_size:]
+                    else:
+                        cleaned = cleaned[:max_len - 3] + '...'
+                else:
+                    cleaned = cleaned[:max_len - 3] + '...'
 
             documents.append({
                 'path': path,
@@ -256,12 +277,23 @@ class RAGPipeline:
                 break
 
             content = doc.get('content', '') or ''
+            original_content_length = len(content)
+
             if enforce_budget:
                 remaining = context_budget - used_chars
                 if remaining <= 0:
                     break
                 if len(content) > remaining:
-                    content = content[:remaining] + '...'
+                    # 尝试保留最重要的部分：先保留开头，然后是结尾
+                    if remaining > 200:  # 如果剩余空间足够，使用头尾截断策略
+                        head_size = min(remaining // 2, 500)  # 保留前500字符
+                        tail_size = remaining - head_size - 3  # 剩余给尾部的空间
+                        if tail_size > 0:
+                            content = content[:head_size] + '...' + content[-tail_size:]
+                        else:
+                            content = content[:remaining - 3] + '...'
+                    else:
+                        content = content[:remaining - 3] + '...'
                 used_chars += len(content)
 
             if not content:
@@ -273,6 +305,22 @@ class RAGPipeline:
                 f"相关性: {doc.get('score', 0.0):.2f}\n"
                 f"内容:\n{content}"
             )
+
+            # 检查section长度，如果section本身太大，进一步截断content部分
+            if enforce_budget and len(section) > (context_budget - used_chars) and (context_budget - used_chars) > 0:
+                available = context_budget - used_chars - len("[文档{}] {}路径: {}相关性: {:.2f}内容:\n".format(
+                    doc.get('filename', '未知文件'), doc.get('path', '未知路径'), doc.get('score', 0.0)
+                ))
+                if available > 0:
+                    if available < len(content):
+                        content = content[:available] + '...'
+                        section = (
+                            f"[文档{idx}] {doc.get('filename', '未知文件')}\n"
+                            f"路径: {doc.get('path', '未知路径')}\n"
+                            f"相关性: {doc.get('score', 0.0):.2f}\n"
+                            f"内容:\n{content}"
+                        )
+
             context_sections.append(section)
 
         context_text = "\n\n".join(context_sections)

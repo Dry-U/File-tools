@@ -175,10 +175,10 @@ class FileScanner:
         start_time = time.time()
         self.logger.info("开始扫描并索引文件")
         self.logger.info(f"扫描路径列表: {self.scan_paths}")
-        
+
         # 重置停止标志
         self._stop_flag = False
-        
+
         # 重置扫描统计信息
         self.scan_stats = {
             'total_files_scanned': 0,
@@ -188,37 +188,134 @@ class FileScanner:
             'scan_time': 0,
             'last_scan_time': None
         }
-        
+
         # 初始化进度
         if self.progress_callback:
             try:
                 self.progress_callback(0)
             except Exception as e:
                 self.logger.warning(f"初始化进度回调失败: {str(e)}")
-        
+
+        # 预估总文件数用于进度计算
+        total_files_estimate = 0
+        for path in self.scan_paths:
+            try:
+                # 简单估算文件数量，避免长时间计算
+                for root, dirs, files in os.walk(path):
+                    if self._stop_flag:
+                        break
+                    total_files_estimate += len(files)
+                    # 限制估算以避免长时间阻塞
+                    if total_files_estimate > 10000:  # 限制估算数量
+                        break
+                if total_files_estimate > 10000:
+                    break
+            except Exception:
+                continue
+
+        scanned_count = 0
         # 扫描每个配置的路径
-        self.logger.info(f"开始扫描 {len(self.scan_paths)} 个路径")
+        self.logger.info(f"开始扫描 {len(self.scan_paths)} 个路径，预估文件数: {total_files_estimate}")
         for i, path in enumerate(self.scan_paths):
             self.logger.info(f"扫描路径[{i}]: {path}")
             if self._stop_flag:
                 self.logger.info("扫描已被停止")
                 break
-            self._scan_directory(Path(path))
-        
+            self._scan_directory_with_progress(Path(path), total_files_estimate)
+
         # 设置完成进度
         if self.progress_callback:
             try:
                 self.progress_callback(100)
             except Exception as e:
                 self.logger.warning(f"完成进度回调失败: {str(e)}")
-        
+
         # 计算扫描时间
         self.scan_stats['scan_time'] = time.time() - start_time
         self.scan_stats['last_scan_time'] = time.time()
-        
+
         self.logger.info(f"扫描完成，统计: 扫描文件 {self.scan_stats['total_files_scanned']} 个, 索引文件 {self.scan_stats['total_files_indexed']} 个, 跳过文件 {self.scan_stats['total_files_skipped']} 个, 耗时 {self.scan_stats['scan_time']:.2f} 秒")
-        
+
         return self.scan_stats
+
+    def _scan_directory_with_progress(self, dir_path: Path, total_estimate: int) -> None:
+        """带进度更新的目录扫描"""
+        self.logger.info(f"扫描目录: {dir_path}")
+
+        # Log if directory exists and is accessible
+        if not dir_path.exists():
+            self.logger.warning(f"扫描目录不存在: {dir_path}")
+            return
+        if not dir_path.is_dir():
+            self.logger.warning(f"扫描路径不是目录: {dir_path}")
+            return
+
+        try:
+            self.logger.info(f"开始遍历目录: {dir_path}")
+
+            # 避免将整个目录树加载到内存中，使用迭代器方式
+            try:
+                # 使用walk方法替代rglob，对大目录更友好
+                import os
+                file_count = 0
+                for root, dirs, files in os.walk(dir_path):
+                    if self._stop_flag:
+                        self.logger.info(f"扫描被停止，已处理 {file_count} 个项目")
+                        return
+
+                    for file_name in files:
+                        if self._stop_flag:
+                            self.logger.info(f"扫描被停止，已处理 {file_count} 个项目")
+                            return
+
+                        try:
+                            file_path = Path(root) / file_name
+
+                            # 检查文件是否为有效的普通文件
+                            try:
+                                stat_result = file_path.stat()
+                                # 跳过特殊文件（如管道、设备文件等）
+                                if not (stat_result.st_mode & 0o170000 == 0o100000):  # 普通文件检查
+                                    continue
+                            except OSError:
+                                self.logger.warning(f"无法获取文件状态 {file_path}, 跳过")
+                                continue
+
+                            self.logger.debug(f"处理文件: {file_path}")
+                            self._process_file(file_path)
+                            file_count += 1
+
+                            # 更新进度（如果预估总数大于0）
+                            if total_estimate > 0:
+                                progress = min(99, int((self.scan_stats['total_files_scanned'] / total_estimate) * 100))
+                                if self.progress_callback and file_count % 10 == 0:  # 每10个文件更新一次进度
+                                    try:
+                                        self.progress_callback(progress)
+                                    except Exception as e:
+                                        self.logger.warning(f"更新进度回调失败: {str(e)}")
+
+                            if file_count % 100 == 0:  # 每处理100个文件记录一次日志
+                                self.logger.info(f"已处理 {file_count} 个文件...")
+                        except Exception as e:
+                            # 单个文件处理失败不应停止整个扫描
+                            self.logger.error(f"处理文件失败 {file_name} in {root}: {str(e)}")
+                            continue
+
+                self.logger.info(f"目录扫描完成，共处理 {file_count} 个文件")
+            except Exception as e:
+                self.logger.error(f"遍历目录失败 {dir_path}: {str(e)}")
+                import traceback
+                self.logger.error(f"详细错误信息: {traceback.format_exc()}")
+                return
+
+        except PermissionError:
+            self.logger.error(f"无权限访问目录: {dir_path}")
+            import traceback
+            self.logger.error(f"详细错误信息: {traceback.format_exc()}")
+        except Exception as e:
+            self.logger.error(f"扫描目录失败 {dir_path}: {str(e)}")
+            import traceback
+            self.logger.error(f"详细错误信息: {traceback.format_exc()}")
 
     def _scan_directory(self, dir_path: Path) -> None:
         """递归扫描目录并索引符合条件的文件"""
@@ -234,45 +331,52 @@ class FileScanner:
 
         try:
             self.logger.info(f"开始遍历目录: {dir_path}")
-            # Use generator pattern, but handle rglob call separately
-            try:
-                file_paths = list(dir_path.rglob('*'))  # Convert to list to catch any exception during generation
-                self.logger.info(f"rglob found {len(file_paths)} items to process")
-                # Log first few items for debugging
-                for i, file_path in enumerate(file_paths[:5]):
-                    self.logger.info(f"  文件[{i}]: {file_path}")
-                if len(file_paths) > 5:
-                    self.logger.info(f"  ... 还有 {len(file_paths) - 5} 个文件")
-            except Exception as rglob_error:
-                self.logger.error(f"rglob failed on directory {dir_path}: {str(rglob_error)}")
-                import traceback
-                self.logger.error(f"rglob详细错误信息: {traceback.format_exc()}")
-                return
 
-            # Process each file, handling exceptions individually
-            file_count = 0
-            self.logger.info(f"开始处理 {len(file_paths)} 个文件")
-            for file_path in file_paths:
-                try:
-                    self.logger.info(f"检查路径: {file_path}, 是否为文件: {file_path.is_file()}")
+            # 避免将整个目录树加载到内存中，使用迭代器方式
+            try:
+                # 使用walk方法替代rglob，对大目录更友好
+                import os
+                file_count = 0
+                for root, dirs, files in os.walk(dir_path):
                     if self._stop_flag:
                         self.logger.info(f"扫描被停止，已处理 {file_count} 个项目")
-                        break
-                    if file_path.is_file():
-                        self.logger.info(f"处理文件: {file_path}")
-                        self._process_file(file_path)
-                        file_count += 1
-                        if file_count % 10 == 0:  # Log every 10 files
-                            self.logger.info(f"已处理 {file_count} 个文件...")
-                    else:
-                        self.logger.info(f"跳过目录: {file_path}")
-                except Exception as e:
-                    # Individual file processing failure shouldn't stop entire scan
-                    self.logger.error(f"处理文件失败 {file_path}: {str(e)}")
-                    import traceback
-                    self.logger.error(f"详细错误信息: {traceback.format_exc()}")
-                    continue
-            self.logger.info(f"目录扫描完成，共处理 {file_count} 个文件")
+                        return
+
+                    for file_name in files:
+                        if self._stop_flag:
+                            self.logger.info(f"扫描被停止，已处理 {file_count} 个项目")
+                            return
+
+                        try:
+                            file_path = Path(root) / file_name
+
+                            # 检查文件是否为有效的普通文件
+                            try:
+                                stat_result = file_path.stat()
+                                # 跳过特殊文件（如管道、设备文件等）
+                                if not (stat_result.st_mode & 0o170000 == 0o100000):  # 普通文件检查
+                                    continue
+                            except OSError:
+                                self.logger.warning(f"无法获取文件状态 {file_path}, 跳过")
+                                continue
+
+                            self.logger.debug(f"处理文件: {file_path}")
+                            self._process_file(file_path)
+                            file_count += 1
+                            if file_count % 50 == 0:  # 每处理50个文件记录一次日志
+                                self.logger.info(f"已处理 {file_count} 个文件...")
+                        except Exception as e:
+                            # 单个文件处理失败不应停止整个扫描
+                            self.logger.error(f"处理文件失败 {file_name} in {root}: {str(e)}")
+                            continue
+
+                self.logger.info(f"目录扫描完成，共处理 {file_count} 个文件")
+            except Exception as e:
+                self.logger.error(f"遍历目录失败 {dir_path}: {str(e)}")
+                import traceback
+                self.logger.error(f"详细错误信息: {traceback.format_exc()}")
+                return
+
         except PermissionError:
             self.logger.error(f"无权限访问目录: {dir_path}")
             import traceback

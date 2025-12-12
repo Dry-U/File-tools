@@ -56,11 +56,11 @@ ai_model:
 
 rag:
   max_docs: 4
-  max_context_chars: 1400
-  max_context_chars_total: 3200
+  max_context_chars: 2800  # 增加单文档上下文字符数
+  max_context_chars_total: 6400  # 增加总上下文字符数
   max_history_turns: 6
-  max_history_chars: 800
-  max_output_tokens: 512
+  max_history_chars: 1600  # 增加历史记录字符数
+  max_output_tokens: 1024  # 增加输出令牌数
   temperature: 0.6
   prompt_template: |
     你是一位智能文档助手。请根据下方“文档片段”回答用户问题。

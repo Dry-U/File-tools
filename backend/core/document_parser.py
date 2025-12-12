@@ -203,14 +203,26 @@ class DocumentParser:
     
     def _parse_pdf(self, file_path):
         """解析PDF文件"""
+
+        # 检查文件大小，避免加载过大PDF导致内存问题
+        file_size = os.path.getsize(file_path)
+        max_size = 100 * 1024 * 1024  # 100MB限制
+        if file_size > max_size:
+            self.logger.warning(f"PDF文件过大，跳过解析 {file_path}: {file_size} bytes")
+            return f"错误: PDF文件过大 ({file_size} bytes)，已跳过解析"
+
         text = ""
-        
+        max_text_length = 50 * 1024 * 1024  # 50MB限制输出文本
+
         # 1. 优先使用PyMuPDF (fitz)
         # PyMuPDF非常健壮，能处理许多pdfminer无法处理的损坏PDF，且对中文支持较好
         if fitz:
             try:
                 doc = fitz.open(file_path)
                 for page in doc:
+                    if len(text) > max_text_length:
+                        text = text[:max_text_length] + "\n... (内容已截断)"
+                        break
                     # sort=True 尝试按阅读顺序排序文本块，对多栏布局有帮助
                     text += page.get_text("text", sort=True) + "\n"
                 doc.close()
@@ -222,21 +234,28 @@ class DocumentParser:
             try:
                 with pdfplumber.open(file_path) as pdf:
                     for page in pdf.pages:
+                        if len(text) > max_text_length:
+                            text = text[:max_text_length] + "\n... (内容已截断)"
+                            break
                         # extract_text() 自动处理布局
                         page_text = page.extract_text()
                         if page_text:
                             text += page_text + "\n"
             except Exception as e:
                 self.logger.warning(f"pdfplumber解析PDF失败 {file_path}: {str(e)}")
-        
+
         # 3. 如果pdfplumber也失败或结果为空，尝试pdfminer.high_level
         if not text or not text.strip():
             try:
                 # 尝试使用pdfminer，因为它在处理中文和布局方面通常比PyPDF2更好
-                text = pdfminer.high_level.extract_text(file_path)
+                extracted_text = pdfminer.high_level.extract_text(file_path)
+                if len(extracted_text) <= max_text_length:
+                    text = extracted_text
+                else:
+                    text = extracted_text[:max_text_length] + "\n... (内容已截断)"
             except Exception as e:
                 self.logger.warning(f"pdfminer解析PDF失败 {file_path}: {str(e)}")
-        
+
         # 4. 如果pdfminer失败或结果为空，尝试PyPDF2
         if not text or not text.strip():
             try:
@@ -245,36 +264,74 @@ class DocumentParser:
                     pages = reader.pages
                     if pages:
                         for page_num in range(len(pages)):
+                            if len(text) > max_text_length:
+                                text = text[:max_text_length] + "\n... (内容已截断)"
+                                break
                             page = pages[page_num]
-                            text += page.extract_text() or ""
+                            extracted = page.extract_text() or ""
+                            if extracted:
+                                text += extracted
             except Exception as e:
                 self.logger.error(f"PyPDF2解析PDF失败 {file_path}: {str(e)}")
-        
+
         # 5. 如果仍然为空，尝试textract
         if not text or not text.strip():
             if textract:
                 try:
-                    return textract.process(file_path).decode('utf-8', errors='ignore')
+                    extracted = textract.process(file_path).decode('utf-8', errors='ignore')
+                    if len(extracted) <= max_text_length:
+                        return extracted
+                    else:
+                        return extracted[:max_text_length] + "\n... (内容已截断)"
                 except Exception as te:
                     self.logger.warning(f"无法使用textract解析PDF文件 {file_path}: {str(te)}")
             return f"错误: 无法解析PDF内容"
-            
+
+        # 最终检查文本长度
+        if len(text) > max_text_length:
+            text = text[:max_text_length] + "\n... (内容已截断)"
+
         return text
     
     def _parse_docx(self, file_path):
         """解析Word文档"""
         try:
+            # 检查文件大小，避免加载过大文件导致内存问题
+            file_size = os.path.getsize(file_path)
+            max_size = 50 * 1024 * 1024  # 50MB限制
+            if file_size > max_size:
+                self.logger.warning(f"Word文档过大，跳过解析 {file_path}: {file_size} bytes")
+                return f"错误: Word文档过大 ({file_size} bytes)，已跳过解析"
+
             doc = DocxDocument(file_path)
             text = ""
+            max_text_length = 10 * 1024 * 1024  # 10MB限制输出文本
+
             for paragraph in doc.paragraphs:
+                if len(text) > max_text_length:
+                    text = text[:max_text_length] + "\n... (内容已截断)"
+                    break
                 text += paragraph.text + '\n'
+
+            # 最终检查文本长度
+            if len(text) > max_text_length:
+                text = text[:max_text_length] + "\n... (内容已截断)"
+
             return text
         except Exception as e:
             self.logger.error(f"DOCX解析失败 {file_path}: {str(e)}")
             # 尝试使用textract作为后备
             if textract:
                 try:
-                    return textract.process(file_path).decode('utf-8', errors='ignore')
+                    # 检查文件大小限制
+                    if file_size > max_size:
+                        return f"错误: Word文档过大 ({file_size} bytes)，已跳过解析"
+
+                    content = textract.process(file_path).decode('utf-8', errors='ignore')
+                    max_content_size = 10 * 1024 * 1024  # 10MB限制内容
+                    if len(content) > max_content_size:
+                        content = content[:max_content_size] + "\n... (内容已截断)"
+                    return content
                 except Exception as te:
                     self.logger.warning(f"无法使用textract解析Word文档 {file_path}: {str(te)}")
             # 如果没有textract或解析失败，返回错误信息
@@ -307,13 +364,29 @@ class DocumentParser:
     def _parse_text(self, file_path):
         """解析文本文件"""
         try:
+            # 检查文件大小，避免加载过大文件导致内存问题
+            file_size = os.path.getsize(file_path)
+            max_size = 10 * 1024 * 1024  # 10MB限制
+            if file_size > max_size:
+                self.logger.warning(f"文本文件过大，跳过解析 {file_path}: {file_size} bytes")
+                return f"错误: 文本文件过大 ({file_size} bytes)，已跳过解析"
+
             with open(file_path, 'r', encoding='utf-8', errors='replace') as file:
-                return file.read()
+                content = file.read()
+                # 限制返回内容大小以防止内存问题
+                if len(content) > max_size:
+                    content = content[:max_size] + "\n... (内容已截断)"
+                return content
         except UnicodeDecodeError:
             # 尝试其他编码
             try:
                 with open(file_path, 'r', encoding='gbk', errors='replace') as file:
-                    return file.read()
+                    content = file.read()
+                    # 限制返回内容大小
+                    max_size = 10 * 1024 * 1024  # 10MB限制
+                    if len(content) > max_size:
+                        content = content[:max_size] + "\n... (内容已截断)"
+                    return content
             except:
                 self.logger.error(f"文本解析失败 {file_path}: 编码错误")
                 return "错误: 无法解析文本内容（编码问题）"
@@ -335,8 +408,20 @@ class DocumentParser:
     def _parse_csv(self, file_path):
         """解析CSV文件"""
         try:
+            # 检查文件大小，避免加载过大文件导致内存问题
+            file_size = os.path.getsize(file_path)
+            max_size = 50 * 1024 * 1024  # 50MB限制
+            if file_size > max_size:
+                self.logger.warning(f"CSV文件过大，跳过完整解析 {file_path}: {file_size} bytes")
+                return f"错误: CSV文件过大 ({file_size} bytes)，已跳过解析"
+
             df = pd.read_csv(file_path, encoding_errors='replace')
-            return df.to_string()
+
+            # 限制返回内容大小
+            content = df.to_string()
+            if len(content) > max_size:
+                content = content[:max_size] + "\n... (内容已截断)"
+            return content
         except Exception as e:
             self.logger.error(f"CSV解析失败 {file_path}: {str(e)}")
             # 尝试作为普通文本文件解析
@@ -348,9 +433,22 @@ class DocumentParser:
     def _parse_excel(self, file_path):
         """解析Excel文件"""
         try:
+            # 检查文件大小，避免加载过大文件导致内存问题
+            file_size = os.path.getsize(file_path)
+            max_size = 50 * 1024 * 1024  # 50MB限制
+            if file_size > max_size:
+                self.logger.warning(f"Excel文件过大，跳过完整解析 {file_path}: {file_size} bytes")
+                return f"错误: Excel文件过大 ({file_size} bytes)，已跳过解析"
+
             # pandas read_excel 自动处理 .xls (需要xlrd) 和 .xlsx (需要openpyxl)
             df = pd.read_excel(file_path)
-            return df.to_string()
+
+            # 限制返回内容大小
+            content = df.to_string()
+            max_content_size = 10 * 1024 * 1024  # 10MB限制内容
+            if len(content) > max_content_size:
+                content = content[:max_content_size] + "\n... (内容已截断)"
+            return content
         except Exception as e:
             self.logger.error(f"Excel解析失败 {file_path}: {str(e)}")
             # 尝试使用win32com作为后备 (仅Windows)
@@ -359,9 +457,20 @@ class DocumentParser:
                     excel = win32com.client.Dispatch("Excel.Application")
                     excel.Visible = False
                     abs_path = os.path.abspath(file_path)
+
+                    # 检查Excel文件大小
+                    file_size = os.path.getsize(file_path)
+                    if file_size > 50 * 1024 * 1024:
+                        excel.Quit()
+                        self.logger.warning(f"Excel文件过大，跳过Win32解析 {file_path}: {file_size} bytes")
+                        return f"错误: Excel文件过大 ({file_size} bytes)，已跳过解析"
+
                     wb = excel.Workbooks.Open(abs_path)
                     text = ""
                     for sheet in wb.Sheets:
+                        if len(text) > 10 * 1024 * 1024:  # 限制输出大小
+                            text += "\n... (内容已截断)"
+                            break
                         try:
                             # 获取已使用区域的值
                             used_range = sheet.UsedRange
@@ -369,11 +478,17 @@ class DocumentParser:
                                 # 将元组转换为字符串
                                 text += f"Sheet: {sheet.Name}\n"
                                 for row in used_range.Value:
-                                    if row:
-                                        text += " ".join([str(cell) for cell in row if cell is not None]) + "\n"
+                                    if row and len(text) <= 10 * 1024 * 1024:  # 限制输出大小
+                                        text += " ".join([str(cell) for cell in row if cell is not None and cell != '']) + "\n"
+                                    if len(text) > 10 * 1024 * 1024:  # 限制输出大小
+                                        text += "\n... (内容已截断)"
+                                        break
                         except Exception:
                             pass
+                        if len(text) > 10 * 1024 * 1024:  # 限制输出大小
+                            break
                     wb.Close(False)
+                    excel.Quit()
                     return text
                 except Exception as we:
                     self.logger.warning(f"Win32解析Excel失败 {file_path}: {str(we)}")
@@ -381,7 +496,15 @@ class DocumentParser:
             # 尝试使用textract作为后备
             if textract:
                 try:
-                    return textract.process(file_path).decode('utf-8', errors='ignore')
+                    # 检查文件大小限制
+                    if file_size > 50 * 1024 * 1024:
+                        return f"错误: Excel文件过大 ({file_size} bytes)，已跳过解析"
+
+                    content = textract.process(file_path).decode('utf-8', errors='ignore')
+                    max_content_size = 10 * 1024 * 1024  # 10MB限制内容
+                    if len(content) > max_content_size:
+                        content = content[:max_content_size] + "\n... (内容已截断)"
+                    return content
                 except Exception as te:
                     self.logger.warning(f"无法使用textract解析Excel文件 {file_path}: {str(te)}")
             # 如果没有textract或解析失败，返回错误信息

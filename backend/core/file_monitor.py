@@ -259,12 +259,38 @@ class FileMonitor:
         """处理单个文件系统事件"""
         event_type = event_info['type']
         event_path = event_info['path']
-        
+
         try:
+            # 添加文件存在性检查延迟，防止文件操作未完成
+            import time
+            max_retries = 3
+            retry_delay = 0.1
+
+            # 对于新建和修改事件，等待文件操作完成
+            if event_type in ('created', 'modified'):
+                for attempt in range(max_retries):
+                    if os.path.exists(event_path) and os.path.isfile(event_path):
+                        try:
+                            # 尝试获取文件大小，确保文件可读
+                            file_size = os.path.getsize(event_path)
+                            # 对于刚创建/修改的文件，等待一下确保写入完成
+                            time.sleep(retry_delay)
+                            break
+                        except OSError:
+                            if attempt == max_retries - 1:
+                                self.logger.warning(f"无法访问文件，跳过处理 {event_path}")
+                                return
+                            time.sleep(retry_delay)
+                    else:
+                        if attempt == max_retries - 1:
+                            self.logger.warning(f"文件不存在或不是常规文件，跳过处理 {event_path}")
+                            return
+                        time.sleep(retry_delay)
+
             # 根据事件类型执行相应操作
             if event_type in ('created', 'modified'):
                 # 确保文件存在
-                if os.path.exists(event_path):
+                if os.path.exists(event_path) and os.path.isfile(event_path):
                     # 更新索引
                     self._update_index_for_file(event_path)
             elif event_type == 'deleted':
@@ -275,11 +301,13 @@ class FileMonitor:
                 # 为简化，我们假设这是一个重命名操作，先删除旧路径，再添加新路径
                 if 'dest_path' in event_info:
                     dest_path = event_info['dest_path']
-                    if os.path.exists(dest_path):
+                    if os.path.exists(dest_path) and os.path.isfile(dest_path):
                         self._remove_from_index(event_path)
                         self._update_index_for_file(dest_path)
         except Exception as e:
             self.logger.error(f"处理文件系统事件失败 {event_type} - {event_path}: {str(e)}")
+            import traceback
+            self.logger.error(f"详细错误信息: {traceback.format_exc()}")
     
     def _update_index_for_file(self, file_path):
         """更新文件在索引中的信息"""

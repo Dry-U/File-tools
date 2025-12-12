@@ -398,7 +398,7 @@ class IndexManager:
             try:
                 self.tantivy_index.reload()
                 searcher = self.tantivy_index.searcher()
-                
+
                 # 1. 尝试精确路径查询 (注意转义反斜杠)
                 escaped_path = path.replace('\\', '\\\\').replace('"', '\\"')
                 query_str = f'path:"{escaped_path}"'
@@ -411,8 +411,9 @@ class IndexManager:
                         raw_val = doc.get_first('content_raw')
                         content_val = raw_val or doc.get_first('content')
                         if raw_val:
-                            return raw_val
+                            return raw_val  # 返回完整内容，不限制长度
                         if content_val:
+                            # 如果索引中的内容不完整，尝试直接解析文件
                             parsed = self._parse_file_direct(path)
                             return parsed if parsed else content_val
                 except Exception:
@@ -433,16 +434,17 @@ class IndexManager:
                             raw_val = doc.get_first('content_raw')
                             content_val = raw_val or doc.get_first('content')
                             if raw_val:
-                                return raw_val
+                                return raw_val  # 返回完整内容，不限制长度
                             if content_val:
+                                # 如果索引中的内容不完整，尝试直接解析文件
                                 parsed = self._parse_file_direct(path)
                                 return parsed if parsed else content_val
                 except Exception:
                     pass
-                    
+
             except Exception as e:
                 self.logger.error(f"从索引获取内容失败: {str(e)}")
-        
+
         # 降级方案：使用DocumentParser解析文件
         try:
             parsed = self._parse_file_direct(path)
@@ -450,7 +452,7 @@ class IndexManager:
                 return parsed
         except Exception as e:
             self.logger.error(f"使用DocumentParser解析失败: {str(e)}")
-            
+
         # 最后的降级方案：直接读取文件
         try:
             # 扩展支持的文本格式列表
@@ -458,8 +460,9 @@ class IndexManager:
             text_exts = ['.txt', '.md', '.py', '.json', '.xml', '.csv', '.log', '.js', '.html', '.css', '.bat', '.sh', '.yaml', '.yml', '.ini', '.conf', '.sql', '.properties', '.gradle', '.java', '.c', '.cpp', '.h', '.hpp']
             if ext in text_exts:
                 if os.path.exists(path):
+                    # 读取完整文件内容，不限制长度（调用方应自行处理大文件）
                     with open(path, 'r', encoding='utf-8', errors='ignore') as f:
-                        return f.read(10000) # 增加读取长度
+                        return f.read()
         except Exception:
             pass
         return ''
@@ -673,19 +676,43 @@ class IndexManager:
 
     def save_indexes(self):
         try:
+            # 检查索引是否已初始化
             if getattr(self, 'hnsw', None) is not None:
+                import tempfile
+                # 使用临时文件，然后原子性地移动到目标位置以避免损坏
                 index_file = os.path.join(self.hnsw_index_path, 'vector_index.bin')
-                self.hnsw.save_index(index_file)
+                temp_index_file = index_file + '.tmp'
+
+                # 保存向量索引到临时文件
+                self.hnsw.save_index(temp_index_file)
+
+                # 原子性移动
+                if os.path.exists(temp_index_file):
+                    import shutil
+                    shutil.move(temp_index_file, index_file)
+
             metadata_file = os.path.join(self.metadata_path, 'vector_metadata.json')
+            temp_metadata_file = metadata_file + '.tmp'
             metadata_dict = {
                 'metadata': self.vector_metadata,
                 'next_id': self.next_id
             }
-            with open(metadata_file, 'w', encoding='utf-8') as f:
+
+            # 保存元数据到临时文件
+            with open(temp_metadata_file, 'w', encoding='utf-8') as f:
                 json.dump(metadata_dict, f, ensure_ascii=False, indent=2)
+
+            # 原子性移动
+            if os.path.exists(temp_metadata_file):
+                import shutil
+                shutil.move(temp_metadata_file, metadata_file)
+
+            self.logger.info("索引保存成功")
             return True
         except Exception as e:
             self.logger.error(f"保存索引失败: {str(e)}")
+            import traceback
+            self.logger.error(f"保存索引失败详细错误: {traceback.format_exc()}")
             return False
 
     def rebuild_index(self):
