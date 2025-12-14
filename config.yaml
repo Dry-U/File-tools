@@ -40,7 +40,7 @@ ai_model:
   interface_type: api  # 可选值: local, wsl, api
   api_format: openai_chat
   api_url: http://127.0.0.1:8080/v1/chat/completions
-  api_model: local-runtime
+  api_model: wsl
   api_key: ''
   system_prompt: |
     你是一名专业的中文文档助理。请根据下方的【文档集合】回答用户的【问题】。
@@ -49,37 +49,43 @@ ai_model:
     2. 如果用户询问某人、某事出现在哪里，或者询问来源，请务必列出对应的文件名。
     3. 如果答案仅出现在文件名中（例如文件名包含查询词），请明确指出该文件。
     4. 如果文档中没有相关信息，请直接说明未找到。
-  max_tokens: 1024
+  max_tokens: 2048
   temperature: 0.6
-  request_timeout: 60
+  request_timeout: 600
   use_gpu: true
 
 rag:
-  max_docs: 4
-  max_context_chars: 2800  # 增加单文档上下文字符数
-  max_context_chars_total: 6400  # 增加总上下文字符数
-  max_history_turns: 6
-  max_history_chars: 1600  # 增加历史记录字符数
-  max_output_tokens: 1024  # 增加输出令牌数
-  temperature: 0.6
+  max_docs: 2  # 进一步减少文档数量
+  max_context_chars: 1500  # 进一步减少单文档字符数
+  max_context_chars_total: 2500  # 进一步减少总上下文，为思考过程留出更多空间
+  max_history_turns: 2  # 减少历史记录
+  max_history_chars: 500
+  max_output_tokens: 4096
+  temperature: 0.3
+  top_p: 0.9
+  frequency_penalty: 0.0
+  presence_penalty: 0.0
+  repetition_penalty: 1.0
   prompt_template: |
-    你是一位智能文档助手。请根据下方“文档片段”回答用户问题。
+    <|im_start|>system
+    你是一位专业的中文文档助理。请根据下方的【文档集合】回答用户的【问题】。
+    
+    重要提示：请保持思考过程简洁，不要过度发散。
 
     回答要求：
-    1. 语气自然亲切，不要使用僵硬的列表格式（如“1) ... 2) ...”）。
-    2. 直接告诉用户在哪个文件中找到了关键词。例如：“在文件《xxx》中提到了王洪帅...”。
-    3. 如果关键词出现在文件名中，请明确指出。例如：“找到包含该名字的文件《xxx》...”。
-    4. 如果找到了文件但没有具体内容（仅文件名匹配），可以主动询问：“需要我总结该文件的内容吗？”
-    5. 如果未找到，请直接说“在已检索的文档中未找到相关信息”。
+    1. 语气自然亲切，不要使用僵硬的列表格式。
+    2. 直接告诉用户在哪个文件中找到了关键词。
+    3. 如果关键词出现在文件名中，请明确指出。
+    4. 请完整输出人名和句子，不要遗漏字词。
+    5. 如果文档中没有相关信息，请直接说明未找到。
 
     文档片段：
-    {context}
+    {context}<|im_end|>
+    <|im_start|>user
+    {question}<|im_end|>
+    <|im_start|>assistant
+    <think>
 
-    用户问题：{question}
-
-    用户问题：{question}
-
-    请严格按上述规则作答。
   context_exhausted_response: "对话过长，为避免超出上下文，请说‘重置’或简要概括后再继续。"
   reset_response: "已清空上下文，可以重新开始提问。"
   fallback_response: |
