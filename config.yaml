@@ -123,8 +123,8 @@ rag:
     - restart
 monitor:
   debounce_time: 0.5
-  directories: '~'
-  enabled: false
+  directories: 'D:\\Garbage\\Career\\Senior\\Thesis'
+  enabled: true
   ignored_patterns: .git;.svn;.hg;__pycache__;.idea;.vscode;node_modules;venv;env;.DS_Store;Thumbs.db
   refresh_interval: 1
 search:

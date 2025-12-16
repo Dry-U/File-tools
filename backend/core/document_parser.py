@@ -352,6 +352,7 @@ class DocumentParser:
             return "错误: 无法解析.doc内容 (缺少 pywin32 依赖或非Windows环境)"
         
         try:
+            # Win32 COM 作为首选
             word = win32com.client.Dispatch("Word.Application")
             word.Visible = False
             abs_path = os.path.abspath(file_path)

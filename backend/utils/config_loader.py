@@ -129,10 +129,6 @@ class ConfigLoader:
         data_dir = Path(self.get('system', 'data_dir', './data'))
         data_dir.mkdir(parents=True, exist_ok=True)
         
-        # 确保索引目录存在
-        index_dir = Path(self.get('system', 'index_dir', './data/index'))
-        index_dir.mkdir(parents=True, exist_ok=True)
-        
         # 确保缓存目录存在
         cache_dir = Path(self.get('system', 'cache_dir', './data/cache'))
         cache_dir.mkdir(parents=True, exist_ok=True)

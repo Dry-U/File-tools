@@ -1,7 +1,7 @@
 # src/utils/logger.py
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-"""企业级日志工具模块 - 提供结构化日志记录功能"""
+"""日志工具模块 - 提供结构化日志记录功能"""
 import logging
 import os
 import sys
@@ -9,7 +9,9 @@ from pathlib import Path
 import datetime
 import json
 import traceback
-from logging.handlers import RotatingFileHandler, TimedRotatingFileHandler
+import atexit
+from queue import Queue
+from logging.handlers import RotatingFileHandler, TimedRotatingFileHandler, QueueHandler, QueueListener
 from typing import Optional, Dict, Any, Union, Literal
 import threading
 import time
@@ -36,7 +38,7 @@ class LogContext:
     custom_fields: Optional[Dict[str, Any]] = None
 
 class LoggerConfig:
-    """企业级日志配置类"""
+    """日志配置类"""
 
     def __init__(self, config):
         # 支持ConfigLoader实例或字典
@@ -78,7 +80,7 @@ class LoggerConfig:
         return level_map.get(self.log_level.upper(), logging.INFO)
 
 class StructuredFormatter(logging.Formatter):
-    """企业级结构化日志格式化器
+    """结构化日志格式化器
     
     支持标准格式和JSON格式输出
     包含丰富的上下文信息
@@ -129,7 +131,7 @@ class StructuredFormatter(logging.Formatter):
             return super().format(record)
 
 class CustomFormatter(logging.Formatter):
-    """自定义日志格式化器（增强版）"""
+    """自定义日志格式化器"""
 
     # 日志级别对应的颜色代码
     COLORS = {
@@ -162,7 +164,7 @@ class CustomFormatter(logging.Formatter):
         return formatted
 
 class EnterpriseLogger:
-    """企业级日志记录器类
+    """日志记录器类
     
     提供高级日志功能，包括上下文记录、性能监控、结构化日志等
     """
@@ -180,8 +182,18 @@ class EnterpriseLogger:
     def __init__(self):
         if not hasattr(self, 'initialized'):
             self.logger_dict = {}
+            self.listeners = {}
             self.contexts = threading.local()
             self.initialized = True
+            atexit.register(self.shutdown)
+
+    def shutdown(self):
+        """关闭所有日志监听器"""
+        for listener in self.listeners.values():
+            try:
+                listener.stop()
+            except Exception:
+                pass
 
     def get_logger(self, name: str = 'file-tools', config = None) -> logging.Logger:
         """获取配置好的日志记录器"""
@@ -225,10 +237,13 @@ class EnterpriseLogger:
                 datefmt='%Y-%m-%d %H:%M:%S'
             )
 
+        # 收集实际的处理器
+        handlers = []
+
         # 创建控制台处理器
         console_handler = logging.StreamHandler()
         console_handler.setFormatter(formatter)
-        logger.addHandler(console_handler)
+        handlers.append(console_handler)
 
         # 创建文件处理器
         log_dir = Path(logger_config.log_dir)
@@ -255,7 +270,22 @@ class EnterpriseLogger:
             file_handler.suffix = '%Y-%m-%d.log'
 
         file_handler.setFormatter(formatter)
-        logger.addHandler(file_handler)
+        handlers.append(file_handler)
+
+        # 创建异步日志队列和监听器
+        log_queue = Queue(-1)  # 无限大小的队列
+        queue_handler = QueueHandler(log_queue)
+        listener = QueueListener(log_queue, *handlers, respect_handler_level=True)
+        
+        # 启动监听器并保存引用
+        listener.start()
+        self.listeners[name] = listener
+        
+        # 只添加QueueHandler到logger
+        logger.addHandler(queue_handler)
+        
+        # 防止日志向上传播
+        logger.propagate = False
         
         return logger
 

@@ -19,10 +19,12 @@ except Exception as e:
 
 def run_web_ui():
     """Run the web UI version of the application"""
-    from backend.run_web import run_web_interface
     import uvicorn
     from backend.api.api import app
     import socket
+    import threading
+    import time
+    import webbrowser
 
     # Initialize logger
     from backend.utils.logger import setup_logger
@@ -42,6 +44,16 @@ def run_web_ui():
         return start
 
     port = _find_available_port(8000, 8010)
+    
+    def open_browser(url):
+        """Open the default browser to the application after a delay"""
+        time.sleep(2)
+        logger.info(f"Opening browser at {url}")
+        webbrowser.open(url)
+
+    # Start browser in a separate thread
+    threading.Thread(target=open_browser, args=(f"http://127.0.0.1:{port}",), daemon=True).start()
+
     logger.info(f"Web 端口: {port}")
     uvicorn.run(app, host="127.0.0.1", port=port, log_level="info")
 
