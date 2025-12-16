@@ -141,6 +141,7 @@ class SearchEngine:
         try:
             # 调用索引管理器的文本搜索功能，获取更多结果以确保过滤后有足够数量
             results = self.index_manager.search_text(query, limit=self.max_results * 3)
+            self.logger.info(f"文本搜索返回 {len(results)} 条结果")
 
             # 为每个结果添加搜索类型标识
             for result in results:
@@ -149,6 +150,8 @@ class SearchEngine:
             return results
         except Exception as e:
             self.logger.error(f"文本搜索失败: {str(e)}")
+            import traceback
+            self.logger.error(f"详细错误信息: {traceback.format_exc()}")
             return []
 
     def _search_vector(self, query, filters=None):
@@ -156,6 +159,7 @@ class SearchEngine:
         try:
             # 调用索引管理器的向量搜索功能，获取更多结果以确保过滤后有足够数量
             results = self.index_manager.search_vector(query, limit=self.max_results * 3)
+            self.logger.info(f"向量搜索返回 {len(results)} 条结果")
 
             # 为每个结果添加搜索类型标识
             for result in results:
@@ -164,6 +168,8 @@ class SearchEngine:
             return results
         except Exception as e:
             self.logger.error(f"向量搜索失败: {str(e)}")
+            import traceback
+            self.logger.error(f"详细错误信息: {traceback.format_exc()}")
             return []
 
     def _combine_results(self, text_results, vector_results):

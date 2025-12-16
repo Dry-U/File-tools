@@ -2,8 +2,11 @@
 import os
 import time
 import json
-from typing import Optional, Generator
-from llama_cpp import Llama  # llama-cpp-python
+from typing import Optional, Generator, Any
+try:
+    from llama_cpp import Llama  # llama-cpp-python
+except ImportError:
+    Llama = None
 import requests  # 用于WSL API fallback
 # 尝试导入win32api，如失败则设置为None
 try:
@@ -39,7 +42,7 @@ def _normalize_text(text: str) -> str:
         # 尝试修复常见的编码错误
         fixed = text.encode('latin-1').decode('utf-8')
         return fixed
-    except UnicodeDecodeError:
+    except (UnicodeDecodeError, UnicodeEncodeError):
         return text
 
 def _normalize_text_wrapper(text: str) -> str:
@@ -55,7 +58,7 @@ class ModelManager:
         self.optimizer = InferenceOptimizer(self)
         self.config_loader = config_loader
         self.vram_manager = VRAMManager(config_loader)
-        self.current_model: Optional[Llama] = None
+        self.current_model: Optional[Any] = None
         self.current_model_name: str = self.auto_select_model()
         # 获取配置时增加健壮性检查
         try:
@@ -99,11 +102,15 @@ class ModelManager:
         else:
             return "tinyllama-1.1b.Q8_0.gguf"
 
-    def get_model(self) -> Optional[Llama]:
+    def get_model(self) -> Optional[Any]:
         """获取或加载模型"""
         if self.current_model:
             self.vram_manager.update_last_used(self.current_model_name)
             return self.current_model
+
+        if Llama is None:
+            logger.warning("llama_cpp module not found. Cannot load local model.")
+            return None
 
         self.current_model = self.vram_manager.load_model(self.current_model_name, Llama)
         return self.current_model
@@ -258,23 +265,40 @@ class ModelManager:
                 return
 
             # 处理流式响应
-            # 使用缓冲区和状态机来处理可能跨 chunk 的 <think> 标签
-            buffer = ""
-            # 如果提示词以 <think> 结尾（或包含未闭合的 <think>），我们假设模型紧接着输出思考内容
-            # 注意：prompt 可能包含换行符，所以 strip() 后检查
-            in_think_block = prompt.strip().endswith('<think>')
+            # 简化逻辑：直接输出所有内容，不进行 <think> 标签过滤
+            # 这样可以避免因过滤逻辑导致的缺字或截断问题，同时让用户看到完整的思考过程（如果模型输出了的话）
             
+            buffer = ""
             for raw_line in response.iter_lines(decode_unicode=True):
-                if not raw_line:
+                if raw_line is None:
                     continue
-                line = raw_line.strip()
-                if line.startswith('data:'):
-                    line = line[5:].strip()
-                if not line or line == '[DONE]':
+                
+                # 如果我们在buffer模式（上一行JSON不完整），我们需要拼接
+                if buffer:
+                    # 恢复被iter_lines消耗的换行符（假设分裂是因为换行符）
+                    current_text = buffer + "\n" + raw_line
+                else:
+                    # 新的行，处理 data: 前缀
+                    line = raw_line.strip()
+                    if not line:
+                        continue
+                    if line.startswith('data:'):
+                        current_text = line[5:].strip()
+                    elif line == '[DONE]':
+                        continue
+                    else:
+                        # 可能是注释或无效行
+                        continue
+
+                if not current_text or current_text == '[DONE]':
                     continue
+
                 try:
-                    chunk = json.loads(line)
+                    chunk = json.loads(current_text)
+                    buffer = "" # 解析成功，清空buffer
                 except json.JSONDecodeError:
+                    # 解析失败，可能是因为JSON不完整（被换行符切断），存入buffer等待下一行
+                    buffer = current_text
                     continue
 
                 choices = chunk.get('choices', []) if isinstance(chunk, dict) else []
@@ -285,69 +309,11 @@ class ModelManager:
                 if not text_piece:
                     continue
 
-                buffer += text_piece
+                # DEBUG: Print raw text piece to console to verify what model sends
+                # print(f"DEBUG CHUNK: {repr(text_piece)}")
 
-                while True:
-                    if in_think_block:
-                        end_tag_idx = buffer.find('</think>')
-                        if end_tag_idx != -1:
-                            # 找到结束标签，丢弃标签及之前的内容，保留之后的内容
-                            buffer = buffer[end_tag_idx + 8:]  # 8 is len('</think>')
-                            in_think_block = False
-                            # 继续处理剩余 buffer，因为可能紧接着有正文
-                        else:
-                            # 还在思考块中，清空 buffer (或者保留最后几个字符以防 </think> 被截断？)
-                            # 为了安全，保留最后 7 个字符 (len('</think>') - 1)
-                            if len(buffer) > 7:
-                                buffer = buffer[-7:]
-                            break
-                    else:
-                        start_tag_idx = buffer.find('<think>')
-                        if start_tag_idx != -1:
-                            # 找到开始标签，输出标签之前的内容
-                            if start_tag_idx > 0:
-                                yield _normalize_text_wrapper(buffer[:start_tag_idx])
-                            # 丢弃标签之前的内容和标签本身
-                            buffer = buffer[start_tag_idx + 7:]  # 7 is len('<think>')
-                            in_think_block = True
-                            # 继续处理剩余 buffer
-                        else:
-                            # 没有开始标签
-                            # 检查是否有潜在的开始标签（例如 "<", "<t", "<thi" 等在末尾）
-                            # 找到最后一个 '<'
-                            last_lt = buffer.rfind('<')
-                            if last_lt != -1:
-                                # 检查是否可能是 <think> 的前缀
-                                potential_tag = buffer[last_lt:]
-                                if "<think>".startswith(potential_tag):
-                                    # 可能是标签的一部分，输出 '<' 之前的内容，保留潜在标签
-                                    if last_lt > 0:
-                                        yield _normalize_text_wrapper(buffer[:last_lt])
-                                        buffer = buffer[last_lt:]
-                                    break
-                                else:
-                                    # 只是普通的 '<'，不是 <think>，继续检查是否有其他 '<'
-                                    # 但为了简单，如果它不匹配 <think> 前缀，我们就认为它安全吗？
-                                    # 不一定，可能是 <think> 的中间部分？不，我们只找 '<'
-                                    # 如果 potential_tag 不是 <think> 的前缀，那它就不是 <think> 的开始
-                                    
-                                    # 输出 buffer，清空
-                                    yield _normalize_text_wrapper(buffer)
-                                    buffer = ""
-                                    break
-                            else:
-                                # 没有 '<'，安全输出
-                                yield _normalize_text_wrapper(buffer)
-                                buffer = ""
-                                break
-            
-            # 循环结束后，如果 buffer 还有内容且不在 think block 中，输出它
-            if buffer and not in_think_block:
-                yield _normalize_text_wrapper(buffer)
-            
-            # 如果循环结束还在 think block 中，说明模型只输出了思考过程，没有输出答案
-            if in_think_block:
-                yield "(思考过程过长，未生成最终答案，请尝试增加 max_tokens)"
+                # 直接输出，不做任何过滤
+                yield _normalize_text_wrapper(text_piece)
 
         except Exception as e:
             logger.error(f"API调用失败: {e}")

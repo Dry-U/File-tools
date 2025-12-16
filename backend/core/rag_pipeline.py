@@ -297,11 +297,15 @@ class RAGPipeline:
                     cleaned = self._remove_repeated_content(cleaned)
 
                     # 仅在必要时进行截断，并且保留更多内容
-                    if len(cleaned) > self.max_context_chars:
+                    # 使用更大的缓冲区来避免过早截断
+                    buffer_size = 1000  # 增加缓冲区大小
+                    max_allowed_chars = self.max_context_chars + buffer_size
+
+                    if len(cleaned) > max_allowed_chars:
                         # 尝试保留最重要的部分：先保留开头，然后是结尾
-                        max_len = self.max_context_chars
-                        if max_len > 200:  # 如果允许的空间足够，使用头尾截断
-                            head_size = min(max_len // 2, 500)  # 保留前500字符
+                        max_len = max_allowed_chars
+                        if max_len > 500:  # 如果允许的空间足够，使用头尾截断
+                            head_size = min(max_len // 2, 1000)  # 保留前1000字符
                             tail_size = max_len - head_size - 3  # 剩余给尾部的空间
                             if tail_size > 0:
                                 cleaned = cleaned[:head_size] + '...' + cleaned[-tail_size:]
@@ -381,6 +385,23 @@ class RAGPipeline:
             return ''
 
         context_sections = []
+        
+        # 提取关键实体（文件名中的人名/关键词）以强化提示
+        key_entities = []
+        for doc in documents:
+            fname = doc.get('filename', '')
+            # 简单的启发式：提取下划线后的部分，通常是作者名
+            if '_' in fname:
+                parts = fname.rsplit('_', 1)
+                if len(parts) > 1:
+                    name_part = parts[1].replace('.pdf', '').replace('.docx', '').replace('.txt', '')
+                    if name_part:
+                        key_entities.append(name_part)
+        
+        entity_instruction = ""
+        if key_entities:
+            unique_entities = list(set(key_entities))
+            entity_instruction = f"\n    重要实体名单（禁止截断）：{', '.join(unique_entities)}\n"
 
         if history_text:
             context_sections.append(f"对话历史（最近）:\n{history_text}")
@@ -403,8 +424,9 @@ class RAGPipeline:
                 continue
 
             # 先构建完整部分，计算其长度
+            # 修改：不再使用 [文档x] 这种可能误导模型的编号，改用更自然的分割线
             section = (
-                f"[文档{idx}] {doc.get('filename', '未知文件')}\n"
+                f"--- 文件: {doc.get('filename', '未知文件')} ---\n"
                 f"路径: {doc.get('path', '未知路径')}\n"
                 f"相关性: {doc.get('score', 0.0):.2f}\n"
                 f"内容:\n{content}"
@@ -424,8 +446,8 @@ class RAGPipeline:
 
                     if available_content > 3:  # 确保有足够的空间用于内容和省略号
                         # 简化截断逻辑：保留开头和结尾
-                        if available_content > 200:  # 如果剩余空间足够，使用头尾截断策略
-                            head_size = min(available_content // 2, 500)  # 保留前500字符
+                        if available_content > 300:  # 如果剩余空间足够，使用头尾截断策略
+                            head_size = min(available_content // 2, 1000)  # 保留前1000字符
                             tail_size = available_content - head_size - 3  # 剩余给尾部的空间
                             if tail_size > 0:
                                 content = content[:head_size] + '...' + content[-tail_size:]
@@ -436,7 +458,7 @@ class RAGPipeline:
 
                         # 重新构建 section
                         section = (
-                            f"[文档{idx}] {doc.get('filename', '未知文件')}\n"
+                            f"--- 文件: {doc.get('filename', '未知文件')} ---\n"
                             f"路径: {doc.get('path', '未知路径')}\n"
                             f"相关性: {doc.get('score', 0.0):.2f}\n"
                             f"内容:\n{content}"
@@ -453,6 +475,13 @@ class RAGPipeline:
         context_text = "\n\n".join(context_sections)
         logger.info(f"Constructed context length: {len(context_text)}")
         logger.debug(f"Context snippet: {context_text[:200]}...")
+        
+        # 动态插入实体指令到模板中（如果模板支持，或者直接追加到 system prompt）
+        # 由于模板是固定的，我们尝试将实体指令注入到 context 的最前面，或者修改模板
+        # 这里选择将实体指令加在 context 的最前面，这样模型在阅读文档前会先看到名单
+        if entity_instruction:
+            context_text = entity_instruction + "\n" + context_text
+
         template = self.prompt_template or DEFAULT_PROMPT
         try:
             return template.format(context=context_text, question=query).strip()

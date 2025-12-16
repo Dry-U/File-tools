@@ -39,22 +39,116 @@ class IndexManager:
         model_enabled = config_loader.get('embedding', 'enabled', False)
         if model_enabled:
             try:
-                from fastembed import TextEmbedding
-                model_name = config_loader.get('embedding', 'model_name', 'bge-small-zh')
-                cache_dir = config_loader.get('embedding', 'cache_dir', None)
-                if cache_dir:
-                    self.embedding_model = TextEmbedding(model_name=model_name, cache_dir=cache_dir)
-                else:
-                    self.embedding_model = TextEmbedding(model_name=model_name)
-                try:
+                if self.embedding_provider == 'modelscope':
+                    from modelscope.pipelines import pipeline
+                    from modelscope.utils.constant import Tasks
+                    model_name = config_loader.get('embedding', 'model_name', 'iic/nlp_gte_sentence-embedding_chinese-base')
+                    cache_dir = config_loader.get('embedding', 'cache_dir', None)
+                    
+                    # 如果指定了本地路径，使用本地路径
+                    if cache_dir and os.path.exists(os.path.join(cache_dir, model_name.split('/')[-1])):
+                         model_path = os.path.join(cache_dir, model_name.split('/')[-1])
+                         self.logger.info(f"使用本地模型路径: {model_path}")
+                         self.embedding_pipeline = pipeline(Tasks.sentence_embedding, model=model_path)
+                    else:
+                         self.embedding_pipeline = pipeline(Tasks.sentence_embedding, model=model_name)
+                    
+                    # 包装一个embed方法以兼容
+                    class ModelScopeWrapper:
+                        def __init__(self, pipeline):
+                            self.pipeline = pipeline
+                        def embed(self, texts):
+                            # ModelScope pipeline returns a dict with 'text_embedding'
+                            # We need to yield vectors one by one or batch
+                            # The pipeline handles batching if texts is a list
+                            
+                            # 针对 gte-sentence-embedding 模型的特殊处理
+                            # 它可能需要字典输入或者对列表输入的处理不同
+                            if isinstance(texts, list):
+                                # 尝试逐个处理或构造特定格式
+                                for text in texts:
+                                    try:
+                                        # 尝试直接传字符串
+                                        res = self.pipeline(input=text)
+                                    except TypeError:
+                                        # 如果失败，尝试传字典
+                                        res = self.pipeline(input={'source_sentence': [text]})
+                                    
+                                    if 'text_embedding' in res:
+                                        # 结果可能是 [1, 768] 或 [768]
+                                        emb = res['text_embedding']
+                                        if isinstance(emb, list) and len(emb) > 0 and isinstance(emb[0], list):
+                                            yield emb[0]
+                                        elif isinstance(emb, np.ndarray):
+                                            if emb.ndim > 1:
+                                                yield emb[0]
+                                            else:
+                                                yield emb
+                                        else:
+                                            yield emb
+                            else:
+                                # 单个文本
+                                try:
+                                    res = self.pipeline(input=texts)
+                                except TypeError:
+                                    res = self.pipeline(input={'source_sentence': [texts]})
+                                    
+                                if 'text_embedding' in res:
+                                    emb = res['text_embedding']
+                                    if isinstance(emb, list) and len(emb) > 0 and isinstance(emb[0], list):
+                                        yield emb[0]
+                                    elif isinstance(emb, np.ndarray):
+                                        if emb.ndim > 1:
+                                            yield emb[0]
+                                        else:
+                                            yield emb
+                                    else:
+                                        yield emb
+
+                    self.embedding_model = ModelScopeWrapper(self.embedding_pipeline)
+                    
+                    # Test
                     vec = next(self.embedding_model.embed(['test']))
                     self.vector_dim = len(vec)
-                except Exception:
-                    self.vector_dim = 384
-            except Exception:
+                    self.logger.info(f"ModelScope Embedding模型加载成功，维度: {self.vector_dim}")
+
+                else:
+                    # Default to fastembed
+                    from fastembed import TextEmbedding
+                    model_name = config_loader.get('embedding', 'model_name', 'BAAI/bge-small-zh-v1.5')
+                    if not model_name:
+                        model_name = 'BAAI/bge-small-zh-v1.5'
+                    
+                    cache_dir = config_loader.get('embedding', 'cache_dir', None)
+
+                    # 尝试创建模型实例，如果下载失败则记录错误并禁用embedding
+                    try:
+                        if cache_dir:
+                            self.embedding_model = TextEmbedding(model_name=model_name, cache_dir=cache_dir)
+                        else:
+                            self.embedding_model = TextEmbedding(model_name=model_name)
+                        try:
+                            # 测试模型是否可以正常工作
+                            vec = next(self.embedding_model.embed(['test']))
+                            self.vector_dim = len(vec)
+                            self.logger.info(f"Embedding模型加载成功，维度: {self.vector_dim}")
+                        except Exception:
+                            self.vector_dim = 384
+                            self.logger.warning(f"Embedding模型测试失败，使用默认维度: {self.vector_dim}")
+                    except Exception as e:
+                        self.logger.error(f"Embedding模型创建失败，将禁用向量索引: {str(e)}")
+                        self.embedding_model = None
+                        self.vector_dim = 384
+            except ImportError as ie:
+                self.logger.error(f"依赖库未安装 ({str(ie)})，禁用向量索引")
+                self.embedding_model = None
+                self.vector_dim = 384
+            except Exception as e:
+                self.logger.error(f"加载Embedding模型时发生未知错误: {str(e)}")
                 self.embedding_model = None
                 self.vector_dim = 384
         else:
+            self.logger.info("Embedding功能未启用")
             self.embedding_model = None
             self.vector_dim = 384
         self._init_tantivy_index()
@@ -81,11 +175,27 @@ class IndexManager:
         self.t_modified = schema_builder.add_integer_field('modified', stored=True)
         self.schema = schema_builder.build()
         try:
-            self.tantivy_index = tantivy.Index(self.schema, path=self.tantivy_index_path)
-        except Exception:
-            self.tantivy_index = tantivy.Index(self.schema)
+            # 检查索引路径是否存在，如果不存在，则创建
+            if not os.path.exists(self.tantivy_index_path):
+                os.makedirs(self.tantivy_index_path, exist_ok=True)
+                self.tantivy_index = tantivy.Index(self.schema, path=self.tantivy_index_path)
+            else:
+                self.tantivy_index = tantivy.Index(self.schema, path=self.tantivy_index_path)
+        except Exception as e:
+            self.logger.error(f"初始化Tantivy索引失败: {str(e)}")
+            # 如果指定路径失败，尝试在内存中创建新索引，但仍尝试重新创建文件目录
+            try:
+                os.makedirs(self.tantivy_index_path, exist_ok=True)
+                self.tantivy_index = tantivy.Index(self.schema, path=self.tantivy_index_path)
+            except Exception as e2:
+                self.logger.error(f"创建索引目录或初始化索引失败: {str(e2)}")
+                self.tantivy_index = tantivy.Index(self.schema)
 
     def _init_hnsw_index(self):
+        # 确保向量索引和元数据目录存在
+        os.makedirs(self.hnsw_index_path, exist_ok=True)
+        os.makedirs(self.metadata_path, exist_ok=True)
+
         index_file = os.path.join(self.hnsw_index_path, 'vector_index.bin')
         metadata_file = os.path.join(self.metadata_path, 'vector_metadata.json')
         if os.path.exists(index_file) and os.path.exists(metadata_file):
@@ -97,9 +207,11 @@ class IndexManager:
                 self.hnsw = hnswlib.Index(space='cosine', dim=self.vector_dim)
                 max_elements = max(self.next_id + 1024, 1024)
                 self.hnsw.load_index(index_file, max_elements=max_elements)
-            except Exception:
+            except Exception as e:
+                self.logger.error(f"加载现有向量索引失败: {str(e)}")
                 self._create_new_hnsw_index()
         else:
+            self.logger.info(f"向量索引文件不存在，创建新索引: {index_file}")
             self._create_new_hnsw_index()
 
     def _create_new_hnsw_index(self):
@@ -173,22 +285,48 @@ class IndexManager:
                 )
                 writer.add_document(tdoc)
                 writer.commit()
+
+            # 添加向量索引（如果启用了embedding）
             if self.embedding_model and self.hnsw is not None:
-                v = np.array([self._encode_text(document['content'][:5000])], dtype=np.float32)
-                doc_id = self.next_id
-                ids = np.array([doc_id])
                 try:
-                    self.hnsw.add_items(v, ids)
-                except Exception:
-                    self.hnsw.resize_index(self.hnsw.get_max_elements() + 1024)
-                    self.hnsw.add_items(v, ids)
-                self.vector_metadata[str(doc_id)] = {
-                    'path': document['path'],
-                    'filename': document['filename'],
-                    'file_type': document['file_type'],
-                    'modified': document['modified'].strftime('%Y-%m-%d %H:%M:%S') if isinstance(document['modified'], datetime) else str(document['modified'])
-                }
-                self.next_id += 1
+                    content_to_encode = document['content'][:5000] if document['content'] else ''
+                    if content_to_encode.strip():  # 只有当内容不为空时才编码
+                        v = np.array([self._encode_text(content_to_encode)], dtype=np.float32)
+                        doc_id = self.next_id
+                        ids = np.array([doc_id])
+                        try:
+                            self.hnsw.add_items(v, ids)
+                            self.logger.info(f"成功添加文档到向量索引: {document['path']}")
+                        except Exception as ve:
+                            # 如果添加项目失败，尝试调整索引大小
+                            try:
+                                self.hnsw.resize_index(self.hnsw.get_max_elements() + 1024)
+                                self.hnsw.add_items(v, ids)
+                                self.logger.info(f"调整向量索引大小后成功添加文档: {document['path']}")
+                            except Exception as resize_e:
+                                self.logger.error(f"调整向量索引大小后仍无法添加文档: {str(resize_e)}")
+
+                        # 记录元数据
+                        self.vector_metadata[str(doc_id)] = {
+                            'path': document['path'],
+                            'filename': document['filename'],
+                            'file_type': document['file_type'],
+                            'modified': document['modified'].strftime('%Y-%m-%d %H:%M:%S') if isinstance(document['modified'], datetime) else str(document['modified'])
+                        }
+                        self.next_id += 1
+
+                        # 确保定期保存向量索引
+                        self.save_indexes()
+                    else:
+                        self.logger.warning(f"文档内容为空，跳过向量索引: {document['path']}")
+                except Exception as e:
+                    self.logger.error(f"添加文档到向量索引失败 {document['path']}: {str(e)}")
+            else:
+                if not self.embedding_model:
+                    self.logger.info("Embedding模型未启用，跳过向量索引")
+                elif not self.hnsw:
+                    self.logger.warning("HNSW向量索引未初始化，跳过向量索引")
+
             return True
         except Exception as e:
             self.logger.error(f"添加文档到索引失败 {document.get('path', '')}: {str(e)}")
@@ -676,6 +814,10 @@ class IndexManager:
 
     def save_indexes(self):
         try:
+            # 确保目录存在
+            os.makedirs(self.hnsw_index_path, exist_ok=True)
+            os.makedirs(self.metadata_path, exist_ok=True)
+
             # 检查索引是否已初始化
             if getattr(self, 'hnsw', None) is not None:
                 import tempfile

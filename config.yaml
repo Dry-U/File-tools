@@ -31,13 +31,13 @@ interface:
   theme: light
 embedding:
   enabled: true
-  provider: fastembed
-  model_name: bge-large-zh
-  cache_dir: D:\Models\bge-large-zh-v1.5
+  provider: modelscope
+  model_name: iic/nlp_gte_sentence-embedding_chinese-base
+  cache_dir: data/models/
 
 ai_model:
   enabled: true
-  interface_type: api  # 可选值: local, wsl, api
+  interface_type: wsl  # 可选值: wsl, api
   api_format: openai_chat
   api_url: http://127.0.0.1:8080/v1/chat/completions
   api_model: wsl
@@ -49,35 +49,42 @@ ai_model:
     2. 如果用户询问某人、某事出现在哪里，或者询问来源，请务必列出对应的文件名。
     3. 如果答案仅出现在文件名中（例如文件名包含查询词），请明确指出该文件。
     4. 如果文档中没有相关信息，请直接说明未找到。
-  max_tokens: 2048
+  max_tokens: 4096
   temperature: 0.6
   request_timeout: 600
   use_gpu: true
 
 rag:
-  max_docs: 2  # 进一步减少文档数量
-  max_context_chars: 1500  # 进一步减少单文档字符数
-  max_context_chars_total: 2500  # 进一步减少总上下文，为思考过程留出更多空间
-  max_history_turns: 2  # 减少历史记录
-  max_history_chars: 500
+  max_docs: 2  
+  max_context_chars: 2000  
+  max_context_chars_total: 4000  
+  max_history_turns: 3  
+  max_history_chars: 1000
   max_output_tokens: 4096
   temperature: 0.3
   top_p: 0.9
   frequency_penalty: 0.0
   presence_penalty: 0.0
-  repetition_penalty: 1.0
+  repetition_penalty: 1.05  
   prompt_template: |
     <|im_start|>system
-    你是一位专业的中文文档助理。请根据下方的【文档集合】回答用户的【问题】。
+    你是一位智能助手。你的任务是根据【文档集合】回答问题，但遇到通用问题时应灵活应变。
+
+    决策逻辑（请严格执行）：
+    1. **文档相关问题**：如果用户问的是关于文档内容、某人、某事/物在文件中的情况：
+       - 必须严格基于【文档集合】回答。
+       - 必须精确复制文档原文，**保持语言流畅通顺符合逻辑**。
+       - 如果文档里没有，就说未找到。
     
-    重要提示：请保持思考过程简洁，不要过度发散。
+    2. **通用/常识问题**：如果用户问的是通用常识、逻辑、编程或显然与文档无关的问题：
+       - **请忽略文档内容的限制**。
+       - 直接利用你的通用知识回答用户，不要提及文档相关。
+       - 若无法判断问题类型，可先询问用户以确认。
 
     回答要求：
-    1. 语气自然亲切，不要使用僵硬的列表格式。
-    2. 直接告诉用户在哪个文件中找到了关键词。
-    3. 如果关键词出现在文件名中，请明确指出。
-    4. 请完整输出人名和句子，不要遗漏字词。
-    5. 如果文档中没有相关信息，请直接说明未找到。
+    1. 语气自然亲切。
+    2. 引用文档时，请指出文件名。
+    3. 保持思考过程简洁。
 
     文档片段：
     {context}<|im_end|>

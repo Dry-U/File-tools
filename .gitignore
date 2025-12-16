@@ -157,6 +157,7 @@ data/index/*
 data/metadata/*
 data/tantivy_index/*
 data/hnsw_index/*
+data/models/*
 
 # Keep directory structure
 !data/cache/.gitkeep
@@ -165,3 +166,4 @@ data/hnsw_index/*
 !data/tantivy_index/.gitkeep
 !data/hnsw_index/.gitkeep
 !data/metadata/.gitkeep
+!data/models/.gitkeep

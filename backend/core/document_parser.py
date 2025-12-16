@@ -97,7 +97,7 @@ class DocumentParser:
         # \x0b-\x0c: VT, FF
         # \x0e-\x1f: SO, SI, DLE, DC1-4, NAK, SYN, ETB, CAN, EM, SUB, ESC, FS, GS, RS, US
         text = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f]', '', text)
-        
+
         # 2. 移除特殊的Unicode空白和控制字符
         # \uE000-\uF8FF: 私有使用区 (Private Use Area)，常用于图标字体或特殊符号，PDF提取常出现乱码
         # \u200b-\u200f: 零宽字符等
@@ -107,18 +107,18 @@ class DocumentParser:
         # \U000F0000-\U000FFFFF: Supplementary Private Use Area-A
         # \U00100000-\U0010FFFF: Supplementary Private Use Area-B
         text = re.sub(r'[\ue000-\uf8ff\U000f0000-\U000fffff\U00100000-\U0010ffff]', '', text)
-        
+
         # 3. 移除连续的特殊符号，如   (这些通常在私有区，已被上面规则覆盖，但为了保险)
         # 如果还有其他特定乱码，可以在这里添加
-        
+
         # 4. 规范化空白字符：将连续的多个空格合并为一个，但保留换行结构
-        text = re.sub(r'[ \t]+', ' ', text) 
-        
+        text = re.sub(r'[ \t]+', ' ', text)
+
         # 5. 合并中文之间的空格 (例如 "微 型 电 脑" -> "微型电脑")
         # 使用lookahead (?=...) 确保重叠匹配被正确处理
         # 匹配: 中文 + 空格(可能多个) + (后面紧跟中文)
         text = re.sub(r'([\u4e00-\u9fa5])\s+(?=[\u4e00-\u9fa5])', r'\1', text)
-        
+
         # 6. 合并中文和数字/字母之间的异常空格 (针对PDF提取常见问题)
         # 例如 "论 文 1" -> "论文 1" (保留必要的间隔，但合并异常分割)
         # 这里比较激进，假设中文后紧跟空格再跟中文标点或数字通常是异常
@@ -128,11 +128,14 @@ class DocumentParser:
         text = re.sub(r'([\u4e00-\u9fa5])\s+(?=[\uff00-\uffef])', r'\1', text)
         # 匹配: 全角字符 + 空格 + (后面紧跟中文)
         text = re.sub(r'([\uff00-\uffef])\s+(?=[\u4e00-\u9fa5])', r'\1', text)
-        
+
         # 7. 移除重复的词组 (针对 "作者 简介 作者简介" 这种OCR/提取错误)
         # 匹配: 词 + 空格 + 相同的词 (仅限中文，长度2-10)
         # 例如: "作者简介 作者简介" -> "作者简介"
         text = re.sub(r'([\u4e00-\u9fa5]{2,10})\s+\1', r'\1', text)
+
+        # 8. 保留更多有效的Unicode字符，避免过度清理
+        # 只移除明确的乱码字符，保留可能有用的特殊符号
 
         return text.strip()
 

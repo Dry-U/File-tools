@@ -92,7 +92,21 @@ class FileScanner:
         
         # 如果没有有效路径，使用默认路径
         if not valid_paths:
-            default_path = Path.home()
+            # 检查并尝试创建一个默认的扫描路径
+            default_path = Path.home() / "Documents"
+            if not default_path.exists():
+                default_path = Path.home()
+
+            # 如果路径不存在，尝试创建它
+            if not default_path.exists():
+                try:
+                    default_path.mkdir(parents=True, exist_ok=True)
+                    self.logger.info(f"创建默认扫描路径: {default_path}")
+                except Exception as e:
+                    self.logger.error(f"无法创建默认扫描路径: {default_path}, 错误: {e}")
+                    # 如果无法创建路径，则使用用户主目录
+                    default_path = Path.home()
+
             valid_paths.append(str(default_path))
             self.logger.warning(f"未配置有效的扫描路径，使用默认路径: {default_path}")
         
