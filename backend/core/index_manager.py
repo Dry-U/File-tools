@@ -651,11 +651,17 @@ class IndexManager:
             except:
                 pass
 
+        # 改进内容结构，使其更适合AI处理
+        structured_content = display_content
+        if filename and filename not in display_content:
+            # 如果文件名没有在内容中，添加到内容开头，特别对论文、报告等文档有效
+            structured_content = f"文件名: {filename}\n" + structured_content
+
         return {
             'path': path,
             'filename': filename,
             'file_name': filename,
-            'content': display_content,
+            'content': structured_content,  # 使用结构化内容
             'snippet': snippet,     # 添加高亮摘要
             'file_type': file_type,
             'size': size,

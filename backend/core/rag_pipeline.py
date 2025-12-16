@@ -22,14 +22,17 @@ from backend.core.vram_manager import VRAMManager
 logger = setup_logger()
 
 DEFAULT_PROMPT = (
-    "你是一名专业的中文文档助理。请根据下方的【文档集合】回答用户的【问题】。\n"
-    "规则：\n"
-    "1. 严格基于文档内容回答，不要编造。\n"
-    "2. 如果用户询问某人、某事出现在哪里，或者询问来源，请务必列出对应的文件名。\n"
-    "3. 如果答案仅出现在文件名中（例如文件名包含查询词），请明确指出该文件。\n"
-    "4. 如果文档中没有相关信息，请直接说明未找到。\n\n"
+    "你是一名专业的中文文档分析助理。请严格基于【文档集合】中的内容，对用户的【问题】提供准确、全面的回答。\n\n"
+    "注意事项：\n"
+    "1. 严格基于文档内容回答，不得编造任何信息。\n"
+    "2. 重点提取文档中的知识内容、技术细节、数据信息、方法论等。\n"
+    "3. 如果用户询问某人、某事出现在哪里，或询问来源，请明确指出文件名。\n"
+    "4. 对于论文、技术文档等，可以提及作者、学校、机构等背景信息，但要重点聚焦内容。\n"
+    "5. 如果文档中没有相关信息，请直接说明未找到。\n"
+    "6. 回答要简洁明了，突出关键信息，避免冗长的引用。\n\n"
     "【文档集合】:\n{context}\n\n"
     "【问题】: {question}\n\n"
+    "请提供一个准确、全面、简洁的回答："
 )
 
 
@@ -81,10 +84,9 @@ class RAGPipeline:
 
     def _adjust_context_for_memory(self, doc_budget: int) -> int:
         """Adjust document budget based on memory constraints"""
-        if self.vram_manager.should_limit_context():
-            # Reduce context size by 50% if memory is constrained
-            return max(doc_budget // 2, self.max_context_chars // 2)
-        return doc_budget
+        # 使用VRAMManager的新功能来动态调整上下文大小
+        adjusted_budget = self.vram_manager.adjust_context_size(doc_budget)
+        return adjusted_budget
 
     @staticmethod
     def _render_template(template: str, query: str) -> str:
@@ -222,25 +224,25 @@ class RAGPipeline:
         return False
 
     def _collect_documents(self, query: str) -> List[Dict[str, Any]]:
+        """高级文档收集流程，集成多级RAG优化策略"""
         try:
-            # Try to get cached results first to improve performance
-            cache_key = f"search_{query[:50]}"  # Use first 50 chars as cache key
+            # 尝试获取缓存结果以提高性能
+            cache_key = f"search_{query[:50]}"
             results = self.vram_manager.get_cached_result(cache_key)
 
             if results is None:
                 results = self.search_engine.search(query) or []
-                # Cache results if they exist and caching is beneficial
                 if results:
                     self.vram_manager.cache_result(cache_key, results, len(results))
             else:
-                # Update cache access time
+                # 更新缓存访问时间
                 self.vram_manager.get_cached_result(cache_key)
         except Exception as e:
             logger.error(f"文档收集过程中发生错误: {str(e)}")
-            results = []  # 回退到空结果
+            results = []
 
         try:
-            # 改进：首先收集所有结果，然后根据相关性排序，再选择最相关的文档
+            # 多级文档处理流程
             all_candidates: List[Dict[str, Any]] = []
             seen_paths = set()
 
@@ -252,133 +254,387 @@ class RAGPipeline:
                     if path:
                         seen_paths.add(path.lower())
 
-                    # 优先获取完整内容，而不是截断的索引内容
-                    # 从索引中获取完整内容
-                    raw_content = res.get('content') or ''
-                    snippet = res.get('snippet') or ''
-
-                    # 尝试从索引获取完整内容（避免索引中存储的截断内容）
+                    # 从索引获取完整内容
                     full_content = self.search_engine.index_manager.get_document_content(path) if hasattr(self.search_engine, 'index_manager') else ''
-
-                    # 如果索引中没有完整内容，使用原始检索到的内容
                     if full_content:
                         cleaned = self._strip_tags(full_content)
                     else:
+                        raw_content = res.get('content') or ''
+                        snippet = res.get('snippet') or ''
                         cleaned = self._strip_tags(raw_content) if raw_content else self._strip_tags(snippet)
 
-                    # 优先使用路径获取真实文件名，避免索引返回的 filename 字段可能存在的截断或分词问题
                     if path:
                         filename = os.path.basename(path)
                     else:
                         filename = res.get('filename') or res.get('file_name') or '未知文件'
 
-                    composite = cleaned or ''
-                    for extra in (filename, res.get('file_name'), os.path.basename(path), path):
-                        if extra:
-                            composite += f" {extra}"
+                    # 内容预处理：智能分块和语义增强
+                    processed_content = self._preprocess_content(cleaned, query)
 
-                    # 改进：仅对明显不相关的文档进行过滤，保留可能相关的结果进行后续相关性评估
-                    if not self._has_query_overlap(composite, query):
-                        # 对于内容和文件名都不匹配的文档，给予较低的权重但不完全过滤
-                        is_low_relevance = True
-                    else:
-                        is_low_relevance = False
-
-                    # 如果文件名包含查询词，显式添加到内容开头，确保LLM能看到
-                    if filename and self._has_query_overlap(filename, query):
-                        prefix = f"【重要证据：文件名包含查询词】文件名: {filename}\n"
-                        if not cleaned.startswith("【重要证据"):
-                            cleaned = prefix + cleaned
-
-                    if not cleaned:
-                        cleaned = f"文件名匹配：{filename}" if filename else "文件名匹配"
-
-                    # 去除重复内容以减少AI重复生成
-                    cleaned = self._remove_repeated_content(cleaned)
-
-                    # 仅在必要时进行截断，并且保留更多内容
-                    # 使用更大的缓冲区来避免过早截断
-                    buffer_size = 1000  # 增加缓冲区大小
-                    max_allowed_chars = self.max_context_chars + buffer_size
-
-                    if len(cleaned) > max_allowed_chars:
-                        # 尝试保留最重要的部分：先保留开头，然后是结尾
-                        max_len = max_allowed_chars
-                        if max_len > 500:  # 如果允许的空间足够，使用头尾截断
-                            head_size = min(max_len // 2, 1000)  # 保留前1000字符
-                            tail_size = max_len - head_size - 3  # 剩余给尾部的空间
-                            if tail_size > 0:
-                                cleaned = cleaned[:head_size] + '...' + cleaned[-tail_size:]
-                            else:
-                                cleaned = cleaned[:max_len - 3] + '...'
+                    # 内容提炼：提取关键信息片段
+                    max_allowed_chars = self.vram_manager.adjust_context_size(self.max_context_chars)
+                    if len(processed_content) > max_allowed_chars:
+                        if any(keyword in query.lower() for keyword in ['摘要', '概述', '总结', '概要', '总结', 'abstract', 'summary', 'overview']):
+                            processed_content = self._generate_document_summary(processed_content, max_chars=max_allowed_chars)
                         else:
-                            cleaned = cleaned[:max_len - 3] + '...'
+                            processed_content = self._extract_relevant_fragments(processed_content, query, max_allowed_chars)
 
-                    # 计算文档的相关性得分，结合搜索分数和内容匹配程度
-                    relevance_score = float(res.get('score', 0.0))
-
-                    # 如果标题或文件名包含关键词，提高相关性得分
-                    if filename and self._has_query_overlap(filename, query):
-                        relevance_score *= 1.3  # 增加30%的权重
-
-                    # 根据内容与查询的匹配程度调整相关性
-                    if self._has_query_overlap(cleaned, query):
-                        relevance_score *= 1.2  # 内容匹配时增加20%的权重
+                    # 计算多维度相关性得分
+                    relevance_score = self._calculate_multidimensional_relevance(query, processed_content, res, filename)
 
                     all_candidates.append({
                         'path': path,
                         'filename': filename,
-                        'score': float(res.get('score', 0.0)),  # 原始搜索分数
-                        'relevance_score': relevance_score,  # 改进的相关性分数
-                        'content': cleaned,
-                        'is_low_relevance': is_low_relevance  # 标记是否为低相关性
+                        'score': float(res.get('score', 0.0)),
+                        'relevance_score': relevance_score,
+                        'content': processed_content,
+                        'original_score': float(res.get('score', 0.0)),  # 保留原始搜索得分
+                        'semantic_score': self._calculate_semantic_relevance(query, processed_content)  # 语义相关性得分
                     })
                 except Exception as e:
                     logger.warning(f"处理搜索结果时出现错误，跳过该结果: {str(e)}")
-                    continue  # 跳过有问题的结果，继续处理下一个
+                    continue
 
-            # 按改进的相关性分数排序
-            all_candidates.sort(key=lambda x: x['relevance_score'], reverse=True)
+            # 使用多标准排序（原始得分、语义得分、相关性得分）
+            all_candidates.sort(key=lambda x: (
+                x['relevance_score'] * 0.5 +  # 主要权重
+                x['semantic_score'] * 0.3 +   # 语义相关性权重
+                x['original_score'] * 0.2     # 原始搜索得分权重
+            ), reverse=True)
 
-            # 选择最相关的文档，优先选择高相关性的，同时包括一些中等相关性的以增加多样性
-            documents: List[Dict[str, Any]] = []
-            high_relevance_docs = []
-            low_relevance_docs = []
-
-            for candidate in all_candidates:
-                if candidate['is_low_relevance']:
-                    low_relevance_docs.append(candidate)
-                else:
-                    high_relevance_docs.append(candidate)
-
-            # 优先添加高相关性文档
-            for candidate in high_relevance_docs:
-                if len(documents) >= self.max_docs:
-                    break
-                documents.append({
-                    'path': candidate['path'],
-                    'filename': candidate['filename'],
-                    'score': candidate['score'],
-                    'content': candidate['content']
-                })
-
-            # 如果还有空间，添加一些低相关性但可能有用的结果
-            remaining_slots = self.max_docs - len(documents)
-            for candidate in low_relevance_docs:
-                if len(documents) >= self.max_docs:
-                    break
-                documents.append({
-                    'path': candidate['path'],
-                    'filename': candidate['filename'],
-                    'score': candidate['score'],
-                    'content': candidate['content']
-                })
-
+            # 选择最相关的文档，实现信息聚合和冲突检测
+            documents = self._select_optimal_documents(all_candidates)
             return documents
         except Exception as e:
             logger.error(f"收集文档过程中发生严重错误: {str(e)}")
-            # 回退到空文档列表
             return []
+
+    def _preprocess_content(self, content: str, query: str) -> str:
+        """内容预处理：智能分块、关键词增强"""
+        import re
+
+        # 1. 文本分块：将文档分成逻辑段落
+        paragraphs = re.split(r'\n\s*\n|[\n。！？.!?]', content)
+
+        # 2. 识别重要段落：标题、摘要、结论等
+        important_segments = []
+        regular_segments = []
+
+        for para in paragraphs:
+            if para.strip():
+                para_lower = para.lower()
+                # 检查是否为重要部分
+                if any(keyword in para_lower for keyword in ['摘要', 'abstract', '结论', 'conclusion', '总结', '引言', 'introduction', '标题']):
+                    important_segments.append(para.strip())
+                else:
+                    regular_segments.append(para.strip())
+
+        # 3. 按重要性组织内容
+        organized_content = "\n\n".join(important_segments + regular_segments)
+
+        # 4. 为查询相关的词汇添加上下文
+        query_words = set(re.findall(r'\w+', query.lower()))
+        enhanced_content = organized_content
+
+        for word in query_words:
+            # 为查询词添加上下文标记，提高其在最终回答中的突出程度
+            enhanced_content = re.sub(
+                r'\b(' + re.escape(word) + r')\b',
+                f"[QUERY_TERM]{word}[/QUERY_TERM]",
+                enhanced_content,
+                flags=re.IGNORECASE
+            )
+
+        return enhanced_content
+
+    def _calculate_multidimensional_relevance(self, query: str, content: str, original_result: Dict, filename: str) -> float:
+        """计算多维度相关性得分"""
+        import re
+
+        # 基础得分
+        base_score = float(original_result.get('score', 0.0))
+
+        # 关键词匹配得分
+        query_lower = query.lower()
+        content_lower = content.lower()
+        query_keywords = set(re.findall(r'\w+', query_lower))
+        content_keywords = set(re.findall(r'\w+', content_lower))
+        keyword_overlap = len(query_keywords.intersection(content_keywords))
+        keyword_score = keyword_overlap * 2.0  # 每个匹配关键词2分
+
+        # 文件名相关性得分
+        filename_relevance = 1.0 if any(kw in filename.lower() for kw in query_keywords) else 0.0
+
+        # 位置加权得分（如果内容中包含查询词）
+        position_score = 0.0
+        if query_lower in content_lower:
+            position_score = 1.0
+        else:
+            # 检查是否有查询关键词的匹配
+            for kw in query_keywords:
+                if kw in content_lower:
+                    position_score += 0.5
+                    break
+
+        # 综合得分计算
+        total_score = (
+            base_score * 0.4 +           # 原始搜索得分权重40%
+            keyword_score * 0.3 +        # 关键词匹配权重30%
+            position_score * 0.2 +       # 位置相关性权重20%
+            filename_relevance * 0.1     # 文件名相关性权重10%
+        )
+
+        return min(total_score, 100.0)  # 限制在合理范围内
+
+    def _calculate_semantic_relevance(self, query: str, content: str) -> float:
+        """计算语义相关性得分（使用实际的嵌入模型）"""
+        try:
+            # 检查是否已初始化嵌入模型
+            if hasattr(self.search_engine, 'index_manager') and self.search_engine.index_manager:
+                embedding_model = getattr(self.search_engine.index_manager, 'embedding_model', None)
+                if embedding_model:
+                    # 截断内容以适应模型输入限制
+                    max_content_len = 2000  # 大多数嵌入模型的限制
+                    if len(content) > max_content_len:
+                        content = content[:max_content_len] + "..."
+
+                    # 计算查询和内容的嵌入向量
+                    query_embedding = next(embedding_model.embed([query]))
+                    content_embedding = next(embedding_model.embed([content]))
+
+                    # 计算余弦相似度
+                    from sklearn.metrics.pairwise import cosine_similarity
+                    import numpy as np
+
+                    query_vec = np.array(query_embedding).reshape(1, -1)
+                    content_vec = np.array(content_embedding).reshape(1, -1)
+
+                    similarity = cosine_similarity(query_vec, content_vec)[0][0]
+
+                    # 转换为百分制
+                    return float(similarity * 100.0)
+
+        except Exception as e:
+            # 如果嵌入模型不可用，则回退到Jaccard相似度计算
+            logger.warning(f"嵌入模型计算语义相关性失败，使用回退方法: {e}")
+
+        # 回退到简化的Jaccard相似度计算
+        import re
+        query_tokens = set(re.findall(r'\w+', query.lower()))
+        content_tokens = set(re.findall(r'\w+', content.lower()))
+
+        if not query_tokens or not content_tokens:
+            return 0.0
+
+        intersection = len(query_tokens.intersection(content_tokens))
+        union = len(query_tokens.union(content_tokens))
+
+        if union == 0:
+            return 0.0
+
+        jaccard_similarity = intersection / union
+        return jaccard_similarity * 100.0  # 转换为百分制
+
+    def _select_optimal_documents(self, candidates: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """选择最佳文档，实现信息聚合和冲突检测"""
+        if not candidates:
+            return []
+
+        # 信息聚合：合并相似内容的文档
+        aggregated_docs = []
+        processed_content_hashes = set()
+
+        for candidate in candidates:
+            # 创建内容的简短哈希以便于比较
+            content_hash = hash(candidate['content'][:100])  # 只使用内容的前100字符做哈希
+
+            # 如果内容与已选择的文档相似度高，则跳过（避免重复信息）
+            if content_hash not in processed_content_hashes:
+                # 添加证据标记，便于AI理解信息来源
+                enhanced_content = f"[文档证据来源: {candidate['filename']}]\n{candidate['content']}"
+                candidate['content'] = enhanced_content
+                aggregated_docs.append(candidate)
+                processed_content_hashes.add(content_hash)
+
+                if len(aggregated_docs) >= self.max_docs:
+                    break
+
+        return aggregated_docs
+
+    def _extract_relevant_fragments(self, content: str, query: str, max_chars: int) -> str:
+        """
+        智能提取与查询最相关的内容片段，而不是固定位置的片段
+        """
+        # 将内容分割成段落或句子
+        import re
+        # 根据换行符、句号等分割
+        paragraphs = re.split(r'\n\s*\n|[\n。！？.!?]', content)
+
+        # 为每个段落计算相关性得分
+        paragraph_scores = []
+        query_lower = query.lower()
+        query_keywords = set(re.findall(r'\w+', query_lower))  # 提取查询关键词
+
+        for i, para in enumerate(paragraphs):
+            if not para.strip():
+                continue
+            para_lower = para.lower()
+            score = 0
+
+            # 基于关键词匹配的得分
+            para_keywords = set(re.findall(r'\w+', para_lower))
+            common_keywords = query_keywords.intersection(para_keywords)
+            score += len(common_keywords) * 2  # 关键词匹配得分
+
+            # 基于查询在段落中的出现频率
+            for qword in query_keywords:
+                score += para_lower.count(qword)
+
+            # 基于字符长度的奖励（避免选择过短的段落）
+            if len(para) > 20:
+                score += 1
+            if len(para) > 50:
+                score += 1
+
+            paragraph_scores.append((score, i, para.strip()))
+
+        # 按得分排序
+        paragraph_scores.sort(key=lambda x: x[0], reverse=True)
+
+        # 选择得分最高的段落，直到达到最大字符限制
+        selected_fragments = []
+        total_chars = 0
+
+        for score, idx, paragraph in paragraph_scores:
+            if score <= 0:  # 跳过得分低的段落
+                continue
+            if len(paragraph) + total_chars > max_chars:
+                # 如果加上这个段落会超出限制，尝试截断它
+                remaining_chars = max_chars - total_chars
+                if remaining_chars > 10:  # 如果还有足够的空间
+                    truncated_para = paragraph[:remaining_chars-3] + "..."
+                    selected_fragments.append(truncated_para)
+                    break
+            else:
+                selected_fragments.append(paragraph)
+                total_chars += len(paragraph)
+
+            # 添加少量上下文信息
+            if total_chars >= max_chars * 0.8:  # 达到80%限制就停止
+                break
+
+        # 在片段间添加分隔符
+        result = "\n\n--- 相关片段 ---\n\n".join(selected_fragments)
+
+        # 如果结果仍然太长，使用之前的截断方法作为备用
+        if len(result) > max_chars:
+            head_size = min(max_chars // 3, 800)
+            mid_size = max_chars // 3
+            tail_size = max_chars - head_size - mid_size - 6
+            if tail_size > 0:
+                mid_start = (len(result) - mid_size) // 2
+                mid_end = mid_start + mid_size
+                result = result[:head_size] + '\n...[内容省略]...\n' + result[mid_start:mid_end] + '\n...[内容省略]...\n' + result[-tail_size:]
+            else:
+                head_size = min(max_chars // 2, 1000)
+                tail_size = max_chars - head_size - 3
+                if tail_size > 0:
+                    result = result[:head_size] + '...' + result[-tail_size:]
+                else:
+                    result = result[:max_chars - 3] + '...'
+
+        return result
+
+    def _generate_document_summary(self, content: str, max_summary_chars: int = 500) -> str:
+        """
+        生成文档的结构化摘要，突出关键信息
+        """
+        import re
+        # 尝试提取文档的关键部分：标题、摘要、引言、结论、参考文献前的部分等
+        lines = content.split('\n')
+
+        # 寻找可能的关键部分
+        title_section = ""
+        abstract_section = ""
+        intro_section = ""
+        conclusion_section = ""
+        main_content = []
+
+        i = 0
+        while i < len(lines):
+            line = lines[i].strip()
+
+            # 检查标题（通常在文档开头）
+            if not title_section and len(line) > 5 and len(line) < 100 and i < 10:
+                title_section = line
+                i += 1
+                continue
+
+            # 检查摘要部分
+            if re.search(r'摘要|abstract', line.lower()):
+                j = i + 1
+                while j < len(lines) and j < i + 10:  # 摘要通常不会太长
+                    sub_line = lines[j].strip()
+                    if sub_line and not re.search(r'引言|intro|正文|正文|1\.|一、', sub_line.lower()):
+                        abstract_section += sub_line + " "
+                        j += 1
+                    else:
+                        break
+                i = j
+                continue
+
+            # 检查引言部分
+            if re.search(r'引言|介绍|intro|introduction|背景|background', line.lower()):
+                j = i + 1
+                while j < len(lines) and j < i + 15:  # 引言通常不会太长
+                    sub_line = lines[j].strip()
+                    if sub_line and not re.search(r'方法|method|材料|materials|实验|experiment|结论|conclusion', sub_line.lower()):
+                        intro_section += sub_line + " "
+                        j += 1
+                    else:
+                        break
+                i = j
+                continue
+
+            # 检查结论部分
+            if re.search(r'结论|conclusion|总结|summary|讨论|discussion', line.lower()):
+                j = i + 1
+                while j < len(lines) and j < i + 15:  # 结论通常不会太长
+                    sub_line = lines[j].strip()
+                    if sub_line and not re.search(r'参考文献|references|致谢|acknowledgments', sub_line.lower()):
+                        conclusion_section += sub_line + " "
+                        j += 1
+                    else:
+                        break
+                i = j
+                continue
+
+            i += 1
+
+        # 构建摘要
+        summary_parts = []
+        if title_section:
+            summary_parts.append(f"标题: {title_section[:200]}")
+        if abstract_section:
+            summary_parts.append(f"摘要: {abstract_section[:300]}")
+        if intro_section:
+            summary_parts.append(f"引言: {intro_section[:200]}")
+        if conclusion_section:
+            summary_parts.append(f"结论: {conclusion_section[:300]}")
+
+        # 如果关键部分不够，补充一些内容
+        if len(" ".join(summary_parts)) < max_summary_chars and content:
+            remaining_content = content[:max_summary_chars - len(" ".join(summary_parts))]
+            if remaining_content:
+                summary_parts.append(f"其他内容: {remaining_content}")
+
+        summary = "\n\n".join(summary_parts)
+
+        # 确保摘要不超过最大长度
+        if len(summary) > max_summary_chars:
+            summary = summary[:max_summary_chars] + "..."
+
+        return summary
 
     def _build_prompt(self, query: str, documents: List[Dict[str, Any]], history_text: str, doc_budget: Optional[int]) -> str:
         if not documents and not history_text:
@@ -620,9 +876,60 @@ class RAGPipeline:
                 logger.error(f"生成过程中发生错误: {str(e)}")
                 answer = self._render_template(self.fallback_response, query)
 
+            # 后处理：优化回答格式，确保连贯流畅
             sources = [doc.get('path') or doc.get('filename') for doc in documents]
+            answer = self._post_process_answer(answer, sources)
             self._remember_turn(session_key, query, answer)
             return {"answer": answer, "sources": sources}
         except Exception as exc:
             logger.error(f"RAG查询失败: {exc}")
             return {"answer": f"错误：处理查询时发生异常 ({str(exc)})。", "sources": []}
+
+    def _post_process_answer(self, answer: str, sources: List[str]) -> str:
+        """
+        后处理AI的回答，优化格式使其更连贯流畅
+        """
+        # 移除分点列表格式，将列表项整合为连贯段落
+        import re
+
+        # 将数字列表转换为连贯叙述
+        answer = re.sub(r'\n\d+\.\s*', '；', answer)  # 将列表数字替换为分号
+        answer = re.sub(r'\n\s*[-*]\s*', '；', answer)  # 将项目符号替换为分号
+
+        # 清理多余的换行符，保持段落连贯
+        answer = re.sub(r'\n\s*\n', '\n', answer)
+
+        # 优化引用格式，使其自然融入文本
+        if sources and '[文档证据来源:' in answer:
+            # 提取来源信息并整合到回答中
+            source_pattern = r'\[文档证据来源:\s*([^\]]+)\]'
+            matches = re.findall(source_pattern, answer)
+            if matches:
+                # 提取第一个来源作为主要来源
+                primary_source = matches[0] if matches else ""
+                # 从原始sources中找到匹配的完整路径
+                full_source = next((s for s in sources if primary_source in s), primary_source)
+
+                # 移除标记，改用自然引用方式
+                answer = re.sub(source_pattern, '', answer)
+
+                # 在回答开头或结尾添加自然引用
+                if full_source and full_source not in answer:
+                    # 如果回答中没有提到来源，添加自然的引用
+                    if '。' in answer:
+                        parts = answer.rsplit('。', 1)
+                        if len(parts) > 1:
+                            answer = f"{parts[0]}。相关信息来源于文档《{full_source}》{parts[1]}"
+                        else:
+                            answer = f"{answer}（信息来源于文档《{full_source}》）"
+                    else:
+                        answer = f"{answer}（信息来源于文档《{full_source}》）"
+
+        # 清理多余的分号和空格
+        answer = re.sub(r'；+', '；', answer)
+        answer = re.sub(r'；\s*[，。；]', r'\g<0>', answer)  # 保留正确的标点
+
+        # 统一标点符号
+        answer = answer.replace('[QUERY_TERM]', '').replace('[/QUERY_TERM]', '')
+
+        return answer.strip()

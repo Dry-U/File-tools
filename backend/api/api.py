@@ -334,7 +334,7 @@ async def health_check():
 async def chat(request: Request):
     """Chat with the RAG system"""
     global rag_pipeline
-    
+
     if not rag_pipeline:
         # Check if it's disabled in config
         config_loader = ConfigLoader()
@@ -346,10 +346,10 @@ async def chat(request: Request):
         body = await request.json()
         query = body.get("query", "")
         session_id = body.get("session_id")
-        
+
         if not query:
             raise HTTPException(status_code=400, detail="Query cannot be empty")
-            
+
         result = rag_pipeline.query(query, session_id=session_id)
         return result
     except Exception as e:

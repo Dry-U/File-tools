@@ -316,6 +316,21 @@ class DocumentParser:
                     break
                 text += paragraph.text + '\n'
 
+            # 提取表格内容
+            for table in doc.tables:
+                if len(text) > max_text_length:
+                    break
+                for row in table.rows:
+                    row_text = []
+                    for cell in row.cells:
+                        # 简单处理单元格文本，用空格连接
+                        cell_text = cell.text.strip()
+                        if cell_text:
+                            row_text.append(cell_text)
+                    if row_text:
+                        text += " | ".join(row_text) + "\n"
+                text += "\n"
+
             # 最终检查文本长度
             if len(text) > max_text_length:
                 text = text[:max_text_length] + "\n... (内容已截断)"

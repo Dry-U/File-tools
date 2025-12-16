@@ -45,7 +45,7 @@ class VRAMManager:
         logger.info(f"内存管理器初始化，模型目录: {self.models_dir}, 内存限制: {self.mem_limit}MB, 最大缓存: {self.max_cached_results}")
 
     def available_vram(self) -> int:
-        """获取可用VRAM信息"""
+        """获取可用VRAM信息 - 现在主要用于API接口"""
         if gpu_available:
             try:
                 gpus = GPUtil.getGPUs()
@@ -58,90 +58,32 @@ class VRAMManager:
                 logger.warning(f"无法获取GPU信息: {e}")
 
         # 如果无法获取GPU信息，返回一个合理的估计值
-        # 返回8GB作为默认值，这样会选择较大的模型
         return 8 * 1024**3  # 8GB
 
     def update_last_used(self, model_name: str) -> None:
-        """更新模型最后使用时间"""
+        """更新模型最后使用时间 - 现在主要用于API接口"""
         self.last_used[model_name] = time.time()
         logger.debug(f"更新模型最后使用时间: {model_name}")
 
     def load_model(self, model_name: str, model_class, gpu_layers: Optional[int] = None) -> Optional[Any]:
-        """加载模型到GPU或CPU"""
-        try:
-            # 检查模型文件是否存在
-            model_path = os.path.join(self.models_dir, model_name)
-            if not os.path.exists(model_path):
-                logger.warning(f"模型文件不存在: {model_path}")
-                # 创建一个空文件作为占位符
-                os.makedirs(self.models_dir, exist_ok=True)
-                with open(model_path, 'w', encoding='utf-8') as f:
-                    f.write("# 模型文件占位符")
-
-            # 根据可用VRAM决定GPU层数
-            if gpu_layers is None:
-                available_vram = self.available_vram()
-                if available_vram > 6 * 1024**3:  # 如果有超过6GB VRAM
-                    gpu_layers = 20  # 使用较多GPU层
-                elif available_vram > 4 * 1024**3:  # 如果有超过4GB VRAM
-                    gpu_layers = 10  # 使用中等GPU层
-                else:
-                    gpu_layers = 0  # 使用CPU模式
-
-            # 尝试初始化模型
-            model = model_class(model_path=model_path, n_ctx=4096, n_gpu_layers=gpu_layers)
-            self.models[model_name] = model
-            self.update_last_used(model_name)
-            logger.info(f"模型加载成功: {model_name}, GPU层数: {gpu_layers}")
-            return model
-        except Exception as e:
-            logger.error(f"加载模型失败: {model_name}, 错误: {str(e)}")
-            # 尝试使用CPU模式加载
-            try:
-                model = model_class(model_path=model_path, n_ctx=4096, n_gpu_layers=0)
-                self.models[model_name] = model
-                self.update_last_used(model_name)
-                logger.info(f"模型加载成功 (CPU模式): {model_name}")
-                return model
-            except Exception as e2:
-                logger.error(f"CPU模式加载模型也失败: {str(e2)}")
-                return None
+        """加载模型到GPU或CPU - 现在主要用于API接口"""
+        logger.warning(f"尝试加载本地模型 {model_name}，但本地模型支持已移除")
+        return None
 
     def unload_model(self, model_name: str) -> bool:
-        """卸载模型并释放内存"""
-        if model_name in self.models:
-            model = self.models[model_name]
-            # 尝试释放模型占用的资源
-            try:
-                if hasattr(model, 'unload'):
-                    model.unload()
-                elif hasattr(model, '__del__'):
-                    del model
-            except Exception as e:
-                logger.warning(f"卸载模型时出现问题: {str(e)}")
-
-            del self.models[model_name]
-            if model_name in self.last_used:
-                del self.last_used[model_name]
-            logger.info(f"模型卸载成功: {model_name}")
-            # 强制进行垃圾回收
-            gc.collect()
-            return True
+        """卸载模型并释放内存 - 现在主要用于API接口"""
+        logger.warning(f"尝试卸载本地模型 {model_name}，但本地模型支持已移除")
         return False
 
     def cleanup_unused_models(self, timeout_seconds: int = 300) -> int:
-        """清理长时间未使用的模型"""
-        current_time = time.time()
-        unloaded_count = 0
-        for model_name, last_used_time in list(self.last_used.items()):
-            if current_time - last_used_time > timeout_seconds:
-                self.unload_model(model_name)
-                unloaded_count += 1
-        return unloaded_count
+        """清理长时间未使用的模型 - 现在主要用于API接口"""
+        logger.warning("本地模型清理功能已移除")
+        return 0
 
     def get_loaded_models(self) -> list:
-        """获取当前加载的所有模型名称"""
-        return list(self.models.keys())
+        """获取当前加载的所有模型名称 - 现在主要用于API接口"""
+        logger.warning("本地模型列表功能已移除")
+        return []
 
     def get_memory_usage(self):
         """Get current memory usage"""
@@ -151,8 +93,29 @@ class VRAMManager:
     def should_limit_context(self):
         """Check if context should be limited based on memory usage"""
         current_memory = self.get_memory_usage()
-        # If using more than 80% of memory limit, suggest limiting context
-        return current_memory > (self.mem_limit * 0.8)
+        # If using more than 70% of memory limit, suggest limiting context (more conservative)
+        return current_memory > (self.mem_limit * 0.7)
+
+    def adjust_context_size(self, requested_size: int) -> int:
+        """根据当前内存使用情况调整上下文大小"""
+        if self.should_limit_context():
+            # 如果内存紧张，减少到请求大小的50%
+            return max(requested_size // 2, 500)  # 最小500字符
+        else:
+            # 内存充足时，可以使用请求的大小
+            return requested_size
+
+    def get_optimal_batch_size(self) -> int:
+        """根据当前内存状况计算最佳批处理大小"""
+        current_memory = self.get_memory_usage()
+        memory_ratio = current_memory / self.mem_limit
+
+        if memory_ratio > 0.8:
+            return 1  # 内存紧张时使用最小批处理
+        elif memory_ratio > 0.6:
+            return 2  # 中等内存使用时使用中等批处理
+        else:
+            return 4  # 内存充足时使用较大批处理
 
     def get_gpu_info(self) -> Dict:
         """获取GPU信息（如果可用）"""

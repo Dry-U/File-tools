@@ -66,9 +66,6 @@ dependencies = [
 gpu = [
     "torch>=2.0.0,<3.0.0"
 ]
-llm = [
-    "llama-cpp-python>=0.3.0,<0.4.0"
-]
 
 [tool.setuptools.packages.find]
 where = ["backend"]
