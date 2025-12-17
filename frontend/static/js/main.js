@@ -1,464 +1,409 @@
-let currentPreviewPath = '';
-let searchResults = []; // Store search results globally
-let messageCounter = 0; // Ensure unique chat message IDs
-let pendingLoadingMessageId = null;
-// Generate a stable session id per page load to isolate chat history
-const chatSessionId = (crypto.randomUUID ? crypto.randomUUID() : `sess-${Date.now()}-${Math.random().toString(16).slice(2)}`);
-
-function updateMessageContent(messageId, html) {
-    if (!messageId) return;
-    const el = document.getElementById(messageId);
-    if (!el) return;
-    const contentEl = el.querySelector('.message-content');
-    if (contentEl) {
-        contentEl.innerHTML = html;
-    } else {
-        el.innerHTML = html;
-    }
-}
-
-async function performSearch() {
-    const query = document.getElementById('searchInput').value.trim();
-    if (!query) {
-        // Show error message in status bar
-        updateStatus('请输入搜索关键词');
-        showNotification('请输入搜索关键词', 'warning');
-        return;
-    }
-
-    updateStatus('正在搜索: ' + query);
-
-    try {
-        const filters = getFilters();
-        const response = await fetch('/api/search', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-                query: query,
-                filters: filters
-            })
-        });
-
-        if (!response.ok) {
-            throw new Error(`搜索失败: ${response.status}`);
+// 监听模式切换，显示/隐藏 API 设置
+document.querySelectorAll('input[name="aiMode"]').forEach(radio => {
+    radio.addEventListener('change', function() {
+        const apiSettings = document.getElementById('apiSettings');
+        if (document.getElementById('modeAPI').checked) {
+            apiSettings.style.display = 'block';
+        } else {
+            apiSettings.style.display = 'none';
         }
-
-        const results = await response.json();
-        searchResults = results; // Update global results
-        displayResults(results, query);
-        updateStatus(`找到 ${results.length} 个结果`);
-    } catch (error) {
-        const errorMsg = `搜索失败: ${error.message}`;
-        updateStatus(errorMsg);
-        showNotification(errorMsg, 'danger');
-    }
-}
-
-function getFilters() {
-    const filters = {};
-
-    // 文件类型 - 只有过滤器选中时才应用
-    const selectedTypes = Array.from(document.querySelectorAll('.file-type-btn.active')).map(btn => btn.dataset.type);
-    if (selectedTypes.length > 0) {
-        filters.file_types = selectedTypes;
-    }
-
-    // 文件大小
-    const minSize = document.getElementById('minSize').value;
-    const maxSize = document.getElementById('maxSize').value;
-    if (minSize) filters.size_min = parseFloat(minSize) * 1024 * 1024; // 转换为字节
-    if (maxSize) filters.size_max = parseFloat(maxSize) * 1024 * 1024; // 转换为字节
-    // 其他选项
-    filters.case_sensitive = document.getElementById('caseSensitive')?.checked || false;
-    filters.match_whole_word = document.getElementById('matchWholeWord')?.checked || false;
-    filters.search_content = document.getElementById('searchContent')?.checked || false;
-
-    return filters;
-}
-
-function displayResults(results, query) {
-    const resultsContainer = document.getElementById('resultsContainer');
-    const resultsCard = document.getElementById('resultsCard');
-    const resultCount = document.getElementById('resultCount');
-
-    if (!results || results.length === 0) {
-        resultsContainer.innerHTML = '<div class="p-4 text-center text-muted"><i class="bi bi-search me-2"></i>未找到匹配的文件</div>';
-        resultsCard.style.display = 'block';
-        resultCount.textContent = '0 条结果';
-        return;
-    }
-
-    resultCount.textContent = `${results.length} 条结果`;
-    resultsCard.style.display = 'block';
-
-    let html = '';
-    results.forEach((result, index) => {
-        const icon = getFileIcon(result.path);
-        const fileName = result.file_name || result.path.split('/').pop().split('\\\\').pop();
-        const scorePercent = Math.min(parseFloat(result.score), 100.0).toFixed(2);
-        const lastModified = result.modified_time ? new Date(result.modified_time).toLocaleString() : '未知';
-        const snippet = result.snippet || '';
-
-        html += `
-        <div class="result-card card mb-3">
-            <div class="card-body" style="cursor: pointer;" onclick="togglePreview(${index})">
-                <div class="d-flex align-items-start">
-                    <div class="file-icon me-3 mt-1"><i class="${icon} fs-4"></i></div>
-                    <div class="flex-grow-1">
-                        <div class="d-flex justify-content-between align-items-center">
-                            <h5 class="card-title mb-1 text-primary">${fileName}</h5>
-                            <span class="badge bg-light text-dark border score-badge">匹配度: ${scorePercent}%</span>
-                        </div>
-                        <div class="file-path text-muted small mb-2"><i class="bi bi-folder2-open me-1"></i>${result.path}</div>
-                        
-                        <!-- Snippet Display -->
-                        ${snippet ? `<div class="search-snippet p-2 bg-light rounded border-start border-4 border-primary mb-2" style="font-size: 0.9rem; color: #555;">${snippet}</div>` : ''}
-                        
-                        <div class="d-flex justify-content-between align-items-center mt-2">
-                            <small class="text-muted"><i class="bi bi-clock me-1"></i>修改时间: ${lastModified}</small>
-                            <button class="btn btn-sm btn-outline-primary" onclick="event.stopPropagation(); togglePreview(${index})">
-                                <i class="bi bi-eye me-1"></i>预览
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            </div>
-            <div id="preview-${index}" class="preview-content border-top p-3 bg-light" style="display: none;">
-                <div class="d-flex justify-content-between align-items-center mb-2">
-                    <h6 class="mb-0"><i class="bi bi-file-text me-2"></i>文件预览</h6>
-                    <button class="btn btn-sm btn-outline-secondary" onclick="event.stopPropagation(); closePreview(${index})">
-                        <i class="bi bi-x-lg"></i>
-                    </button>
-                </div>
-                <div class="preview-text bg-white p-3 border rounded" style="max-height: 400px; overflow-y: auto; white-space: pre-wrap; font-family: monospace;">加载中...</div>
-            </div>
-        </div>
-        `;
     });
+});
 
-    resultsContainer.innerHTML = html;
+// 恢复默认设置 (显示弹窗)
+function resetSettings() {
+    const resetModal = new bootstrap.Modal(document.getElementById('resetConfirmModal'));
+    resetModal.show();
 }
 
-function getFileIcon(filePath) {
-    const ext = filePath.toLowerCase().split('.').pop();
-    const iconMap = {
-        'pdf': 'bi bi-file-earmark-pdf text-danger',
-        'doc': 'bi bi-file-earmark-word text-primary',
-        'docx': 'bi bi-file-earmark-word text-primary',
-        'xls': 'bi bi-file-earmark-excel text-success',
-        'xlsx': 'bi bi-file-earmark-excel text-success',
-        'ppt': 'bi bi-file-earmark-ppt text-warning',
-        'pptx': 'bi bi-file-earmark-ppt text-warning',
-        'txt': 'bi bi-file-earmark-text text-secondary',
-        'py': 'bi bi-file-earmark-code text-info',
-        'js': 'bi bi-file-earmark-code text-warning',
-        'html': 'bi bi-file-earmark-code text-danger',
-        'css': 'bi bi-file-earmark-code text-primary',
-        'json': 'bi bi-file-earmark-code text-warning',
-        'xml': 'bi bi-file-earmark-code text-success',
-        'jpg': 'bi bi-file-earmark-image text-info',
-        'jpeg': 'bi bi-file-earmark-image text-info',
-        'png': 'bi bi-file-earmark-image text-info',
-        'gif': 'bi bi-file-earmark-image text-info',
-        'zip': 'bi bi-file-earmark-zip text-secondary',
-        'rar': 'bi bi-file-earmark-zip text-secondary',
-        '7z': 'bi bi-file-earmark-zip text-secondary'
-    };
-    return iconMap[ext] || 'bi bi-file-earmark text-secondary';
+// 显示重建索引确认弹窗
+function showRebuildModal() {
+    const rebuildModal = new bootstrap.Modal(document.getElementById('rebuildIndexModal'));
+    rebuildModal.show();
 }
 
-async function togglePreview(index) {
-    const previewDiv = document.getElementById(`preview-${index}`);
-    const result = searchResults[index];
-    
-    if (!result) return;
-
-    if (previewDiv.style.display === 'block') {
-        previewDiv.style.display = 'none';
-        return;
-    }
-
-    // Show loading state
-    const previewText = previewDiv.querySelector('.preview-text');
-    previewText.innerHTML = '<div class="text-center py-3"><span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>正在加载文件内容...</div>';
-    previewDiv.style.display = 'block';
-
-    try {
-        const response = await fetch('/api/preview', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({ path: result.path })
-        });
-
-        if (!response.ok) {
-            throw new Error(`预览失败: ${response.status}`);
-        }
-
-        const data = await response.json();
-        // Check if content is empty or error
-        if (data.content && (data.content.startsWith('错误') || data.content.startsWith('不支持'))) {
-             previewText.innerHTML = `<div class="alert alert-warning mb-0">${data.content}</div>`;
-        } else if (!data.content) {
-             previewText.innerHTML = `<div class="alert alert-info mb-0">该文件内容为空或无法提取文本内容。</div>`;
-        } else {
-             previewText.textContent = data.content;
-        }
-    } catch (error) {
-        previewText.innerHTML = `<div class="alert alert-danger mb-0">预览失败: ${error.message}</div>`;
-    }
-}
-
-function closePreview(index) {
-    document.getElementById(`preview-${index}`).style.display = 'none';
-}
-
-function toggleAdvancedFilter() {
-    const panel = document.getElementById('advancedFilterPanel');
-    const btn = document.getElementById('advancedFilterBtn');
-    const willShow = panel.style.display === 'none';
-    panel.style.display = willShow ? 'block' : 'none';
-    if (panel.style.display === 'block') {
-        btn.classList.remove('btn-outline-primary');
-        btn.classList.add('btn-primary');
-        btn.classList.add('active');
-        updateStatus('高级筛选已开启');
-    } else {
-        btn.classList.remove('btn-primary');
-        btn.classList.remove('active');
-        btn.classList.add('btn-outline-primary');
-        updateStatus('高级筛选已关闭');
-    }
-}
-
-async function rebuildIndex() {
-    // Create modal dialog
-    const modalHtml = `
-    <div class="modal fade" id="rebuildModal" tabindex="-1">
-        <div class="modal-dialog">
-            <div class="modal-content">
-                <div class="modal-header">
-                    <h5 class="modal-title"><i class="bi bi-arrow-repeat me-2"></i>重建索引</h5>
-                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-                </div>
-                <div class="modal-body">
-                    <p>重建索引将重新扫描所有文件，可能需要较长时间。</p>
-                    <p class="text-warning"><i class="bi bi-exclamation-triangle me-2"></i>确定要继续吗？</p>
-                </div>
-                <div class="modal-footer">
-                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
-                    <button type="button" class="btn btn-success" onclick="confirmRebuild()">确认重建</button>
-                </div>
-            </div>
-        </div>
-    </div>`;
-
-    // Add modal to body if not already present
-    if (!document.getElementById('rebuildModal')) {
-        document.body.insertAdjacentHTML('beforeend', modalHtml);
-    } else {
-        // Update existing modal
-        const existingModal = document.getElementById('rebuildModal');
-        if (existingModal) {
-            existingModal.outerHTML = modalHtml;
-        } else {
-            document.body.insertAdjacentHTML('beforeend', modalHtml);
-        }
-    }
-
-    // Show modal
-    const modalElement = document.getElementById('rebuildModal');
-    const modal = new bootstrap.Modal(modalElement);
-    modal.show();
-}
-
+// 确认重建索引 (执行逻辑)
 async function confirmRebuild() {
-    // Close the modal
-    const modalElement = document.getElementById('rebuildModal');
-    const modal = bootstrap.Modal.getInstance(modalElement);
+    // 关闭确认弹窗
+    const rebuildModalEl = document.getElementById('rebuildIndexModal');
+    const modal = bootstrap.Modal.getInstance(rebuildModalEl);
     modal.hide();
-
-    // Show progress indicator
-    const statusText = document.getElementById('statusText');
-    statusText.innerHTML = '正在重建索引... <span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>';
 
     try {
         const response = await fetch('/api/rebuild-index', {
             method: 'POST'
         });
-
-        if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
-        }
-
         const data = await response.json();
-
-        if (data.status === 'success') {
-            // Show success message in a Bootstrap alert
-            showNotification(data.message, 'success');
-            updateStatus(data.message);
+        
+        if (response.ok) {
+            alert(data.message || '索引重建完成');
         } else {
-            throw new Error(data.message || '未知错误');
+            alert('索引重建失败: ' + (data.detail || '未知错误'));
         }
     } catch (error) {
-        const errorMsg = '索引重建失败: ' + error.message;
-        showNotification(errorMsg, 'danger');
-        updateStatus(errorMsg);
+        console.error('Error rebuilding index:', error);
+        alert('索引重建请求失败');
     }
 }
 
-function handleKeyPress(event) {
-    if (event.key === 'Enter') {
-        performSearch();
-    }
+// 确认重置 (执行逻辑)
+function confirmReset() {
+    // Sampling
+    document.getElementById('tempRange').value = 0.7;
+    document.getElementById('tempValue').innerText = '0.7';
+    
+    document.getElementById('topPRange').value = 0.9;
+    document.getElementById('topPValue').innerText = '0.9';
+    
+    document.getElementById('topKInput').value = 40;
+    
+    document.getElementById('minPRange').value = 0.05;
+    document.getElementById('minPValue').innerText = '0.05';
+    
+    document.getElementById('maxTokensInput').value = 2048;
+    document.getElementById('seedInput').value = -1;
+
+    // Penalty
+    document.getElementById('repeatPenaltyRange').value = 1.1;
+    document.getElementById('repeatPenaltyValue').innerText = '1.1';
+    
+    document.getElementById('freqPenaltyRange').value = 0.0;
+    document.getElementById('freqPenaltyValue').innerText = '0.0';
+
+    document.getElementById('presencePenaltyRange').value = 0.0;
+    document.getElementById('presencePenaltyValue').innerText = '0.0';
+
+    // 关闭确认弹窗
+    const resetModalEl = document.getElementById('resetConfirmModal');
+    const modal = bootstrap.Modal.getInstance(resetModalEl);
+    modal.hide();
 }
 
-function updateStatus(text) {
-    document.getElementById('statusText').textContent = text;
+// Settings State Management
+let initialSettings = {};
+
+function getCurrentSettings() {
+    return {
+        temp: document.getElementById('tempRange').value,
+        topP: document.getElementById('topPRange').value,
+        topK: document.getElementById('topKInput').value,
+        minP: document.getElementById('minPRange').value,
+        maxTokens: document.getElementById('maxTokensInput').value,
+        seed: document.getElementById('seedInput').value,
+        repeatPenalty: document.getElementById('repeatPenaltyRange').value,
+        freqPenalty: document.getElementById('freqPenaltyRange').value,
+        presencePenalty: document.getElementById('presencePenaltyRange').value,
+        mode: document.querySelector('input[name="aiMode"]:checked').id,
+        apiUrl: document.getElementById('apiUrlInput').value,
+        apiKey: document.getElementById('apiKeyInput').value,
+        modelName: document.getElementById('modelNameInput').value
+    };
 }
 
-function showNotification(message, type) {
-    // Remove any existing alerts
-    const existingAlerts = document.querySelectorAll('.notification-alert');
-    existingAlerts.forEach(alert => alert.remove());
-
-    // Create a temporary alert element
-    const alertDiv = document.createElement('div');
-    alertDiv.className = `alert alert-${type} alert-dismissible fade show position-fixed notification-alert`;
-    alertDiv.style.cssText = 'top: 80px; right: 20px; z-index: 9999; min-width: 300px; max-width: 500px;';
-    alertDiv.innerHTML = `
-        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
-        ${message}
-    `;
-
-    document.body.appendChild(alertDiv);
-
-    // Auto remove after 5 seconds
-    setTimeout(() => {
-        if (alertDiv.parentNode) {
-            alertDiv.parentNode.removeChild(alertDiv);
-        }
-    }, 5000);
-}
-
-// Initialize file type buttons
-document.querySelectorAll('.file-type-btn').forEach(btn => {
-    btn.addEventListener('click', function() {
-        this.classList.toggle('active');
-        // 更新按钮样式
-        if (this.classList.contains('active')) {
-            this.classList.remove('btn-outline-primary');
-            this.classList.add('btn-primary');
-        } else {
-            this.classList.remove('btn-primary');
-            this.classList.add('btn-outline-primary');
-        }
-        const q = document.getElementById('searchInput').value.trim();
-        if (q) {
-            performSearch();
-        }
-    });
+// Capture settings when modal opens
+const settingsModalEl = document.getElementById('settingsModal');
+settingsModalEl.addEventListener('show.bs.modal', event => {
+    initialSettings = getCurrentSettings();
 });
 
-// Chat functionality
-function handleChatKeyPress(event) {
-    if (event.key === 'Enter') {
-        sendChatMessage();
+function saveSettings() {
+    const currentSettings = getCurrentSettings();
+    if (JSON.stringify(initialSettings) === JSON.stringify(currentSettings)) {
+        // Show reminder
+        const noChangeModal = new bootstrap.Modal(document.getElementById('noChangesModal'));
+        noChangeModal.show();
+    } else {
+        // Save logic would go here (e.g., save to localStorage or backend config)
+        // For now, just close modal
+        const modal = bootstrap.Modal.getInstance(settingsModalEl);
+        modal.hide();
     }
 }
 
-async function sendChatMessage() {
-    const input = document.getElementById('chatInput');
-    const message = input.value.trim();
-    if (!message) return;
+// 状态管理
+let currentMode = 'search'; // 'search' or 'chat'
 
-    // Clear input
-    input.value = '';
+// 模式切换逻辑
+function switchMode(mode) {
+    currentMode = mode;
+    
+    // 1. 更新 Tab 样式
+    document.querySelectorAll('.nav-tab-btn').forEach(btn => btn.classList.remove('active'));
+    document.getElementById(`tab-${mode}`).classList.add('active');
 
-    // Add user message
-    const safeMessage = message.replace(/</g, '&lt;').replace(/>/g, '&gt;');
-    appendMessage('user', safeMessage);
-
-    // Show loading
-    if (pendingLoadingMessageId) {
-        updateMessageContent(pendingLoadingMessageId, '<span class="text-muted">请求已取消，正在等待新的问题...</span>');
-        pendingLoadingMessageId = null;
+    // 2. 切换侧边栏内容
+    const searchSidebar = document.getElementById('sidebar-search-content');
+    const chatSidebar = document.getElementById('sidebar-chat-content');
+    
+    if (mode === 'search') {
+        searchSidebar.style.display = 'block';
+        chatSidebar.style.display = 'none';
+    } else {
+        searchSidebar.style.display = 'none';
+        chatSidebar.style.display = 'block';
     }
-    const loadingId = appendMessage('system', '<span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>正在思考...');
-    pendingLoadingMessageId = loadingId;
+
+    // 3. 切换主视图
+    const searchView = document.getElementById('view-search');
+    const chatView = document.getElementById('view-chat');
+
+    if (mode === 'search') {
+        searchView.style.setProperty('display', 'flex', 'important');
+        chatView.style.setProperty('display', 'none', 'important');
+    } else {
+        searchView.style.setProperty('display', 'none', 'important');
+        chatView.style.setProperty('display', 'flex', 'important');
+    }
+}
+
+// 文件类型切换
+function toggleFileType(btn) {
+    btn.classList.toggle('active');
+}
+
+// 侧边栏切换逻辑
+function toggleSidebar() {
+    const sidebar = document.getElementById('sidebar');
+    const btn = document.getElementById('sidebarToggleBtn');
+    const isMobile = window.innerWidth <= 768;
+
+    if (isMobile) {
+        sidebar.classList.toggle('show');
+    } else {
+        sidebar.classList.toggle('collapsed');
+    }
+    
+    // 更新图标
+    const isVisible = isMobile ? sidebar.classList.contains('show') : !sidebar.classList.contains('collapsed');
+
+    if (isVisible) {
+        // 显示收起图标
+        btn.innerHTML = `
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="size-6" style="width: 24px; height: 24px;">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 9V5.25A2.25 2.25 0 0 0 13.5 3h-6a2.25 2.25 0 0 0-2.25 2.25v13.5A2.25 2.25 0 0 0 7.5 21h6a2.25 2.25 0 0 0 2.25-2.25V15M12 9l-3 3m0 0 3 3m-3-3h12.75" />
+            </svg>
+        `;
+    } else {
+        // 显示展开图标
+        btn.innerHTML = `
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="size-6" style="width: 24px; height: 24px;">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M8.25 9V5.25A2.25 2.25 0 0 1 10.5 3h6a2.25 2.25 0 0 1 2.25 2.25v13.5A2.25 2.25 0 0 1 16.5 21h-6a2.25 2.25 0 0 1-2.25-2.25V15M12 9l3 3m0 0-3 3m3-3H2.25" />
+            </svg>
+        `;
+    }
+}
+
+function autoResize(textarea) {
+    textarea.style.height = 'auto';
+    textarea.style.height = textarea.scrollHeight + 'px';
+}
+
+function fillInput(text) {
+    const input = document.getElementById('userInput');
+    input.value = text;
+    input.focus();
+}
+
+function resetChat() {
+    // Reset UI state
+    const initialContainer = document.getElementById('chat-initial-container');
+    const welcomeText = document.getElementById('chat-welcome-text');
+    const chatContainer = document.getElementById('chatContainer');
+    const inputWrapper = document.getElementById('chat-input-wrapper');
+
+    initialContainer.classList.add('h-100', 'justify-content-center');
+    welcomeText.style.display = 'block';
+    chatContainer.style.display = 'none';
+    inputWrapper.style.background = 'none';
+
+    // Clear messages
+    const messages = document.querySelectorAll('.message-row');
+    messages.forEach(msg => msg.remove());
+}
+
+async function performSearch() {
+    const input = document.getElementById('searchInput');
+    const query = input.value.trim();
+    if (!query) return;
+
+    // Transition UI
+    const container = document.getElementById('search-content-container');
+    const headerText = document.getElementById('search-header-text');
+    const resultsContainer = document.getElementById('resultsContainer');
+
+    container.classList.remove('justify-content-center', 'h-100');
+    container.classList.add('pt-5');
+    headerText.style.display = 'none';
+    resultsContainer.style.display = 'block';
+
+    resultsContainer.innerHTML = `
+        <div class="text-center text-muted mt-5">
+            <div class="spinner-border text-secondary" role="status">
+                <span class="visually-hidden">Loading...</span>
+            </div>
+            <p class="mt-3">正在搜索...</p>
+        </div>
+    `;
+
+    try {
+        const response = await fetch('/api/search', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ query: query })
+        });
+
+        if (!response.ok) {
+            throw new Error('Search failed');
+        }
+
+        const results = await response.json();
+        
+        if (results.length === 0) {
+            resultsContainer.innerHTML = `
+                <div class="text-center text-muted mt-5">
+                    <i class="bi bi-search display-4 opacity-25"></i>
+                    <p class="mt-3">未找到相关文件</p>
+                </div>
+            `;
+            return;
+        }
+
+        let html = '<div class="list-group list-group-flush">';
+        results.forEach(result => {
+            const iconClass = getFileIcon(result.file_name);
+            html += `
+                <a href="#" class="list-group-item list-group-item-action bg-transparent border-secondary text-light mb-2 rounded" onclick="previewFile('${result.path.replace(/\\/g, '\\\\')}')">
+                    <div class="d-flex w-100 justify-content-between">
+                        <h6 class="mb-1 text-primary"><i class="bi ${iconClass} me-2"></i>${result.file_name}</h6>
+                        <small class="text-muted">${result.score.toFixed(2)}</small>
+                    </div>
+                    <p class="mb-1 small text-muted">${result.snippet || '...'}</p>
+                    <small class="text-muted">路径: ${result.path}</small>
+                </a>
+            `;
+        });
+        html += '</div>';
+        resultsContainer.innerHTML = html;
+
+    } catch (error) {
+        console.error('Search error:', error);
+        resultsContainer.innerHTML = `
+            <div class="text-center text-danger mt-5">
+                <i class="bi bi-exclamation-circle display-4"></i>
+                <p class="mt-3">搜索出错: ${error.message}</p>
+            </div>
+        `;
+    }
+}
+
+function getFileIcon(filename) {
+    const ext = filename.split('.').pop().toLowerCase();
+    switch (ext) {
+        case 'pdf': return 'bi-file-pdf';
+        case 'doc':
+        case 'docx': return 'bi-file-word';
+        case 'txt': return 'bi-file-text';
+        case 'md': return 'bi-markdown';
+        case 'py': return 'bi-file-code';
+        case 'js': return 'bi-filetype-js';
+        case 'html': return 'bi-filetype-html';
+        case 'css': return 'bi-filetype-css';
+        default: return 'bi-file-earmark';
+    }
+}
+
+async function previewFile(path) {
+    // Implement preview logic if needed, or just alert path
+    // For now, let's just log it or maybe open in new tab if it was a real link
+    console.log('Previewing:', path);
+    // You could call /api/preview here
+}
+
+async function sendMessage() {
+    const input = document.getElementById('userInput');
+    const text = input.value.trim();
+    if (!text) return;
+
+    // Transition UI
+    const initialContainer = document.getElementById('chat-initial-container');
+    const welcomeText = document.getElementById('chat-welcome-text');
+    const chatContainer = document.getElementById('chatContainer');
+    const inputWrapper = document.getElementById('chat-input-wrapper');
+
+    initialContainer.classList.remove('h-100', 'justify-content-center');
+    welcomeText.style.display = 'none';
+    chatContainer.style.display = 'block';
+    inputWrapper.style.background = ''; 
+
+    addMessage(text, 'user');
+    input.value = '';
+    input.style.height = 'auto';
+
+    // Add loading message
+    const loadingId = addMessage('正在思考...', 'ai', true);
 
     try {
         const response = await fetch('/api/chat', {
             method: 'POST',
             headers: {
-                'Content-Type': 'application/json',
+                'Content-Type': 'application/json'
             },
-            body: JSON.stringify({ query: message, session_id: chatSessionId })
+            body: JSON.stringify({ query: text })
         });
-
-        if (!response.ok) {
-            throw new Error(`请求失败: ${response.status}`);
-        }
 
         const data = await response.json();
         
-        let answerHtml = (data.answer || '').replace(/\n/g, '<br>');
-        if (data.sources && data.sources.length > 0) {
-            answerHtml += '<div class="source-list"><strong>参考来源:</strong><br>';
-            data.sources.forEach(source => {
-                answerHtml += `<span class="source-item"><i class="bi bi-file-earmark-text me-1"></i>${source}</span>`;
-            });
-            answerHtml += '</div>';
+        // Remove loading message
+        const loadingEl = document.getElementById(loadingId);
+        if (loadingEl) loadingEl.remove();
+
+        if (response.ok) {
+            addMessage(data.answer || '没有收到回复', 'ai');
+        } else {
+            addMessage('出错: ' + (data.detail || '未知错误'), 'ai');
         }
-        updateMessageContent(loadingId, answerHtml);
     } catch (error) {
-        updateMessageContent(loadingId, `<span class="text-danger">错误: ${error.message}</span>`);
-    } finally {
-        if (pendingLoadingMessageId === loadingId) {
-            pendingLoadingMessageId = null;
-        }
+        console.error('Chat error:', error);
+        const loadingEl = document.getElementById(loadingId);
+        if (loadingEl) loadingEl.remove();
+        addMessage('网络错误，请稍后重试', 'ai');
     }
 }
 
-function appendMessage(type, content) {
+function addMessage(text, type, isLoading = false) {
     const container = document.getElementById('chatContainer');
-    messageCounter += 1;
-    const id = `msg-${Date.now()}-${messageCounter}`;
+    const div = document.createElement('div');
+    div.className = 'message-row';
+    const id = 'msg-' + Date.now();
+    div.id = id;
     
-    const msgDiv = document.createElement('div');
-    msgDiv.className = `chat-message ${type}-message`;
-    msgDiv.id = id;
+    const icon = type === 'user' ? 'bi-person' : 'bi-robot';
+    const avatarClass = type === 'user' ? 'avatar-user' : 'avatar-ai';
     
-    msgDiv.innerHTML = `
+    div.innerHTML = `
+        <div class="message-avatar ${avatarClass}"><i class="bi ${icon}"></i></div>
         <div class="message-content">
-            ${content}
+            <p>${text}</p>
         </div>
     `;
-    
-    container.appendChild(msgDiv);
+    container.appendChild(div);
     container.scrollTop = container.scrollHeight;
-    
     return id;
 }
 
-// Initialize with focus on search input
-document.addEventListener('DOMContentLoaded', function() {
-    document.getElementById('searchInput').focus();
-    const panel = document.getElementById('advancedFilterPanel');
-    const btn = document.getElementById('advancedFilterBtn');
-    if (panel && btn) {
-        const visible = panel.style.display !== 'none';
-        if (visible) {
-            btn.classList.remove('btn-outline-primary');
-            btn.classList.add('btn-primary');
-            btn.classList.add('active');
-        } else {
-            btn.classList.remove('btn-primary');
-            btn.classList.remove('active');
-            btn.classList.add('btn-outline-primary');
-        }
+// 绑定回车事件
+document.getElementById('userInput').addEventListener('keydown', function(e) {
+    if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        sendMessage();
+    }
+});
+
+document.getElementById('searchInput').addEventListener('keydown', function(e) {
+    if (e.key === 'Enter') {
+        e.preventDefault();
+        performSearch();
     }
 });

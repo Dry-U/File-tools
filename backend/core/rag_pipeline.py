@@ -348,7 +348,7 @@ class RAGPipeline:
         return enhanced_content
 
     def _calculate_multidimensional_relevance(self, query: str, content: str, original_result: Dict, filename: str) -> float:
-        """计算多维度相关性得分"""
+        """计算多维度相关性得分，强化文件名匹配权重"""
         import re
 
         # 基础得分
@@ -362,26 +362,38 @@ class RAGPipeline:
         keyword_overlap = len(query_keywords.intersection(content_keywords))
         keyword_score = keyword_overlap * 2.0  # 每个匹配关键词2分
 
-        # 文件名相关性得分
-        filename_relevance = 1.0 if any(kw in filename.lower() for kw in query_keywords) else 0.0
+        # === 强化文件名相关性得分 ===
+        filename_lower = filename.lower()
+        filename_relevance = 0.0
+
+        # 核心优化：如果查询词完全或大部分包含在文件名中，则给予高分
+        if query_lower in filename_lower:
+            filename_relevance = 30.0 # 给予较高的基础分
+        else:
+            # 检查查询词中有多少包含在文件名中
+            matched_in_filename = sum(1 for kw in query_keywords if kw in filename_lower)
+            if matched_in_filename > 0:
+                # 根据匹配比例给予分数
+                match_ratio = matched_in_filename / max(len(query_keywords), 1) # 避免除以零
+                filename_relevance = 10.0 + 20.0 * match_ratio # 基础10分，最多再加20分
 
         # 位置加权得分（如果内容中包含查询词）
         position_score = 0.0
         if query_lower in content_lower:
-            position_score = 1.0
+            position_score = 5.0 # 稍微提高一点
         else:
             # 检查是否有查询关键词的匹配
             for kw in query_keywords:
                 if kw in content_lower:
-                    position_score += 0.5
+                    position_score += 2.0 # 稍微提高一点
                     break
 
-        # 综合得分计算
+        # 综合得分计算 - 调整权重，让文件名匹配更重要
         total_score = (
-            base_score * 0.4 +           # 原始搜索得分权重40%
-            keyword_score * 0.3 +        # 关键词匹配权重30%
-            position_score * 0.2 +       # 位置相关性权重20%
-            filename_relevance * 0.1     # 文件名相关性权重10%
+            base_score * 0.2 +           # 原始搜索得分权重降低到20%
+            keyword_score * 0.2 +        # 关键词匹配权重降低到20%
+            position_score * 0.1 +       # 位置相关性权重降低到10%
+            filename_relevance * 0.5     # 文件名相关性权重提高到50% !!
         )
 
         return min(total_score, 100.0)  # 限制在合理范围内
@@ -646,13 +658,26 @@ class RAGPipeline:
         key_entities = []
         for doc in documents:
             fname = doc.get('filename', '')
-            # 简单的启发式：提取下划线后的部分，通常是作者名
-            if '_' in fname:
-                parts = fname.rsplit('_', 1)
-                if len(parts) > 1:
-                    name_part = parts[1].replace('.pdf', '').replace('.docx', '').replace('.txt', '')
-                    if name_part:
-                        key_entities.append(name_part)
+            if not fname:
+                continue
+                
+            # 移除扩展名
+            name_only = fname
+            for ext in ['.pdf', '.docx', '.doc', '.txt', '.md', '.xlsx', '.xls', '.pptx', '.ppt']:
+                if name_only.lower().endswith(ext):
+                    name_only = name_only[:-len(ext)]
+                    break
+            
+            # 策略1：提取下划线后的部分，通常是作者名
+            if '_' in name_only:
+                parts = name_only.rsplit('_', 1)
+                if len(parts) > 1 and parts[1]:
+                    key_entities.append(parts[1])
+            
+            # 策略2：如果文件名较短且看起来像实体名（非通用词），也加入
+            # 这里简单判断长度，避免加入过长的句子作为实体
+            if 2 <= len(name_only) <= 10:
+                key_entities.append(name_only)
         
         entity_instruction = ""
         if key_entities:

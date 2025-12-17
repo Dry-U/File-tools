@@ -57,7 +57,7 @@ async def startup_event():
 
         # Initialize file scanner
         file_scanner = FileScanner(config_loader, None, index_manager)
-        
+
         # Initialize file monitor
         file_monitor = FileMonitor(config_loader, index_manager, file_scanner)
         if config_loader.getboolean('monitor', 'enabled', False):
@@ -82,8 +82,12 @@ async def startup_event():
             logger.error(f"自动重建索引失败: {str(e)}")
 
         logger.info("Web application initialized successfully")
+        # Indicate that initialization is complete
+        app.state.initialized = True
     except Exception as e:
         logger.error(f"Error initializing web application: {str(e)}")
+        # Indicate that initialization failed
+        app.state.initialized = False
         raise
 
 @app.on_event("shutdown")
@@ -327,7 +331,12 @@ async def rebuild_index():
 @api_router.get("/health")
 async def health_check():
     """Health check endpoint"""
-    return {"status": "healthy", "message": "Web API is running"}
+    # Check if the app is fully initialized
+    if hasattr(app.state, 'initialized') and app.state.initialized:
+        return {"status": "healthy", "message": "Web API is running and fully initialized"}
+    else:
+        # If not initialized, return a different status
+        return {"status": "starting", "message": "Web API is starting up"}
 
 
 @api_router.post("/chat")
