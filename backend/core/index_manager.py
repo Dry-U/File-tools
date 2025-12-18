@@ -374,7 +374,7 @@ class IndexManager:
             self.logger.error(f"从索引中删除文档失败 {file_path}: {str(e)}")
             return False
 
-    def _highlight_text(self, content, query, window_size=100, max_snippets=5):
+    def _highlight_text(self, content, query, window_size=120, max_snippets=3):
         """生成带有高亮关键词的多段文本摘要，并兼容常见的空格/大小写差异"""
         if not content or not query:
             return content[:200] + '...' if content and len(content) > 200 else (content or '')
@@ -388,9 +388,14 @@ class IndexManager:
 
             def _build_pattern(token: str):
                 # 允许字符之间穿插空白，适配 "J a v a" 这类被拆分的文本
-                pieces = [f"{re.escape(ch)}\\s*" for ch in token]
-                pattern = ''.join(pieces)
-                return re.compile(pattern, re.IGNORECASE)
+                # 对特殊字符进行转义
+                escaped = re.escape(token)
+                # 如果是字母或数字，允许中间有空格
+                if token.isalnum():
+                    pieces = [f"{re.escape(ch)}\\s*" for ch in token]
+                    pattern = ''.join(pieces)
+                    return re.compile(pattern, re.IGNORECASE)
+                return re.compile(escaped, re.IGNORECASE)
 
             def _expand_ascii_span(text: str, start: int, end: int):
                 # 向左右扩展，确保高亮完整的ASCII单词（如JavaScript）
@@ -413,15 +418,22 @@ class IndexManager:
 
             # 构建关键词集合
             keywords = set()
+            # 1. 原始查询作为关键词
+            if query.strip():
+                keywords.add(query.strip())
+            
+            # 2. 分词后的关键词
             raw_tokens = [k.strip() for k in re.split(r'[\s,;，；]+', query) if k.strip()]
             for token in raw_tokens:
                 cleaned = _clean_keyword(token)
                 if cleaned:
                     keywords.add(cleaned)
-                for seg in jieba.lcut_for_search(token):
-                    seg_clean = _clean_keyword(seg)
-                    if seg_clean:
-                        keywords.add(seg_clean)
+                # 只有当token比较长时才进行进一步分词，避免过度碎片化
+                if len(token) > 2:
+                    for seg in jieba.lcut_for_search(token):
+                        seg_clean = _clean_keyword(seg)
+                        if seg_clean and len(seg_clean) > 1: # 忽略单字，除非是原始token
+                            keywords.add(seg_clean)
 
             if not keywords:
                 return content[:200] + '...' if len(content) > 200 else content
@@ -440,6 +452,7 @@ class IndexManager:
                     if idx != -1:
                         match_span = _expand_ascii_span(content, idx, idx + len(token))
                         matches.append(match_span)
+                        # 只要找到一个匹配就足够了
                         break
 
             if not matches:
@@ -465,6 +478,9 @@ class IndexManager:
                 for token in keywords:
                     if token.lower() in chunk:
                         score += 1
+                # 优先考虑包含完整查询词的窗口
+                if query.lower() in chunk:
+                    score += 10
                 scored_windows.append((score, win_start, win_end))
 
             scored_windows.sort(key=lambda x: x[0], reverse=True)
@@ -473,10 +489,11 @@ class IndexManager:
 
             snippets = []
             for start, end in selected_windows:
+                # 尝试在标点符号处截断，使摘要更自然
                 curr_start = start
                 while curr_start > 0 and curr_start > start - 20 and content[curr_start] not in ' \t\n\r.,;，。；':
                     curr_start -= 1
-                if curr_start > 0:
+                if curr_start > 0 and content[curr_start] in ' \t\n\r.,;，。；':
                     curr_start += 1
 
                 curr_end = end
@@ -488,12 +505,13 @@ class IndexManager:
                     snippets.append(chunk)
 
             if not snippets:
+                # 如果窗口提取失败，回退到简单的正则提取
                 for token in keywords:
                     pat = re.compile(re.escape(token), re.IGNORECASE)
                     match = pat.search(content)
                     if match:
-                        start = max(0, match.start() - 50)
-                        end = min(len(content), match.end() + 50)
+                        start = max(0, match.start() - 60)
+                        end = min(len(content), match.end() + 60)
                         snippets.append(content[start:end])
                         break
 
@@ -518,13 +536,14 @@ class IndexManager:
                     if start < last:
                         continue
                     highlighted.append(text[last:start])
+                    # 使用 text-danger 和 fw-bold 高亮
                     highlighted.append(f'<span class="text-danger fw-bold">{text[start:end]}</span>')
                     last = end
                 highlighted.append(text[last:])
                 return ''.join(highlighted)
 
             processed_snippets = [_apply_highlight(chunk) for chunk in snippets]
-            final_snippet = '<br>...<br>'.join(processed_snippets) if len(processed_snippets) > 1 else processed_snippets[0]
+            final_snippet = '<br>...<br>'.join(processed_snippets)
             return final_snippet
         except Exception as exc:
             self.logger.error(f"生成摘要失败: {str(exc)}")
@@ -621,21 +640,36 @@ class IndexManager:
         display_content = raw_content if raw_content else content or ''
         norm_query = (query_str or '').strip()
         norm_query_lower = norm_query.lower()
-        display_lower = display_content.lower() if display_content else ''
+        
+        # 改进内容结构：如果文件名没有在内容中，添加到内容开头
+        # 这样可以确保文件名中的关键词也能被高亮和搜索到
+        structured_content = display_content
+        if filename:
+            # 检查文件名是否已经在内容开头，避免重复
+            if not display_content.strip().startswith(filename):
+                structured_content = f"文件名: {filename}\n\n" + structured_content
+        
+        # 使用包含文件名的内容进行高亮和查询检查
+        display_lower = structured_content.lower() if structured_content else ''
         contains_query = bool(norm_query and norm_query_lower in display_lower)
 
         # 生成高亮摘要
-        snippet = self._highlight_text(display_content, norm_query)
+        snippet = self._highlight_text(structured_content, norm_query)
 
-        # 如果没有生成高亮或缺少命中，再尝试解析原文
+        # 如果没有生成高亮或缺少命中，再尝试解析原文 (fallback)
         if norm_query and (not snippet or 'text-danger' not in snippet or not contains_query):
             try:
                 fallback = self.get_document_content(path)
                 if fallback and fallback != display_content:
-                    display_content = fallback
-                    display_lower = display_content.lower()
+                    # 如果fallback内容不同，重新构建structured_content
+                    fallback_structured = fallback
+                    if filename and not fallback.strip().startswith(filename):
+                        fallback_structured = f"文件名: {filename}\n\n" + fallback
+                    
+                    display_lower = fallback_structured.lower()
                     contains_query = norm_query_lower in display_lower
-                    snippet = self._highlight_text(display_content, norm_query)
+                    snippet = self._highlight_text(fallback_structured, norm_query)
+                    structured_content = fallback_structured
             except Exception:
                 pass
         
@@ -651,12 +685,6 @@ class IndexManager:
             except:
                 pass
 
-        # 改进内容结构，使其更适合AI处理
-        structured_content = display_content
-        if filename and filename not in display_content:
-            # 如果文件名没有在内容中，添加到内容开头，特别对论文、报告等文档有效
-            structured_content = f"文件名: {filename}\n" + structured_content
-
         return {
             'path': path,
             'filename': filename,
@@ -670,7 +698,7 @@ class IndexManager:
             'has_query': contains_query
         }
 
-    def search_text(self, query_str, limit=10):
+    def search_text(self, query_str, limit=10, filters=None):
         if not getattr(self, 'tantivy_index', None):
             return []
         try:
@@ -679,7 +707,23 @@ class IndexManager:
             self.tantivy_index.reload()
             searcher = self.tantivy_index.searcher()
             queries_to_try = []
-            exact_fields = ['content_raw', 'filename']
+            
+            # Determine fields based on filters
+            search_content = True
+            if filters and 'search_content' in filters:
+                search_content = filters['search_content']
+            
+            if search_content:
+                exact_fields = ['content_raw', 'filename']
+                fields = ['filename', 'content', 'content_raw', 'keywords', 'filename_chars', 'content_chars']
+            else:
+                exact_fields = ['filename']
+                fields = ['filename', 'filename_chars']
+
+            # Handle match_whole_word
+            match_whole_word = False
+            if filters and 'match_whole_word' in filters:
+                match_whole_word = filters['match_whole_word']
 
             # 0. 优先尝试精确短语匹配，确保完全命中的文档排在前面
             try:
@@ -689,30 +733,42 @@ class IndexManager:
             except Exception:
                 pass
             
-            # 简化查询构建逻辑
-            fields = ['filename', 'content', 'content_raw', 'keywords', 'filename_chars', 'content_chars']
-            try:
-                queries_to_try.append(self.tantivy_index.parse_query(seg_query, fields))
-            except Exception: pass
-            
-            if query_str != seg_query:
+            if match_whole_word:
+                # 如果开启全字匹配，仅使用精确短语查询
+                # 并且尝试在所有字段上进行精确匹配
                 try:
-                    queries_to_try.append(self.tantivy_index.parse_query(query_str, fields))
+                    trimmed = query_str.strip()
+                    if trimmed:
+                        queries_to_try.append(self.tantivy_index.parse_query(f'"{trimmed}"', fields))
+                except Exception: pass
+            else:
+                # 正常模糊搜索逻辑
+                # 简化查询构建逻辑
+                try:
+                    queries_to_try.append(self.tantivy_index.parse_query(seg_query, fields))
                 except Exception: pass
                 
-            # 尝试单词查询
-            try:
-                for word in seg_query.split():
-                    if word.strip():
-                        queries_to_try.append(self.tantivy_index.parse_query(word, fields))
-            except Exception: pass
-            
-            # 尝试字符查询
-            try:
-                import re
-                for ch in re.findall(r'\w', query_str or ''):
-                    queries_to_try.append(self.tantivy_index.parse_query(ch, ['filename_chars', 'content_chars']))
-            except Exception: pass
+                if query_str != seg_query:
+                    try:
+                        queries_to_try.append(self.tantivy_index.parse_query(query_str, fields))
+                    except Exception: pass
+                    
+                # 尝试单词查询
+                try:
+                    for word in seg_query.split():
+                        if word.strip():
+                            queries_to_try.append(self.tantivy_index.parse_query(word, fields))
+                except Exception: pass
+                
+                # 尝试字符查询
+                try:
+                    import re
+                    for ch in re.findall(r'\w', query_str or ''):
+                        if search_content:
+                            queries_to_try.append(self.tantivy_index.parse_query(ch, ['filename_chars', 'content_chars']))
+                        else:
+                            queries_to_try.append(self.tantivy_index.parse_query(ch, ['filename_chars']))
+                except Exception: pass
             
             all_hits = []
             for query in queries_to_try:
@@ -744,10 +800,13 @@ class IndexManager:
                 except Exception:
                     continue
                 
-                normalized_score = min(float(score), 100.0)
+                # 不再限制BM25分数的上限，以便在搜索引擎中进行正确的归一化
+                # normalized_score = min(float(score), 100.0)
+                raw_score = float(score)
+                
                 results.append(self._format_result(
                     path_val, filename_val, content_val, content_raw_val, file_type_val, 
-                    size_val, modified_val, normalized_score, query_str
+                    size_val, modified_val, raw_score, query_str
                 ))
                 
             results.sort(key=lambda x: x['score'], reverse=True)

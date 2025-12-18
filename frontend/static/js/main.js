@@ -18,16 +18,38 @@ function resetSettings() {
 
 // 显示重建索引确认弹窗
 function showRebuildModal() {
-    const rebuildModal = new bootstrap.Modal(document.getElementById('rebuildIndexModal'));
+    const rebuildModalEl = document.getElementById('rebuildIndexModal');
+    
+    // Reset Modal State
+    document.getElementById('rebuildModalBody').innerHTML = `
+        <p class="mb-0 small">确定要重建文件索引吗？<br>这可能需要一些时间。</p>
+    `;
+    document.getElementById('rebuildModalFooter').innerHTML = `
+        <button type="button" class="btn btn-sm btn-outline-secondary border-0" data-bs-dismiss="modal">取消</button>
+        <button type="button" class="btn btn-sm btn-primary px-3" onclick="confirmRebuild()">确定</button>
+    `;
+    document.getElementById('rebuildCloseBtn').style.display = 'block';
+
+    const rebuildModal = new bootstrap.Modal(rebuildModalEl);
     rebuildModal.show();
 }
 
 // 确认重建索引 (执行逻辑)
 async function confirmRebuild() {
-    // 关闭确认弹窗
-    const rebuildModalEl = document.getElementById('rebuildIndexModal');
-    const modal = bootstrap.Modal.getInstance(rebuildModalEl);
-    modal.hide();
+    // Update UI to loading state
+    const modalBody = document.getElementById('rebuildModalBody');
+    const modalFooter = document.getElementById('rebuildModalFooter');
+    const closeBtn = document.getElementById('rebuildCloseBtn');
+
+    closeBtn.style.display = 'none'; // Prevent closing
+    modalFooter.style.display = 'none'; // Hide buttons
+    
+    modalBody.innerHTML = `
+        <div class="spinner-border text-primary mb-3" role="status">
+            <span class="visually-hidden">Loading...</span>
+        </div>
+        <p class="mb-0 small text-muted">正在重建索引，请稍候...</p>
+    `;
 
     try {
         const response = await fetch('/api/rebuild-index', {
@@ -36,13 +58,28 @@ async function confirmRebuild() {
         const data = await response.json();
         
         if (response.ok) {
-            alert(data.message || '索引重建完成');
+            modalBody.innerHTML = `
+                <i class="bi bi-check-circle-fill text-success display-4 mb-3"></i>
+                <p class="mb-0 small">索引重建完成</p>
+                <p class="small text-muted mt-1">扫描: ${data.files_scanned || 0} | 索引: ${data.files_indexed || 0}</p>
+            `;
         } else {
-            alert('索引重建失败: ' + (data.detail || '未知错误'));
+            throw new Error(data.detail || '未知错误');
         }
     } catch (error) {
         console.error('Error rebuilding index:', error);
-        alert('索引重建请求失败');
+        modalBody.innerHTML = `
+            <i class="bi bi-x-circle-fill text-danger display-4 mb-3"></i>
+            <p class="mb-0 small">索引重建失败</p>
+            <p class="small text-muted mt-1">${error.message || '请求失败'}</p>
+        `;
+    } finally {
+        // Restore close capability
+        closeBtn.style.display = 'block';
+        modalFooter.style.display = 'flex';
+        modalFooter.innerHTML = `
+            <button type="button" class="btn btn-sm btn-primary px-3" data-bs-dismiss="modal">关闭</button>
+        `;
     }
 }
 
@@ -226,12 +263,36 @@ async function performSearch() {
     const query = input.value.trim();
     if (!query) return;
 
+    // Gather filters
+    const filters = {};
+
+    // 1. File Types
+    const activeTypeBtns = document.querySelectorAll('.file-type-btn.active');
+    if (activeTypeBtns.length > 0) {
+        filters.file_types = Array.from(activeTypeBtns).map(btn => '.' + btn.dataset.type);
+    }
+
+    // 2. File Size (MB -> Bytes)
+    const minSizeInput = document.getElementById('minSize').value;
+    if (minSizeInput) {
+        filters.size_min = parseFloat(minSizeInput) * 1024 * 1024;
+    }
+    const maxSizeInput = document.getElementById('maxSize').value;
+    if (maxSizeInput) {
+        filters.size_max = parseFloat(maxSizeInput) * 1024 * 1024;
+    }
+
+    // 3. Advanced Options
+    filters.case_sensitive = document.getElementById('caseSensitive').checked;
+    filters.match_whole_word = document.getElementById('matchWholeWord').checked;
+    filters.search_content = document.getElementById('searchContent').checked;
+
     // Transition UI
     const container = document.getElementById('search-content-container');
     const headerText = document.getElementById('search-header-text');
     const resultsContainer = document.getElementById('resultsContainer');
 
-    container.classList.remove('justify-content-center', 'h-100');
+    container.classList.remove('justify-content-center');
     container.classList.add('pt-5');
     headerText.style.display = 'none';
     resultsContainer.style.display = 'block';
@@ -251,7 +312,10 @@ async function performSearch() {
             headers: {
                 'Content-Type': 'application/json'
             },
-            body: JSON.stringify({ query: query })
+            body: JSON.stringify({ 
+                query: query,
+                filters: filters
+            })
         });
 
         if (!response.ok) {
@@ -270,18 +334,31 @@ async function performSearch() {
             return;
         }
 
-        let html = '<div class="list-group list-group-flush">';
+        // 按匹配度降序排序
+        results.sort((a, b) => b.score - a.score);
+
+        let html = '<div class="d-flex flex-column gap-3">';
         results.forEach(result => {
             const iconClass = getFileIcon(result.file_name);
             html += `
-                <a href="#" class="list-group-item list-group-item-action bg-transparent border-secondary text-light mb-2 rounded" onclick="previewFile('${result.path.replace(/\\/g, '\\\\')}')">
-                    <div class="d-flex w-100 justify-content-between">
-                        <h6 class="mb-1 text-primary"><i class="bi ${iconClass} me-2"></i>${result.file_name}</h6>
-                        <small class="text-muted">${result.score.toFixed(2)}</small>
+                <div class="card bg-transparent border-secondary search-result-card" onclick="previewFile('${result.path.replace(/\\/g, '\\\\')}')" style="cursor: pointer;">
+                    <div class="card-body p-3">
+                        <div class="d-flex w-100 justify-content-between align-items-start mb-2">
+                            <h6 class="card-title mb-0 text-primary text-break pe-3">
+                                <i class="bi ${iconClass} me-2"></i>${result.file_name}
+                            </h6>
+                            <span class="badge bg-secondary bg-opacity-25 text-light border border-secondary border-opacity-50 flex-shrink-0">
+                                匹配度: ${result.score.toFixed(2)}
+                            </span>
+                        </div>
+                        <p class="card-text small text-muted mb-2 text-break" style="display: -webkit-box; -webkit-line-clamp: 5; -webkit-box-orient: vertical; overflow: hidden;">
+                            ${result.snippet || '...'}
+                        </p>
+                        <small class="text-muted d-block text-truncate">
+                            <i class="bi bi-folder2-open me-1"></i>${result.path}
+                        </small>
                     </div>
-                    <p class="mb-1 small text-muted">${result.snippet || '...'}</p>
-                    <small class="text-muted">路径: ${result.path}</small>
-                </a>
+                </div>
             `;
         });
         html += '</div>';
@@ -315,10 +392,36 @@ function getFileIcon(filename) {
 }
 
 async function previewFile(path) {
-    // Implement preview logic if needed, or just alert path
-    // For now, let's just log it or maybe open in new tab if it was a real link
-    console.log('Previewing:', path);
-    // You could call /api/preview here
+    const modalEl = document.getElementById('previewModal');
+    const modalTitle = document.getElementById('previewModalTitle');
+    const modalContent = document.getElementById('previewModalContent');
+    
+    // Show modal first with loading state
+    const modal = new bootstrap.Modal(modalEl);
+    modalTitle.innerText = path.split(/[\\/]/).pop(); // Show filename
+    modalContent.innerText = '正在加载文件内容...';
+    modal.show();
+
+    try {
+        const response = await fetch('/api/preview', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ path: path })
+        });
+
+        if (!response.ok) {
+            throw new Error('Failed to load file');
+        }
+
+        const data = await response.json();
+        modalContent.innerText = data.content || '文件内容为空';
+        
+    } catch (error) {
+        console.error('Preview error:', error);
+        modalContent.innerText = '无法预览文件: ' + error.message;
+    }
 }
 
 async function sendMessage() {

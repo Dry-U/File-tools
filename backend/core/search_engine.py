@@ -106,9 +106,14 @@ class SearchEngine:
                     semantic_hits.append(item)
 
             if primary_hits:
-                limited_results = primary_hits + semantic_hits
+                # 如果找到了精确匹配的结果，则对语义匹配结果进行严格过滤
+                # 仅保留分数较高的语义结果（例如 > 60分），过滤掉低相关性的噪音
+                # 这样既保留了高质量的语义补充，又避免了不相关的文档干扰用户
+                high_quality_semantic = [item for item in semantic_hits if item['score'] > 60.0]
+                limited_results = primary_hits + high_quality_semantic
             else:
-                limited_results = semantic_hits
+                # 如果没有精确匹配，则展示语义匹配结果，但也可以设置一个最低门槛
+                limited_results = [item for item in semantic_hits if item['score'] > 30.0]
 
         # 限制结果数量
         limited_results = limited_results[:self.max_results]
@@ -140,7 +145,8 @@ class SearchEngine:
         """执行文本搜索"""
         try:
             # 调用索引管理器的文本搜索功能，获取更多结果以确保过滤后有足够数量
-            results = self.index_manager.search_text(query, limit=self.max_results * 3)
+            # 将过滤器传递给search_text
+            results = self.index_manager.search_text(query, limit=self.max_results * 3, filters=filters)
             self.logger.info(f"文本搜索返回 {len(results)} 条结果")
 
             # 为每个结果添加搜索类型标识
@@ -216,10 +222,15 @@ class SearchEngine:
                 combined[path]['vector_score'] = result['score']
 
                 # 更精确的混合分数计算 - 使用归一化分数的加权平均
-                text_norm = min(prev_text_score, 100.0) / 100.0
+                # 文本分数归一化：相对于最大文本分数
+                text_norm = 0.0
+                if max_text_score > 0:
+                    text_norm = min(prev_text_score / max_text_score, 1.0)
+                
+                # 向量分数通常已经是0-100或0-1，这里假设是0-100
                 vector_norm = min(result['score'], 100.0) / 100.0
 
-                # 使用加权平均而不是几何平均（更适合混合搜索场景）
+                # 使用加权平均
                 combined_score = (text_norm * self.text_weight + vector_norm * self.vector_weight) * 100.0
 
                 # 确保分数不超过100
@@ -235,20 +246,49 @@ class SearchEngine:
                 if 'search_type' not in combined[path]:
                     combined[path]['search_type'] = 'vector'
 
-        # 如果没有向量结果或者向量权重为0，只考虑文本结果
-        if (not vector_results) or (self.vector_weight == 0):
-            if max_text_score <= 0:
-                max_text_score = 1.0
-            for path, result in combined.items():
+        # 重新计算所有结果的最终分数，确保文本搜索结果也能得到正确归一化
+        # 特别是那些只在文本搜索中出现的结果
+        if max_text_score <= 0:
+            max_text_score = 1.0
+
+        for path, result in combined.items():
+            # 如果已经计算过混合分数，跳过
+            if result.get('search_type') == 'hybrid':
+                continue
+            
+            # 处理纯文本结果
+            if result.get('search_type') == 'text':
                 ts = float(result.get('text_score', 0.0))
+                # 归一化文本分数 (0.0 - 1.0)
+                norm_score = (ts / max_text_score)
+                # 应用文本权重，确保与混合搜索的分数尺度一致
+                # 这样混合搜索结果（通常有文本+向量贡献）会自然高于纯文本结果
+                result['score'] = (norm_score * self.text_weight) * 100.0
+            
+            # 处理纯向量结果
+            elif result.get('search_type') == 'vector':
+                # 向量结果分数通常是 0-100
                 vs = float(result.get('vector_score', 0.0))
-                if vs == 0.0:
-                    result['score'] = min((ts / max_text_score) * 100.0, 100.0) if max_text_score > 0 else 0.0
-                    result['search_type'] = 'text'
+                vector_norm = vs / 100.0
+                # 应用向量权重
+                result['score'] = (vector_norm * self.vector_weight) * 100.0
 
         # 应用额外的质量评估标准
         for path, result in combined.items():
             original_score = result['score']
+
+            # 关键词命中增强 (Snippet Boost)
+            # 如果摘要中包含高亮关键词，给予显著加分
+            snippet = result.get('snippet', '')
+            if 'text-danger' in snippet:
+                # 这是一个强信号，说明内容中确实包含关键词
+                # 给予 20 分的基础加分
+                result['score'] = min(result['score'] + 20.0, 100.0)
+                
+                # 如果是纯文本匹配且有高亮，确保分数至少及格
+                # 考虑到权重可能导致分数较低（如 0.6 * 100 = 60），这里给予一个合理的保底
+                if result.get('search_type') == 'text':
+                    result['score'] = max(result['score'], 60.0)
 
             # 混合结果增强（如果启用）
             if self.result_boost and result['search_type'] == 'hybrid':
@@ -259,15 +299,24 @@ class SearchEngine:
             if query_words:
                 filename = os.path.basename(path).lower()
                 query_match_count = 0
-                for word in query_words:
-                    word_lower = word.lower()
-                    if word_lower in filename:
-                        query_match_count += 1
+                
+                # 检查完整查询是否在文件名中 (最高优先级)
+                if self.current_query and self.current_query.lower() in filename:
+                    # 如果完整查询字符串直接出现在文件名中，给予巨大加分
+                    # 这确保了精确文件名匹配几乎总是排在最前面
+                    result['score'] = max(result['score'], 95.0)
+                else:
+                    # 单词匹配
+                    for word in query_words:
+                        word_lower = word.lower()
+                        if word_lower in filename:
+                            query_match_count += 1
 
-                if query_match_count > 0:
-                    # 基于匹配词数给予加分
-                    filename_bonus = query_match_count * 5.0  # 每个匹配词5分
-                    result['score'] = min(result['score'] + filename_bonus, 100.0)
+                    if query_match_count > 0:
+                        # 基于匹配词数给予加分
+                        # 增加加分权重，从5.0增加到15.0
+                        filename_bonus = query_match_count * 15.0
+                        result['score'] = min(result['score'] + filename_bonus, 100.0)
 
             # 确保分数在合理范围内
             result['score'] = min(max(result['score'], 0.0), 100.0)

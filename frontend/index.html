@@ -127,17 +127,17 @@
         </div>
 
         <!-- 1. 文件搜索视图 -->
-        <div id="view-search" class="d-flex flex-column h-100">
-            <div id="search-content-container" class="d-flex flex-column justify-content-center h-100 w-100" style="transition: all 0.3s ease;">
+        <div id="view-search" class="d-flex flex-column h-100 overflow-hidden">
+            <div id="search-content-container" class="d-flex flex-column justify-content-center h-100 w-100 overflow-auto" style="transition: all 0.3s ease;">
                 
                 <!-- Header -->
-                <div class="text-center mb-4" id="search-header-text">
+                <div class="text-center mb-4 flex-shrink-0" id="search-header-text">
                     <h1 class="display-4 fw-bold text-secondary">File Tools</h1>
                     <p class="text-muted">快速查找本地文档</p>
                 </div>
                 
                 <!-- Input Area Wrapper (Matches Chat View) -->
-                <div class="w-100" style="padding: 1.5rem;">
+                <div class="w-100 flex-shrink-0" style="padding: 1.5rem;">
                     <div class="container" style="max-width: 800px;">
                         <!-- 搜索框 -->
                         <div class="input-box-container">
@@ -154,7 +154,7 @@
                 </div>
 
                 <!-- 搜索结果列表 (Initially hidden) -->
-                <div id="resultsContainer" class="container mt-4" style="max-width: 800px; display: none;">
+                <div id="resultsContainer" class="container mt-4 pb-5" style="max-width: 800px; display: none;">
                     <!-- 结果示例 -->
                     <div class="text-center text-muted mt-5">
                         <i class="bi bi-search display-4 opacity-25"></i>
@@ -424,18 +424,40 @@
         <div class="modal-content" style="background-color: var(--llama-bg); border: 1px solid var(--llama-border); color: var(--llama-text-main);">
             <div class="modal-header border-secondary py-2">
                 <h6 class="modal-title">确认操作</h6>
+                <button type="button" class="btn btn-llama p-1" data-bs-dismiss="modal" aria-label="Close" id="rebuildCloseBtn">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" style="width: 20px; height: 20px;">
+                      <path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" />
+                    </svg>
+                </button>
+            </div>
+            <div class="modal-body text-center py-4" id="rebuildModalBody">
+                <p class="mb-0 small">确定要重建文件索引吗？<br>这可能需要一些时间。</p>
+            </div>
+            <div class="modal-footer border-secondary justify-content-center p-2" id="rebuildModalFooter">
+                <button type="button" class="btn btn-sm btn-outline-secondary border-0" data-bs-dismiss="modal">取消</button>
+                <button type="button" class="btn btn-sm btn-primary px-3" onclick="confirmRebuild()">确定</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 文件预览模态框 (File Preview Modal) -->
+<div class="modal fade" id="previewModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
+        <div class="modal-content" style="background-color: var(--llama-bg); border: 1px solid var(--llama-border); color: var(--llama-text-main); height: 80vh;">
+            <div class="modal-header border-secondary py-2">
+                <h6 class="modal-title" id="previewModalTitle">文件预览</h6>
                 <button type="button" class="btn btn-llama p-1" data-bs-dismiss="modal" aria-label="Close">
                     <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" style="width: 20px; height: 20px;">
                       <path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" />
                     </svg>
                 </button>
             </div>
-            <div class="modal-body text-center py-4">
-                <p class="mb-0 small">确定要重建文件索引吗？<br>这可能需要一些时间。</p>
+            <div class="modal-body p-0">
+                <pre class="m-0 p-3 h-100" style="white-space: pre-wrap; font-family: monospace; font-size: 0.9rem; color: var(--llama-text-sub);" id="previewModalContent">正在加载...</pre>
             </div>
-            <div class="modal-footer border-secondary justify-content-center p-2">
-                <button type="button" class="btn btn-sm btn-outline-secondary border-0" data-bs-dismiss="modal">取消</button>
-                <button type="button" class="btn btn-sm btn-primary px-3" onclick="confirmRebuild()">确定</button>
+            <div class="modal-footer border-secondary justify-content-end p-2">
+                <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-dismiss="modal">关闭</button>
             </div>
         </div>
     </div>
