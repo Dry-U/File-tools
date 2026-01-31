@@ -1,8 +1,9 @@
 """
-FastAPI web application for the file tools system
+FastAPI web application for file tools system
 This provides a web-based interface that can be packaged as an executable
+Refactored to use FastAPI dependency injection for thread safety
 """
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Request, Depends
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse
 import uvicorn
@@ -15,89 +16,181 @@ from pathlib import Path
 from backend.utils.config_loader import ConfigLoader
 from backend.utils.logger import get_logger
 
-# Initialize the main FastAPI application
+# Initialize logger
+logger = get_logger(__name__)
+
+# Initialize main FastAPI application
 app = FastAPI(
     title="智能文件检索与问答系统 - Web API",
     description="基于Python和FastAPI的文件智能管理工具Web接口",
     version="1.0.0"
 )
 
-# Initialize logger
-logger = get_logger(__name__)
 
-# Global variables for core components
-search_engine = None
-file_scanner = None
-index_manager = None
-rag_pipeline = None
-file_monitor = None
+# ============================================================================
+# DEPENDENCY INJECTION: Thread-safe component access
+# ============================================================================
+
+def get_config_loader():
+    """Dependency for ConfigLoader (per-request singleton)"""
+    if not hasattr(app.state, 'config_loader'):
+        app.state.config_loader = ConfigLoader()
+    return app.state.config_loader
+
+
+def get_index_manager(config_loader: ConfigLoader = Depends(get_config_loader)):
+    """Dependency for IndexManager"""
+    if not hasattr(app.state, 'index_manager'):
+        from backend.core.index_manager import IndexManager
+        app.state.index_manager = IndexManager(config_loader)
+    return app.state.index_manager
+
+
+def get_search_engine(
+    config_loader: ConfigLoader = Depends(get_config_loader),
+    index_manager = Depends(get_index_manager)
+):
+    """Dependency for SearchEngine"""
+    if not hasattr(app.state, 'search_engine'):
+        from backend.core.search_engine import SearchEngine
+        app.state.search_engine = SearchEngine(index_manager, config_loader)
+    return app.state.search_engine
+
+
+def get_file_scanner(
+    config_loader: ConfigLoader = Depends(get_config_loader),
+    index_manager = Depends(get_index_manager)
+):
+    """Dependency for FileScanner"""
+    if not hasattr(app.state, 'file_scanner'):
+        from backend.core.file_scanner import FileScanner
+        app.state.file_scanner = FileScanner(config_loader, None, index_manager)
+    return app.state.file_scanner
+
+
+def get_rag_pipeline(
+    config_loader: ConfigLoader = Depends(get_config_loader),
+    search_engine = Depends(get_search_engine)
+):
+    """Dependency for RAGPipeline (optional, returns None if disabled)"""
+    if not hasattr(app.state, 'rag_pipeline'):
+        if config_loader.getboolean('ai_model', 'enabled', False):
+            from backend.core.model_manager import ModelManager
+            from backend.core.rag_pipeline import RAGPipeline
+            model_manager = ModelManager(config_loader)
+            app.state.rag_pipeline = RAGPipeline(model_manager, config_loader, search_engine)
+            logger.info("RAG Pipeline initialized")
+        else:
+            app.state.rag_pipeline = None
+    return app.state.rag_pipeline
+
+
+def get_file_monitor(
+    config_loader: ConfigLoader = Depends(get_config_loader),
+    index_manager = Depends(get_index_manager),
+    file_scanner = Depends(get_file_scanner)
+):
+    """Dependency for FileMonitor"""
+    if not hasattr(app.state, 'file_monitor'):
+        from backend.core.file_monitor import FileMonitor
+        app.state.file_monitor = FileMonitor(config_loader, index_manager, file_scanner)
+        if config_loader.getboolean('monitor', 'enabled', False):
+            app.state.file_monitor.start_monitoring()
+            logger.info("文件监控已启动")
+    return app.state.file_monitor
+
+
+# ============================================================================
+# PATH VALIDATION HELPER
+# ============================================================================
+
+def is_path_allowed(path: str, config_loader: ConfigLoader) -> bool:
+    """
+    Validate that a path is within allowed scan directories to prevent path traversal attacks.
+    Returns True if path is allowed, False otherwise.
+    """
+    if not path:
+        return False
+
+    # Normalize path
+    path = path.strip('"').strip("'")
+    normalized_path = os.path.normpath(path)
+
+    # Check for path traversal patterns
+    if ".." in normalized_path or normalized_path.startswith("//"):
+        logger.warning(f"Path contains illegal characters: {normalized_path}")
+        return False
+
+    # Get allowed paths from config
+    scan_paths = config_loader.get('file_scanner', 'scan_paths', '')
+    if not scan_paths:
+        # If no scan paths configured, deny access for security
+        logger.warning("No scan paths configured, denying all file access")
+        return False
+
+    # Build list of allowed directories
+    allowed_paths = []
+    for sp in scan_paths.split(';'):
+        sp = sp.strip()
+        if sp and os.path.isdir(sp):
+            allowed_paths.append(os.path.abspath(sp))
+
+    # Check if normalized path is within any allowed directory
+    file_path_abs = os.path.abspath(normalized_path)
+    for allowed_path in allowed_paths:
+        if file_path_abs.startswith(allowed_path):
+            return True
+
+    logger.warning(f"Path not in allowed directories: {normalized_path}")
+    return False
+
+
+# ============================================================================
+# LIFECYCLE EVENTS
+# ============================================================================
 
 @app.on_event("startup")
 async def startup_event():
-    """Initialize core components when the application starts"""
-    global search_engine, file_scanner, index_manager, rag_pipeline, file_monitor
-
+    """Initialize core components when application starts"""
     try:
-        # Load configuration
-        config_loader = ConfigLoader()
+        config_loader = get_config_loader()
 
-        # Import core modules only when needed to avoid loading heavy dependencies at startup
-        from backend.core.index_manager import IndexManager
-        from backend.core.search_engine import SearchEngine
-        from backend.core.file_scanner import FileScanner
-        from backend.core.model_manager import ModelManager
-        from backend.core.rag_pipeline import RAGPipeline
-        from backend.core.file_monitor import FileMonitor
+        # Pre-initialize all dependencies by accessing them once
+        # This ensures all components are ready before first request
+        get_index_manager(config_loader)
+        get_search_engine()
+        get_file_scanner()
+        get_file_monitor()
 
-        # Initialize index manager
-        index_manager = IndexManager(config_loader)
+        # Initialize RAG pipeline (optional)
+        get_rag_pipeline()
 
-        # Initialize search engine
-        search_engine = SearchEngine(index_manager, config_loader)
-
-        # Initialize file scanner
-        file_scanner = FileScanner(config_loader, None, index_manager)
-
-        # Initialize file monitor
-        file_monitor = FileMonitor(config_loader, index_manager, file_scanner)
-        if config_loader.getboolean('monitor', 'enabled', False):
-            file_monitor.start_monitoring()
-            logger.info("文件监控已启动")
-
-        # Initialize RAG pipeline if AI model is enabled
-        if config_loader.getboolean('ai_model', 'enabled', False):
-            try:
-                model_manager = ModelManager(config_loader)
-                rag_pipeline = RAGPipeline(model_manager, config_loader, search_engine)
-                logger.info("RAG Pipeline initialized")
-            except Exception as e:
-                logger.error(f"Failed to initialize RAG Pipeline: {e}")
-
-        try:
-            if getattr(index_manager, 'schema_updated', False):
-                logger.info("检测到索引模式更新，自动重建并扫描索引...")
-                stats = file_scanner.scan_and_index()
-                logger.info(f"自动重建索引完成: {stats}")
-        except Exception as e:
-            logger.error(f"自动重建索引失败: {str(e)}")
+        # Handle schema update if needed
+        index_manager = get_index_manager(config_loader)
+        if getattr(index_manager, 'schema_updated', False):
+            logger.info("检测到索引模式更新，自动重建并扫描索引...")
+            file_scanner = get_file_scanner()
+            stats = file_scanner.scan_and_index()
+            logger.info(f"自动重建索引完成: {stats}")
 
         logger.info("Web application initialized successfully")
-        # Indicate that initialization is complete
         app.state.initialized = True
     except Exception as e:
         logger.error(f"Error initializing web application: {str(e)}")
-        # Indicate that initialization failed
         app.state.initialized = False
         raise
+
 
 @app.on_event("shutdown")
 async def shutdown_event():
     """Cleanup when application stops"""
-    global file_monitor
-    if file_monitor:
-        file_monitor.stop_monitoring()
+    if hasattr(app.state, 'file_monitor') and app.state.file_monitor:
+        app.state.file_monitor.stop_monitoring()
 
 
+# ============================================================================
+# ROUTE HANDLERS
+# ============================================================================
 
 @app.get("/favicon.ico")
 async def favicon():
@@ -105,8 +198,8 @@ async def favicon():
     favicon_path = Path("frontend/static/favicon.ico")
     if favicon_path.exists():
         return HTMLResponse(content=favicon_path.read_bytes(), media_type="image/x-icon")
-    # Return a 204 No Content if no favicon exists to stop 404 errors
     return HTMLResponse(content=b"", status_code=204)
+
 
 @app.get("/")
 async def read_root():
@@ -114,23 +207,21 @@ async def read_root():
     frontend_path = Path("frontend/index.html")
     if frontend_path.exists():
         return HTMLResponse(content=frontend_path.read_text(encoding='utf-8'))
-    else:
-        return {"message": "Frontend not found", "docs_url": "/docs"}
+    return {"message": "Frontend not found", "docs_url": "/docs"}
 
 
 # Create a separate API router for all API endpoints
 from fastapi import APIRouter
 api_router = APIRouter()
 
-@api_router.post("/search")
-async def search(request: Request):
-    """Perform a search using the search engine"""
-    global search_engine
-    if not search_engine:
-        raise HTTPException(status_code=500, detail="Search engine not initialized")
 
+@api_router.post("/search")
+async def search(
+    request: Request,
+    search_engine = Depends(get_search_engine)
+):
+    """Perform a search using the search engine"""
     try:
-        # Parse the request body
         body = await request.json()
         query = body.get("query", "")
         filters = body.get("filters", {})
@@ -138,7 +229,7 @@ async def search(request: Request):
         if not query:
             raise HTTPException(status_code=400, detail="查询关键词不能为空")
 
-        # Perform the search with filters
+        # Perform search with filters
         results = search_engine.search(query, filters)
 
         # Format results for web response - convert numpy types to native Python types
@@ -157,12 +248,12 @@ async def search(request: Request):
                 result_dict = {}
                 for key, value in obj.items():
                     converted_value = convert_types(value)
-                    # 确保分数不超过100
+                    # Ensure score doesn't exceed 100
                     if key == 'score':
                         converted_value = min(float(converted_value), 100.0)
                     result_dict[key] = converted_value
                 return result_dict
-            elif hasattr(obj, 'isoformat'):  # datetime对象
+            elif hasattr(obj, 'isoformat'):  # datetime objects
                 return obj.isoformat()
             else:
                 return obj
@@ -170,17 +261,15 @@ async def search(request: Request):
         formatted_results = []
         for result in results:
             converted_result = convert_types(result)
-            # 确保converted_result是字典类型
             if isinstance(converted_result, dict):
                 formatted_results.append({
                     "file_name": os.path.basename(str(converted_result.get("path", ""))),
                     "path": str(converted_result.get("path", "")),
                     "score": float(converted_result.get("score", 0.0)),
                     "modified_time": converted_result.get("modified_time") or converted_result.get("modified"),
-                    "snippet": converted_result.get("snippet", "")  # 添加摘要字段
+                    "snippet": converted_result.get("snippet", "")
                 })
             else:
-                # 如果不是字典，使用默认值
                 formatted_results.append({
                     "file_name": "",
                     "path": "",
@@ -191,7 +280,6 @@ async def search(request: Request):
 
         return formatted_results
     except HTTPException:
-        # Re-raise HTTP exceptions
         raise
     except Exception as e:
         logger.error(f"Search error: {str(e)}")
@@ -199,71 +287,70 @@ async def search(request: Request):
 
 
 @api_router.post("/preview")
-async def preview_file(request: Request):
-    """Preview file content"""
-    global index_manager
+async def preview_file(
+    request: Request,
+    index_manager = Depends(get_index_manager),
+    config_loader: ConfigLoader = Depends(get_config_loader)
+):
+    """Preview file content with path traversal protection"""
     try:
-        # 从请求体获取路径
         body = await request.json()
         path = body.get("path", "")
 
         if not path:
             return {"content": "错误：未提供文件路径"}
 
-        # 验证路径安全性，防止路径遍历攻击
-        import os
-        # 解析并规范路径
-        # 移除可能存在的引号
+        # Validate path is within allowed directories
+        if not is_path_allowed(path, config_loader):
+            logger.warning(f"Blocked path traversal attempt: {path}")
+            return {"content": "错误：文件路径超出允许范围"}
+
+        # Normalize path
         path = path.strip('"').strip("'")
         normalized_path = os.path.normpath(path)
-        
+
         logger.info(f"尝试预览文件: {normalized_path}")
 
-        # Check file size to prevent loading huge files
+        # Check file exists
         if not os.path.exists(normalized_path):
             logger.error(f"文件不存在: {normalized_path}")
-            # 尝试使用原始路径
-            if os.path.exists(path):
-                normalized_path = path
-                logger.info(f"使用原始路径成功: {normalized_path}")
-            else:
-                return {"content": f"错误：文件不存在 ({normalized_path})"}
-        
-        # 优先使用IndexManager获取内容（支持PDF/DOCX等已索引文件）
-        if index_manager:
-            content = index_manager.get_document_content(normalized_path)
-            if content:
-                return {"content": content}
-        
-        # 如果IndexManager没有返回内容，尝试直接使用DocumentParser解析
+            return {"content": f"错误：文件不存在 ({normalized_path})"}
+
+        # Check file size to prevent loading huge files
+        if os.path.getsize(normalized_path) > 5 * 1024 * 1024:  # 5MB limit
+            return {"content": "文件过大（超过5MB），无法预览"}
+
+        # Try to get content from IndexManager first (supports PDF/DOCX etc.)
+        content = index_manager.get_document_content(normalized_path)
+        if content:
+            return {"content": content}
+
+        # Fallback: try DocumentParser
         try:
             from backend.core.document_parser import DocumentParser
-            config_loader = ConfigLoader()
             parser = DocumentParser(config_loader)
             content = parser.extract_text(normalized_path)
             if content and not content.startswith("错误"):
                 return {"content": content}
         except Exception as e:
-            logger.warning(f"直接解析失败: {str(e)}")
+            logger.warning(f"Direct parsing failed: {str(e)}")
 
-        if os.path.getsize(normalized_path) > 5 * 1024 * 1024:  # 5MB limit
-            return {"content": "文件过大（超过5MB），无法预览"}
-
-        # Get file extension
+        # Final fallback: read text files
         ext = os.path.splitext(normalized_path)[1].lower()
-
-        # Preview text-based files
-        if ext in ['.txt', '.md', '.csv', '.json', '.xml', '.py', '.js', '.html', '.css', '.sql', '.log', '.bat', '.sh', '.yaml', '.yml', '.ini', '.conf']:
+        text_exts = ['.txt', '.md', '.csv', '.json', '.xml', '.py', '.js',
+                      '.html', '.css', '.sql', '.log', '.bat', '.sh',
+                      '.yaml', '.yml', '.ini', '.conf']
+        if ext in text_exts:
             with open(normalized_path, 'r', encoding='utf-8', errors='replace') as f:
                 content = f.read(5000)  # Limit content to 5000 chars
             return {"content": content}
-        else:
-            return {"content": f"不支持预览 {ext} 格式的文件，且该文件未被索引内容"}
+
+        return {"content": f"不支持预览 {ext} 格式的文件，且该文件未被索引内容"}
     except FileNotFoundError:
-        logger.error(f"Preview error: File not found")
+        logger.error("Preview error: File not found")
         return {"content": "预览失败: 文件不存在"}
     except PermissionError:
-        logger.error(f"Preview error: Permission denied")
+        logger.error("Preview error: Permission denied")
         return {"content": "预览失败: 没有权限访问文件"}
     except Exception as e:
         logger.error(f"Preview error: {str(e)}")
@@ -271,12 +358,11 @@ async def preview_file(request: Request):
 
 
 @api_router.post("/rebuild-index")
-async def rebuild_index():
+async def rebuild_index(
+    index_manager = Depends(get_index_manager),
+    file_scanner = Depends(get_file_scanner)
+):
     """Rebuild the search index"""
-    global file_scanner, index_manager
-    if not file_scanner:
-        raise HTTPException(status_code=500, detail="File scanner not initialized")
-
     try:
         logger.info("开始重建索引...")
         try:
@@ -289,34 +375,33 @@ async def rebuild_index():
                 logger.warning("IndexManager 未初始化，无法删除旧索引目录")
         except Exception as e:
             logger.error(f"删除旧索引目录失败: {str(e)}")
-        
+
         # Log scan paths to verify configuration
         scan_paths = getattr(file_scanner, 'scan_paths', 'Unknown')
         logger.info(f"扫描路径: {scan_paths}")
         logger.info(f"扫描路径数量: {len(scan_paths) if scan_paths != 'Unknown' else 0}")
-        
+
         for i, path in enumerate(scan_paths):
-            import os
             path_exists = os.path.exists(path)
             path_isdir = os.path.isdir(path) if path_exists else False
             logger.info(f"路径[{i}]: {path}, 存在: {path_exists}, 是目录: {path_isdir}")
-            
+
             if path_exists and path_isdir:
                 try:
                     file_count = sum(len(files) for _, _, files in os.walk(path))
                     logger.info(f"路径[{i}] 包含 {file_count} 个文件")
                 except Exception as e:
                     logger.error(f"无法访问路径[{i}] 内容: {str(e)}")
-        
+
         logger.info(f"排除模式: {getattr(file_scanner, 'exclude_patterns', 'Unknown')}")
         logger.info(f"目标扩展名: {getattr(file_scanner, 'all_extensions', 'Unknown')}")
-        
+
         logger.info("调用 file_scanner.scan_and_index()")
         stats = file_scanner.scan_and_index()
         logger.info(f"scan_and_index 返回结果: {stats}")
-        
+
         logger.info(f"索引重建完成: 扫描 {stats.get('total_files_scanned', 0)} 个文件，索引 {stats.get('total_files_indexed', 0)} 个文件")
-        
+
         return {
             "status": "success",
             "files_scanned": stats.get("total_files_scanned", 0),
@@ -331,24 +416,21 @@ async def rebuild_index():
 @api_router.get("/health")
 async def health_check():
     """Health check endpoint"""
-    # Check if the app is fully initialized
     if hasattr(app.state, 'initialized') and app.state.initialized:
         return {"status": "healthy", "message": "Web API is running and fully initialized"}
-    else:
-        # If not initialized, return a different status
-        return {"status": "starting", "message": "Web API is starting up"}
+    return {"status": "starting", "message": "Web API is starting up"}
 
 
 @api_router.post("/chat")
-async def chat(request: Request):
+async def chat(
+    request: Request,
+    rag_pipeline = Depends(get_rag_pipeline),
+    config_loader: ConfigLoader = Depends(get_config_loader)
+):
     """Chat with the RAG system"""
-    global rag_pipeline
-
     if not rag_pipeline:
-        # Check if it's disabled in config
-        config_loader = ConfigLoader()
         if not config_loader.getboolean('ai_model', 'enabled', False):
-             return {"answer": "AI问答功能未启用。请在配置文件中设置 ai_model.enabled = true。", "sources": []}
+            return {"answer": "AI问答功能未启用。请在配置文件中设置 ai_model.enabled = true。", "sources": []}
         raise HTTPException(status_code=500, detail="RAG pipeline not initialized")
 
     try:
@@ -366,11 +448,12 @@ async def chat(request: Request):
         raise HTTPException(status_code=500, detail=f"Chat failed: {str(e)}")
 
 
-# Include the API router with /api prefix
+# Include API router with /api prefix
 app.include_router(api_router, prefix="/api")
 
 # Mount static files directory
 app.mount("/static", StaticFiles(directory="frontend/static"), name="static")
+
 
 if __name__ == "__main__":
     # For development

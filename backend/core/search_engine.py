@@ -10,8 +10,6 @@ import numpy as np
 class SearchEngine:
     """搜索引擎类，负责执行文件搜索和结果排序"""
     def __init__(self, index_manager, config_loader):
-        # 添加调试信息，查看参数类型
-        print(f"SearchEngine初始化 - index_manager类型: {type(index_manager)}, config_loader类型: {type(config_loader)}")
         self.index_manager = index_manager
         self.config_loader = config_loader
         self.logger = logging.getLogger(__name__)
@@ -31,6 +29,9 @@ class SearchEngine:
         self.filename_boost = float(search_config.get('filename_boost', 1.5))
         self.keyword_boost = float(search_config.get('keyword_boost', 1.2))
         self.hybrid_boost = float(search_config.get('hybrid_boost', 1.1))
+        # 语义搜索结果阈值（从配置读取）
+        self.semantic_score_high_threshold = float(search_config.get('semantic_score_high_threshold', 60.0))
+        self.semantic_score_low_threshold = float(search_config.get('semantic_score_low_threshold', 30.0))
         
         # 确保权重之和为1，但如果其中一个为0，则另一个为1
         if self.text_weight == 0 and self.vector_weight == 0:
@@ -107,13 +108,13 @@ class SearchEngine:
 
             if primary_hits:
                 # 如果找到了精确匹配的结果，则对语义匹配结果进行严格过滤
-                # 仅保留分数较高的语义结果（例如 > 60分），过滤掉低相关性的噪音
+                # 仅保留分数较高的语义结果（使用配置的高质量阈值），过滤掉低相关性的噪音
                 # 这样既保留了高质量的语义补充，又避免了不相关的文档干扰用户
-                high_quality_semantic = [item for item in semantic_hits if item['score'] > 60.0]
+                high_quality_semantic = [item for item in semantic_hits if item['score'] > self.semantic_score_high_threshold]
                 limited_results = primary_hits + high_quality_semantic
             else:
-                # 如果没有精确匹配，则展示语义匹配结果，但也可以设置一个最低门槛
-                limited_results = [item for item in semantic_hits if item['score'] > 30.0]
+                # 如果没有精确匹配，则展示语义匹配结果，但也可以设置一个最低门槛（使用配置的低阈值）
+                limited_results = [item for item in semantic_hits if item['score'] > self.semantic_score_low_threshold]
 
         # 限制结果数量
         limited_results = limited_results[:self.max_results]

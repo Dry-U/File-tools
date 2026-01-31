@@ -135,6 +135,15 @@ search:
   filename_boost: 1.5  # 文件名匹配增强系数
   keyword_boost: 1.2  # 关键词匹配增强系数
   hybrid_boost: 1.1  # 混合搜索结果增强系数
+  # 语义搜索结果阈值
+  semantic_score_high_threshold: 60.0  # 高质量语义结果阈值（有精确匹配时）
+  semantic_score_low_threshold: 30.0  # 语义结果最低阈值（无精确匹配时）
+  bm25_k1: 1.5  # BM25参数，控制词频饱和度
+  bm25_b: 0.75  # BM25参数，控制文档长度标准化
+  result_boost: true  # 启用结果增强
+  filename_boost: 1.5  # 文件名匹配增强系数
+  keyword_boost: 1.2  # 关键词匹配增强系数
+  hybrid_boost: 1.1  # 混合搜索结果增强系数
 system:
   app_name: 智能文件检索与问答系统
   cache_dir: ./data/cache

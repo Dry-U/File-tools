@@ -66,7 +66,17 @@ class DocumentParser:
     def __init__(self, config_loader):
         self.config_loader = config_loader
         self.logger = logging.getLogger(__name__)
-        
+
+        # 统一的文件大小限制（从配置读取，使用默认值）
+        # 这些限制用于防止内存溢出
+        self.MAX_FILE_SIZE_PDF = config_loader.getint('file_scanner', 'max_file_size', 100) * 1024 * 1024  # 默认100MB
+        self.MAX_FILE_SIZE_DOC = 50 * 1024 * 1024  # 50MB for Word documents
+        self.MAX_FILE_SIZE_TEXT = 10 * 1024 * 1024  # 10MB for text files
+        self.MAX_FILE_SIZE_EXCEL = 50 * 1024 * 1024  # 50MB for Excel files
+        self.MAX_OUTPUT_SIZE_PDF = 50 * 1024 * 1024  # 50MB for PDF output text
+        self.MAX_OUTPUT_SIZE_DOC = 10 * 1024 * 1024  # 10MB for Word output text
+        self.MAX_OUTPUT_SIZE_TEXT = 10 * 1024 * 1024  # 10MB for text file read
+
         # 支持的文件类型映射到对应的解析函数
         self.parser_map = {
             'pdf': self._parse_pdf,
@@ -209,13 +219,13 @@ class DocumentParser:
 
         # 检查文件大小，避免加载过大PDF导致内存问题
         file_size = os.path.getsize(file_path)
-        max_size = 100 * 1024 * 1024  # 100MB限制
+        max_size = self.MAX_FILE_SIZE_PDF
         if file_size > max_size:
             self.logger.warning(f"PDF文件过大，跳过解析 {file_path}: {file_size} bytes")
             return f"错误: PDF文件过大 ({file_size} bytes)，已跳过解析"
 
         text = ""
-        max_text_length = 50 * 1024 * 1024  # 50MB限制输出文本
+        max_text_length = self.MAX_OUTPUT_SIZE_PDF
 
         # 1. 优先使用PyMuPDF (fitz)
         # PyMuPDF非常健壮，能处理许多pdfminer无法处理的损坏PDF，且对中文支持较好
@@ -301,14 +311,14 @@ class DocumentParser:
         try:
             # 检查文件大小，避免加载过大文件导致内存问题
             file_size = os.path.getsize(file_path)
-            max_size = 50 * 1024 * 1024  # 50MB限制
+            max_size = self.MAX_FILE_SIZE_DOC
             if file_size > max_size:
                 self.logger.warning(f"Word文档过大，跳过解析 {file_path}: {file_size} bytes")
                 return f"错误: Word文档过大 ({file_size} bytes)，已跳过解析"
 
             doc = DocxDocument(file_path)
             text = ""
-            max_text_length = 10 * 1024 * 1024  # 10MB限制输出文本
+            max_text_length = self.MAX_OUTPUT_SIZE_DOC
 
             for paragraph in doc.paragraphs:
                 if len(text) > max_text_length:
@@ -385,7 +395,7 @@ class DocumentParser:
         try:
             # 检查文件大小，避免加载过大文件导致内存问题
             file_size = os.path.getsize(file_path)
-            max_size = 10 * 1024 * 1024  # 10MB限制
+            max_size = self.MAX_FILE_SIZE_TEXT
             if file_size > max_size:
                 self.logger.warning(f"文本文件过大，跳过解析 {file_path}: {file_size} bytes")
                 return f"错误: 文本文件过大 ({file_size} bytes)，已跳过解析"
@@ -429,7 +439,7 @@ class DocumentParser:
         try:
             # 检查文件大小，避免加载过大文件导致内存问题
             file_size = os.path.getsize(file_path)
-            max_size = 50 * 1024 * 1024  # 50MB限制
+            max_size = self.MAX_FILE_SIZE_EXCEL
             if file_size > max_size:
                 self.logger.warning(f"CSV文件过大，跳过完整解析 {file_path}: {file_size} bytes")
                 return f"错误: CSV文件过大 ({file_size} bytes)，已跳过解析"
@@ -454,7 +464,7 @@ class DocumentParser:
         try:
             # 检查文件大小，避免加载过大文件导致内存问题
             file_size = os.path.getsize(file_path)
-            max_size = 50 * 1024 * 1024  # 50MB限制
+            max_size = self.MAX_FILE_SIZE_EXCEL
             if file_size > max_size:
                 self.logger.warning(f"Excel文件过大，跳过完整解析 {file_path}: {file_size} bytes")
                 return f"错误: Excel文件过大 ({file_size} bytes)，已跳过解析"

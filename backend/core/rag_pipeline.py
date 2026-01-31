@@ -649,125 +649,135 @@ class RAGPipeline:
         return summary
 
     def _build_prompt(self, query: str, documents: List[Dict[str, Any]], history_text: str, doc_budget: Optional[int]) -> str:
+        """Build RAG prompt from query, documents, and history"""
         if not documents and not history_text:
             return ''
 
         context_sections = []
-        
-        # 提取关键实体（文件名中的人名/关键词）以强化提示
-        key_entities = []
-        for doc in documents:
-            fname = doc.get('filename', '')
-            if not fname:
-                continue
-                
-            # 移除扩展名
-            name_only = fname
-            for ext in ['.pdf', '.docx', '.doc', '.txt', '.md', '.xlsx', '.xls', '.pptx', '.ppt']:
-                if name_only.lower().endswith(ext):
-                    name_only = name_only[:-len(ext)]
-                    break
-            
-            # 策略1：提取下划线后的部分，通常是作者名
-            if '_' in name_only:
-                parts = name_only.rsplit('_', 1)
-                if len(parts) > 1 and parts[1]:
-                    key_entities.append(parts[1])
-            
-            # 策略2：如果文件名较短且看起来像实体名（非通用词），也加入
-            # 这里简单判断长度，避免加入过长的句子作为实体
-            if 2 <= len(name_only) <= 10:
-                key_entities.append(name_only)
-        
-        entity_instruction = ""
-        if key_entities:
-            unique_entities = list(set(key_entities))
-            entity_instruction = f"\n    重要实体名单（禁止截断）：{', '.join(unique_entities)}\n"
+        entity_instruction = self._extract_key_entities(documents)
 
         if history_text:
             context_sections.append(f"对话历史（最近）:\n{history_text}")
 
-        if doc_budget is None:
-            context_budget = max(self.max_context_chars_total, 0)
-        else:
-            context_budget = max(doc_budget, 0)
+        context_budget = self._calculate_context_budget(doc_budget)
+        used_chars = len(history_text) if history_text else 0
 
-        enforce_budget = context_budget > 0
-        used_chars = len(history_text) if history_text else 0  # 修正：将历史记录长度计入已使用字符数
-
-        for idx, doc in enumerate(documents, start=1):
-            if enforce_budget and used_chars >= context_budget:
+        for doc in documents:
+            if used_chars >= context_budget:
                 break
 
-            content = doc.get('content', '') or ''
+            section = self._format_document_section(doc)
+            section = self._truncate_content_if_needed(section, doc.get('content', ''), context_budget, used_chars)
 
-            if not content:
+            if not section:
                 continue
 
-            # 先构建完整部分，计算其长度
-            # 修改：不再使用 [文档x] 这种可能误导模型的编号，改用更自然的分割线
-            section = (
-                f"--- 文件: {doc.get('filename', '未知文件')} ---\n"
-                f"路径: {doc.get('path', '未知路径')}\n"
-                f"相关性: {doc.get('score', 0.0):.2f}\n"
-                f"内容:\n{content}"
-            )
-
-            # 如果启用预算限制，检查是否需要截断
-            if enforce_budget:
-                remaining = context_budget - used_chars
-                if remaining <= 0:
-                    break  # 没有剩余空间
-
-                if len(section) > remaining:
-                    # 需要截断内容以适应预算
-                    # 计算格式开销
-                    overhead = len(section) - len(content)
-                    available_content = remaining - overhead
-
-                    if available_content > 3:  # 确保有足够的空间用于内容和省略号
-                        # 简化截断逻辑：保留开头和结尾
-                        if available_content > 300:  # 如果剩余空间足够，使用头尾截断策略
-                            head_size = min(available_content // 2, 1000)  # 保留前1000字符
-                            tail_size = available_content - head_size - 3  # 剩余给尾部的空间
-                            if tail_size > 0:
-                                content = content[:head_size] + '...' + content[-tail_size:]
-                            else:
-                                content = content[:available_content - 3] + '...'
-                        else:
-                            content = content[:available_content - 3] + '...'
-
-                        # 重新构建 section
-                        section = (
-                            f"--- 文件: {doc.get('filename', '未知文件')} ---\n"
-                            f"路径: {doc.get('path', '未知路径')}\n"
-                            f"相关性: {doc.get('score', 0.0):.2f}\n"
-                            f"内容:\n{content}"
-                        )
-                    else:
-                        # 空间太小，连格式都放不下，跳过此文档
-                        continue
-
-            # 添加文档部分到上下文
             context_sections.append(section)
-            # 更新已使用的字符数 - 修正为累加整个部分的长度
             used_chars += len(section)
 
         context_text = "\n\n".join(context_sections)
         logger.info(f"Constructed context length: {len(context_text)}")
         logger.debug(f"Context snippet: {context_text[:200]}...")
-        
-        # 动态插入实体指令到模板中（如果模板支持，或者直接追加到 system prompt）
-        # 由于模板是固定的，我们尝试将实体指令注入到 context 的最前面，或者修改模板
-        # 这里选择将实体指令加在 context 的最前面，这样模型在阅读文档前会先看到名单
+
         if entity_instruction:
             context_text = entity_instruction + "\n" + context_text
 
+        return self._format_prompt_with_template(context_text, query)
+
+    def _extract_key_entities(self, documents: List[Dict[str, Any]]) -> str:
+        """Extract key entities (names/keywords from filenames) for prompt enhancement"""
+        key_entities = []
+        for doc in documents:
+            fname = doc.get('filename', '')
+            if not fname:
+                continue
+
+            name_only = self._remove_file_extension(fname)
+            if name_only:
+                entities = self._parse_entities_from_filename(name_only)
+                key_entities.extend(entities)
+
+        if key_entities:
+            unique_entities = list(set(key_entities))
+            return f"\n    重要实体名单（禁止截断）：{', '.join(unique_entities)}\n"
+        return ""
+
+    def _remove_file_extension(self, filename: str) -> str:
+        """Remove file extension from filename"""
+        for ext in ['.pdf', '.docx', '.doc', '.txt', '.md', '.xlsx', '.xls', '.pptx', '.ppt']:
+            if filename.lower().endswith(ext):
+                return filename[:-len(ext)]
+        return filename
+
+    def _parse_entities_from_filename(self, name_only: str) -> List[str]:
+        """Parse entities from filename"""
+        entities = []
+
+        # Strategy 1: Extract after underscore (usually author name)
+        if '_' in name_only:
+            parts = name_only.rsplit('_', 1)
+            if len(parts) > 1 and parts[1]:
+                entities.append(parts[1])
+
+        # Strategy 2: Short names that look like entities
+        if 2 <= len(name_only) <= 10:
+            entities.append(name_only)
+
+        return entities
+
+    def _format_document_section(self, doc: Dict[str, Any]) -> str:
+        """Format a single document section"""
+        return (
+            f"--- 文件: {doc.get('filename', '未知文件')} ---\n"
+            f"路径: {doc.get('path', '未知路径')}\n"
+            f"相关性: {doc.get('score', 0.0):.2f}\n"
+            f"内容:\n{doc.get('content', '')}"
+        )
+
+    def _truncate_content_if_needed(self, section: str, content: str, budget: int, used: int) -> str:
+        """Truncate document content if budget exceeded"""
+        if not content:
+            return ''
+
+        overhead = len(section) - len(content)
+        remaining = budget - used
+
+        if remaining <= overhead + 3:
+            return ''
+
+        available_content = remaining - overhead
+        if available_content <= len(content):
+            return section
+
+        if available_content > 300:
+            head_size = min(available_content // 2, 1000)
+            tail_size = available_content - head_size - 3
+            if tail_size > 0:
+                content = content[:head_size] + '...' + content[-tail_size:]
+            else:
+                content = content[:available_content - 3] + '...'
+        else:
+            content = content[:available_content - 3] + '...'
+
+        return (
+            f"--- 文件: {section.split('--- 文件: ')[1].split(' ---')[0]} ---\n"
+            f"路径: {section.split('路径: ')[1].split('\\n')[0]}\n"
+            f"相关性: {section.split('相关性: ')[1].split('\\n')[0]}\n"
+            f"内容:\n{content}"
+        )
+
+    def _calculate_context_budget(self, doc_budget: Optional[int]) -> int:
+        """Calculate context budget for documents"""
+        if doc_budget is None:
+            return max(self.max_context_chars_total, 0)
+        return max(doc_budget, 0)
+
+    def _format_prompt_with_template(self, context_text: str, query: str) -> str:
+        """Format prompt with template"""
         template = self.prompt_template or DEFAULT_PROMPT
         try:
             return template.format(context=context_text, question=query).strip()
         except KeyError:
-            # 当模板缺少占位符时退回默认模板，避免崩溃
             logger.warning("RAG提示模板缺少必要占位符，已使用默认模板")
             return DEFAULT_PROMPT.format(context=context_text, question=query).strip()
 
