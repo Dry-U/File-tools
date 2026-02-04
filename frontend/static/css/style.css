@@ -1,13 +1,21 @@
 /* --- Llama Style 核心配色覆盖 --- */
 :root {
-    --llama-bg: #1b1f20;         /* 核心背景色 */
-    --llama-sidebar: #000000;    /* 侧边栏背景 (黑色) */
-    --llama-input-bg: #2c3135;   /* 输入框背景 */
-    --llama-text-main: #ececec;  /* 主要文字 */
-    --llama-text-sub: #9ca3af;   /* 次要文字 */
-    --llama-accent: #6c757d;     /* 强调色 (灰色) */
-    --llama-border: #373b3e;     /* 边框颜色 */
-    --llama-hover: rgba(255, 255, 255, 0.08); /* 悬浮背景色 */
+    --llama-bg: #1b1f20;
+    /* 核心背景色 */
+    --llama-sidebar: #000000;
+    /* 侧边栏背景 (黑色) */
+    --llama-input-bg: #2c3135;
+    /* 输入框背景 */
+    --llama-text-main: #ececec;
+    /* 主要文字 */
+    --llama-text-sub: #9ca3af;
+    /* 次要文字 */
+    --llama-accent: #6c757d;
+    /* 强调色 (灰色) */
+    --llama-border: #373b3e;
+    /* 边框颜色 */
+    --llama-hover: rgba(255, 255, 255, 0.08);
+    /* 悬浮背景色 */
 }
 
 /* Override Bootstrap Primary to Gray */
@@ -15,17 +23,23 @@
     background-color: var(--llama-accent);
     border-color: var(--llama-accent);
 }
-.btn-primary:hover, .btn-primary:active, .btn-primary:focus {
+
+.btn-primary:hover,
+.btn-primary:active,
+.btn-primary:focus {
     background-color: #5c636a !important;
     border-color: #565e64 !important;
 }
+
 .text-primary {
     color: var(--llama-accent) !important;
 }
+
 .nav-tab-btn.active {
     color: var(--llama-text-main);
     border-bottom-color: var(--llama-accent);
 }
+
 .status-dot.bg-success {
     background-color: var(--llama-accent) !important;
 }
@@ -72,7 +86,9 @@ body {
     transition: all 0.2s;
     border-radius: 6px;
 }
-.btn-llama:hover, .btn-llama.active {
+
+.btn-llama:hover,
+.btn-llama.active {
     background-color: var(--llama-hover);
     color: var(--llama-text-main);
 }
@@ -86,9 +102,11 @@ body {
     border-bottom: 2px solid transparent;
     transition: all 0.2s;
 }
+
 .nav-tab-btn:hover {
     color: var(--llama-text-main);
 }
+
 .nav-tab-btn.active {
     color: var(--llama-text-main);
     border-bottom-color: var(--llama-accent);
@@ -109,9 +127,11 @@ body {
 ::-webkit-scrollbar {
     width: 8px;
 }
+
 ::-webkit-scrollbar-track {
     background: transparent;
 }
+
 ::-webkit-scrollbar-thumb {
     background: #4b5563;
     border-radius: 4px;
@@ -135,6 +155,7 @@ body {
     color: var(--llama-text-sub);
     text-align: center;
 }
+
 .welcome-logo {
     font-size: 4rem;
     margin-bottom: 1rem;
@@ -147,6 +168,7 @@ body {
     margin-bottom: 1.5rem;
     animation: fadeIn 0.3s ease;
 }
+
 .message-avatar {
     width: 36px;
     height: 36px;
@@ -157,14 +179,23 @@ body {
     margin-right: 1rem;
     flex-shrink: 0;
 }
-.avatar-user { background-color: #4b5563; }
-.avatar-ai { background-color: var(--llama-accent); }
+
+.avatar-user {
+    background-color: #4b5563;
+}
+
+.avatar-ai {
+    background-color: var(--llama-accent);
+}
 
 .message-content {
     max-width: 85%;
     line-height: 1.6;
 }
-.message-content p { margin-bottom: 0.5rem; }
+
+.message-content p {
+    margin-bottom: 0.5rem;
+}
 
 /* 搜索结果卡片 (嵌入在对话中) */
 .search-result-card {
@@ -175,6 +206,7 @@ body {
     margin-top: 10px;
     font-size: 0.9rem;
 }
+
 .search-result-item {
     padding: 8px;
     border-bottom: 1px solid var(--llama-border);
@@ -184,14 +216,21 @@ body {
     cursor: pointer;
     transition: background 0.2s;
 }
-.search-result-item:last-child { border-bottom: none; }
-.search-result-item:hover { background-color: rgba(255,255,255,0.05); }
+
+.search-result-item:last-child {
+    border-bottom: none;
+}
+
+.search-result-item:hover {
+    background-color: rgba(255, 255, 255, 0.05);
+}
 
 /* 底部输入区 */
 .input-area-wrapper {
     padding: 1.5rem;
     background: linear-gradient(to top, var(--llama-bg) 80%, transparent);
 }
+
 .input-box-container {
     background-color: var(--llama-input-bg);
     border: 1px solid var(--llama-border);
@@ -202,6 +241,7 @@ body {
     align-items: flex-end;
     transition: border-color 0.2s;
 }
+
 .input-box-container:focus-within {
     border-color: var(--llama-text-sub);
 }
@@ -216,6 +256,7 @@ body {
     max-height: 200px;
     padding: 8px;
 }
+
 .custom-textarea:focus {
     background: transparent;
     color: var(--llama-text-main);
@@ -226,6 +267,7 @@ body {
 .settings-group {
     margin-bottom: 1.5rem;
 }
+
 .settings-label {
     font-size: 0.75rem;
     text-transform: uppercase;
@@ -240,29 +282,60 @@ body {
     background-color: var(--llama-input-bg);
     border-color: var(--llama-border);
 }
+
 .form-check-input:checked {
     background-color: var(--llama-accent);
     border-color: var(--llama-accent);
 }
 
 /* Modal Styles Override */
-.nav-pills .nav-link.active, .nav-pills .show>.nav-link {
+.nav-pills .nav-link.active,
+.nav-pills .show>.nav-link {
     background-color: var(--llama-accent) !important;
 }
+
 .nav-pills .nav-link {
     color: var(--llama-text-sub);
 }
+
 .nav-pills .nav-link:hover {
     color: var(--llama-text-main);
+}
+
+/* Settings Modal Tab Panes - Fixed Height with Scroll */
+#v-pills-tabContent {
+    height: 320px;
+    overflow-x: hidden;
+    overflow-y: auto;
+}
+
+/* Settings Modal Custom Scrollbar - Thin & Subtle */
+#v-pills-tabContent::-webkit-scrollbar {
+    width: 4px;
+}
+
+#v-pills-tabContent::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+#v-pills-tabContent::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.15);
+    border-radius: 2px;
+}
+
+#v-pills-tabContent::-webkit-scrollbar-thumb:hover {
+    background: rgba(255, 255, 255, 0.25);
 }
 
 /* Range Slider Override */
 .form-range::-webkit-slider-thumb {
     background: var(--llama-accent);
 }
+
 .form-range::-moz-range-thumb {
     background: var(--llama-accent);
 }
+
 .form-range::-ms-thumb {
     background: var(--llama-accent);
 }
@@ -274,12 +347,20 @@ body {
         height: 100%;
         transform: translateX(-100%);
     }
+
     .sidebar.show {
         transform: translateX(0);
     }
 }
 
 @keyframes fadeIn {
-    from { opacity: 0; transform: translateY(10px); }
-    to { opacity: 1; transform: translateY(0); }
+    from {
+        opacity: 0;
+        transform: translateY(10px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
 }

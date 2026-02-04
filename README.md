@@ -12,8 +12,8 @@
 
 ## 技术栈
 
-- **核心框架 (Core Framework):** `FastAPI`
-  - **理由:** 异步、高性能的现代化 Python Web 框架，提供稳定可靠的 API 服务。
+- **核心框架 (Core Framework):** `FastAPI` + `Pywebview`
+  - **理由:** FastAPI 提供高性能异步 API 服务，Pywebview 将 Web 界面封装为原生桌面窗口。
 - **全文检索 (Full-Text Search):** `tantivy`
   - **理由:** 基于 Rust 的高性能搜索引擎，提供卓越的索引和查询速度，内存占用低。
 - **向量检索 (Vector Search):** `hnswlib`
@@ -25,7 +25,7 @@
 - **文档处理 (Document Processing):** `pdfminer.six`, `python-docx`, `openpyxl`, `markdown`
   - **策略:** 选用轻量级、专注的解析库，避免引入 `pandas` 等大型依赖。
 - **前端资源 (Frontend):** `Bootstrap`, 原生 `JS`, `bootstrap-icons`
-  - **策略:** 保持前端资源的轻量化，优化加载速度。
+  - **策略:** 保持前端资源的轻量化，通过 Pywebview 原生窗口呈现。
 
 ## 项目结构
 
@@ -45,9 +45,9 @@ File-tools/
 │   └── utils/              # 工具模块
 │       ├── config_loader.py        # 配置加载
 │       └── logger.py               # 日志系统
-├── frontend/               # 前端界面 (Web UI)
-│   ├── static/             # 静态资源
-│   └── templates/          # HTML模板
+├── frontend/               # 前端界面
+│   ├── index.html          # 主页面
+│   └── static/             # 静态资源 (CSS/JS)
 ├── tests/                  # 测试代码
 ├── data/                   # 数据存储
 │   ├── index/              # 文本索引
@@ -107,16 +107,20 @@ interface:
   language: "zh_CN"
 ```
 
-### 运行
-
 ```bash
-# 运行 Web 界面 (当前支持)
+# 启动桌面应用（推荐）
+uv run python main.py
+
+# 或直接使用 python (需确保依赖已安装)
 python main.py
 ```
 
-应用程序默认在 `http://127.0.0.1:8000` 上启动；若端口被占用，将自动在 `8001–8010` 中选择可用端口。
-健康检查：`GET /api/health`
-重建索引：`POST /api/rebuild-index`
+启动后会打开一个标题为「智能文件检索与问答系统」的原生桌面窗口。
+API 服务在 `http://127.0.0.1:8000` 上运行；若端口被占用，将自动选择 `8001–8010` 中的可用端口。
+
+**API 端点：**
+- 健康检查：`GET /api/health`
+- 重建索引：`POST /api/rebuild-index`
 
 ## 核心功能
 

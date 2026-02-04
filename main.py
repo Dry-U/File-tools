@@ -1,12 +1,14 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-"""智能文件检索与问答系统 - 主入口文件"""
+"""智能文件检索与问答系统 - 主入口文件
+
+使用 Pywebview 创建原生桌面窗口，在后台线程运行 FastAPI 服务。
+"""
 import sys
 import os
 import psutil
 import requests
 import time
-import webbrowser
 import socket
 import threading
 
@@ -23,6 +25,7 @@ try:
 except Exception as e:
     print(f"警告：无法添加 torch DLL 目录：{e}")
 
+
 def is_port_in_use(port):
     """检查端口是否被占用"""
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
@@ -31,6 +34,21 @@ def is_port_in_use(port):
             return False
         except OSError:
             return True
+
+
+def find_available_port(start=8000, end=8010):
+    """查找可用端口"""
+    for p in range(start, end + 1):
+        try:
+            s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            s.bind(("127.0.0.1", p))
+            s.close()
+            return p
+        except OSError:
+            continue
+    return start
+
 
 def find_existing_instance():
     """查找已运行的实例"""
@@ -54,83 +72,102 @@ def find_existing_instance():
             pass
     return None
 
-def run_web_ui():
-    """Run the web UI version of the application"""
+
+def wait_for_server_ready(url, max_wait=60):
+    """等待服务器就绪"""
+    start_time = time.time()
+    while time.time() - start_time < max_wait:
+        try:
+            response = requests.get(f"{url}/api/health", timeout=1)
+            if response.status_code == 200:
+                data = response.json()
+                if data.get("status") == "healthy":
+                    # 额外检查应用是否完全初始化
+                    try:
+                        app_response = requests.get(url, timeout=1)
+                        if app_response.status_code == 200:
+                            return True
+                    except:
+                        pass
+        except requests.RequestException:
+            pass
+        time.sleep(0.5)
+    return False
+
+
+def start_fastapi_server(port):
+    """在后台启动 FastAPI 服务器"""
     import uvicorn
     from backend.api.api import app
+
+    # 配置 uvicorn 使其静默运行
+    config = uvicorn.Config(
+        app,
+        host="127.0.0.1",
+        port=port,
+        log_level="warning",
+        access_log=False
+    )
+    server = uvicorn.Server(config)
+    server.run()
+
+
+def run_desktop_app():
+    """运行桌面应用（Pywebview + FastAPI）"""
+    import webview
 
     # Initialize logger
     from backend.utils.logger import setup_logger
     logger = setup_logger()
-    logger.info("Web application (FastAPI)启动")
+    logger.info("桌面应用 (Pywebview + FastAPI) 启动")
 
-    def _find_available_port(start=8000, end=8010):
-        for p in range(start, end + 1):
-            try:
-                s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-                s.bind(("127.0.0.1", p))
-                s.close()
-                return p
-            except OSError:
-                continue
-        return start
+    # 查找可用端口
+    port = find_available_port(8000, 8010)
+    url = f"http://127.0.0.1:{port}"
+    logger.info(f"FastAPI 服务端口: {port}")
 
-    port = _find_available_port(8000, 8010)
+    # 在后台线程启动 FastAPI 服务器
+    server_thread = threading.Thread(
+        target=start_fastapi_server,
+        args=(port,),
+        daemon=True
+    )
+    server_thread.start()
 
-    def open_browser_after_delay(url):
-        """Open the default browser to the application after a delay to ensure server is ready"""
-        # Wait for server to be ready by checking the health endpoint
-        max_wait_time = 60  # seconds, increased to account for model loading
-        start_time = time.time()
-        while time.time() - start_time < max_wait_time:
-            try:
-                response = requests.get(f"{url}/api/health", timeout=1)
-                if response.status_code == 200:
-                    data = response.json()
-                    if data.get("status") == "healthy":
-                        # Additional check to see if app is fully initialized
-                        try:
-                            app_response = requests.get(url, timeout=1)
-                            if app_response.status_code == 200:
-                                logger.info(f"Server is fully ready, opening browser at {url}")
-                                webbrowser.open(url)
-                                return
-                        except:
-                            pass
-                    elif data.get("status") == "starting":
-                        # If it's still starting, continue waiting
-                        pass
-            except requests.RequestException:
-                pass
-            time.sleep(2)
+    # 等待服务器就绪
+    logger.info("等待 FastAPI 服务器就绪...")
+    if wait_for_server_ready(url, max_wait=60):
+        logger.info("服务器已就绪，创建 Pywebview 窗口")
+    else:
+        logger.warning("服务器在超时前未完全就绪，仍将尝试创建窗口")
 
-        logger.warning(f"Server did not respond as fully ready within {max_wait_time} seconds, opening browser anyway")
-        webbrowser.open(url)
+    # 创建 Pywebview 窗口
+    window = webview.create_window(
+        title='智能文件检索与问答系统',
+        url=url,
+        width=1280,
+        height=800,
+        min_size=(900, 600),
+        text_select=True,
+    )
 
-    # Start browser in a separate thread
-    threading.Thread(target=open_browser_after_delay, args=(f"http://127.0.0.1:{port}",), daemon=True).start()
-
-    logger.info(f"Web 端口: {port}")
-    uvicorn.run(app, host="127.0.0.1", port=port, log_level="info")
+    # 启动 webview（这是阻塞调用）
+    webview.start()
+    logger.info("应用已关闭")
 
 
 def main():
-    """Main function - Application entry point for web interface"""
+    """主函数 - 应用程序入口点"""
     # 检查是否已有实例在运行
     existing_port = find_existing_instance()
     if existing_port:
-        print(f"检测到已有实例在端口 {existing_port} 上运行，正在打开浏览器...")
-        # Even if an instance is running, wait a bit and then open the browser
-        # to ensure the server is fully loaded
-        def open_existing():
-            time.sleep(5)  # Give existing instance time to fully load
-            webbrowser.open(f"http://127.0.0.1:{existing_port}")
-        threading.Thread(target=open_existing, daemon=True).start()
+        print(f"检测到已有实例在端口 {existing_port} 上运行")
+        print("请关闭现有实例后再启动新实例，或使用现有窗口。")
+        # 对于桌面应用，不自动打开浏览器，而是提示用户
         return
 
-    print("启动 Web 界面...")
-    run_web_ui()
+    print("启动桌面应用...")
+    run_desktop_app()
 
 
 if __name__ == "__main__":

@@ -153,23 +153,51 @@ def is_path_allowed(path: str, config_loader: ConfigLoader) -> bool:
 async def startup_event():
     """Initialize core components when application starts"""
     try:
+        # Initialize ConfigLoader first
         config_loader = get_config_loader()
 
-        # Pre-initialize all dependencies by accessing them once
-        # This ensures all components are ready before first request
-        get_index_manager(config_loader)
-        get_search_engine()
-        get_file_scanner()
-        get_file_monitor()
+        # Pre-initialize all dependencies by manually passing required arguments
+        # Cannot use Depends() outside of route handlers, so we pass dependencies explicitly
+        from backend.core.index_manager import IndexManager
+        from backend.core.search_engine import SearchEngine
+        from backend.core.file_scanner import FileScanner
+        from backend.core.file_monitor import FileMonitor
+
+        # Initialize IndexManager
+        if not hasattr(app.state, 'index_manager'):
+            app.state.index_manager = IndexManager(config_loader)
+        index_manager = app.state.index_manager
+
+        # Initialize SearchEngine
+        if not hasattr(app.state, 'search_engine'):
+            app.state.search_engine = SearchEngine(index_manager, config_loader)
+
+        # Initialize FileScanner
+        if not hasattr(app.state, 'file_scanner'):
+            app.state.file_scanner = FileScanner(config_loader, None, index_manager)
+        file_scanner = app.state.file_scanner
+
+        # Initialize FileMonitor
+        if not hasattr(app.state, 'file_monitor'):
+            app.state.file_monitor = FileMonitor(config_loader, index_manager, file_scanner)
+            if config_loader.getboolean('monitor', 'enabled', False):
+                app.state.file_monitor.start_monitoring()
+                logger.info("文件监控已启动")
 
         # Initialize RAG pipeline (optional)
-        get_rag_pipeline()
+        if not hasattr(app.state, 'rag_pipeline'):
+            if config_loader.getboolean('ai_model', 'enabled', False):
+                from backend.core.model_manager import ModelManager
+                from backend.core.rag_pipeline import RAGPipeline
+                model_manager = ModelManager(config_loader)
+                app.state.rag_pipeline = RAGPipeline(model_manager, config_loader, app.state.search_engine)
+                logger.info("RAG Pipeline initialized")
+            else:
+                app.state.rag_pipeline = None
 
         # Handle schema update if needed
-        index_manager = get_index_manager(config_loader)
         if getattr(index_manager, 'schema_updated', False):
             logger.info("检测到索引模式更新，自动重建并扫描索引...")
-            file_scanner = get_file_scanner()
             stats = file_scanner.scan_and_index()
             logger.info(f"自动重建索引完成: {stats}")
 

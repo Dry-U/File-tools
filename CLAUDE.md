@@ -46,7 +46,7 @@ This is a hybrid file retrieval and RAG (Retrieval-Augmented Generation) system 
 
 ### Core Flow
 ```
-main.py → FastAPI (api.py)
+main.py → Pywebview Window + FastAPI (后台线程)
          ↓
     Startup → [IndexManager, SearchEngine, FileScanner, FileMonitor, RAGPipeline]
          ↓
