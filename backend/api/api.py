@@ -6,6 +6,7 @@ Refactored to use FastAPI dependency injection for thread safety
 from fastapi import FastAPI, HTTPException, Request, Depends
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse
+from contextlib import asynccontextmanager
 import uvicorn
 import os
 from typing import Optional
@@ -149,8 +150,8 @@ def is_path_allowed(path: str, config_loader: ConfigLoader) -> bool:
 # LIFECYCLE EVENTS
 # ============================================================================
 
-@app.on_event("startup")
-async def startup_event():
+@asynccontextmanager
+async def lifespan(app: FastAPI):
     """Initialize core components when application starts"""
     try:
         # Initialize ConfigLoader first
@@ -208,19 +209,44 @@ async def startup_event():
         app.state.initialized = False
         raise
 
+    yield
 
-@app.on_event("shutdown")
-async def shutdown_event():
     """Cleanup when application stops"""
     if hasattr(app.state, 'file_monitor') and app.state.file_monitor:
         app.state.file_monitor.stop_monitoring()
 
+# Set lifespan handler
+app.router.lifespan_context = lifespan
+
+
+# ============================================================================
+# ERROR HANDLING
+# ============================================================================
+
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
+
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    """处理请求验证错误"""
+    logger.error(f"请求验证错误: {exc.errors()}")
+    return JSONResponse(
+        status_code=422,
+        content={"detail": "请求参数验证失败", "errors": exc.errors()}
+    )
+
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    """全局异常处理器"""
+    logger.error(f"未处理的异常: {str(exc)}", exc_info=True)
+    return JSONResponse(
+        status_code=500,
+        content={"detail": "内部服务器错误"}
+    )
 
 # ============================================================================
 # ROUTE HANDLERS
 # ============================================================================
-
-@app.get("/favicon.ico")
 async def favicon():
     """Serve favicon.ico"""
     favicon_path = Path("frontend/static/favicon.ico")

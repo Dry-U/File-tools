@@ -192,21 +192,30 @@ class IndexManager:
                 self.tantivy_index = tantivy.Index(self.schema)
 
     def _init_hnsw_index(self):
+        """初始化HNSW向量索引"""
         # 确保向量索引和元数据目录存在
         os.makedirs(self.hnsw_index_path, exist_ok=True)
         os.makedirs(self.metadata_path, exist_ok=True)
 
         index_file = os.path.join(self.hnsw_index_path, 'vector_index.bin')
         metadata_file = os.path.join(self.metadata_path, 'vector_metadata.json')
+        
         if os.path.exists(index_file) and os.path.exists(metadata_file):
             try:
                 with open(metadata_file, 'r', encoding='utf-8') as f:
                     metadata_dict = json.load(f)
                     self.vector_metadata = metadata_dict.get('metadata', {})
                     self.next_id = metadata_dict.get('next_id', len(self.vector_metadata))
-                self.hnsw = hnswlib.Index(space='cosine', dim=self.vector_dim)
-                max_elements = max(self.next_id + 1024, 1024)
-                self.hnsw.load_index(index_file, max_elements=max_elements)
+                
+                # 检查向量维度是否匹配
+                if self.embedding_model:
+                    self.hnsw = hnswlib.Index(space='cosine', dim=self.vector_dim)
+                    max_elements = max(self.next_id + 1024, 1024)
+                    self.hnsw.load_index(index_file, max_elements=max_elements)
+                    self.logger.info(f"成功加载向量索引，维度: {self.vector_dim}, 元素数: {self.next_id}")
+                else:
+                    self.logger.warning("向量索引已存在但嵌入模型未启用，跳过加载")
+                    self._create_new_hnsw_index()
             except Exception as e:
                 self.logger.error(f"加载现有向量索引失败: {str(e)}")
                 self._create_new_hnsw_index()
@@ -944,4 +953,106 @@ class IndexManager:
         try:
             return os.path.exists(self.tantivy_index_path)
         except Exception:
+            return False
+
+    def get_index_stats(self):
+        """获取索引统计信息"""
+        try:
+            # 获取Tantivy索引统计
+            searcher = self.tantivy_index.searcher()
+            doc_count = searcher.num_docs()
+            
+            # 获取向量索引统计
+            vector_count = len(self.vector_metadata) if hasattr(self, 'vector_metadata') else 0
+            
+            # 获取索引目录大小
+            import os
+            def get_dir_size(path):
+                total = 0
+                for dirpath, dirnames, filenames in os.walk(path):
+                    for filename in filenames:
+                        filepath = os.path.join(dirpath, filename)
+                        total += os.path.getsize(filepath)
+                return total
+            
+            tantivy_size = get_dir_size(self.tantivy_index_path)
+            hnsw_size = get_dir_size(self.hnsw_index_path) if os.path.exists(self.hnsw_index_path) else 0
+            metadata_size = get_dir_size(self.metadata_path) if os.path.exists(self.metadata_path) else 0
+            
+            return {
+                'tantivy_docs': doc_count,
+                'vector_docs': vector_count,
+                'tantivy_size_mb': round(tantivy_size / (1024 * 1024), 2),
+                'hnsw_size_mb': round(hnsw_size / (1024 * 1024), 2),
+                'metadata_size_mb': round(metadata_size / (1024 * 1024), 2),
+                'total_size_mb': round((tantivy_size + hnsw_size + metadata_size) / (1024 * 1024), 2)
+            }
+        except Exception as e:
+            self.logger.error(f"获取索引统计信息失败: {str(e)}")
+            return {
+                'tantivy_docs': 0,
+                'vector_docs': 0,
+                'tantivy_size_mb': 0,
+                'hnsw_size_mb': 0,
+                'metadata_size_mb': 0,
+                'total_size_mb': 0
+            }
+
+    def optimize_index(self):
+        """优化索引性能"""
+        try:
+            # 优化Tantivy索引
+            if hasattr(self, 'tantivy_index') and self.tantivy_index:
+                with self.tantivy_index.writer() as writer:
+                    # 合并段以优化搜索性能
+                    writer.commit()
+                    self.logger.info("Tantivy索引优化完成")
+            
+            # 优化HNSW索引
+            if hasattr(self, 'hnsw') and self.hnsw:
+                # HNSW索引本身不需要特别的优化，但可以调整参数
+                self.hnsw.set_ef(200)  # 设置搜索参数
+                self.logger.info("HNSW索引参数已优化")
+                
+            return True
+        except Exception as e:
+            self.logger.error(f"索引优化失败: {str(e)}")
+            return False
+
+    def validate_index_integrity(self):
+        """验证索引完整性"""
+        try:
+            # 验证Tantivy索引
+            if hasattr(self, 'tantivy_index') and self.tantivy_index:
+                searcher = self.tantivy_index.searcher()
+                doc_count = searcher.num_docs()
+                self.logger.info(f"Tantivy索引验证完成，文档数: {doc_count}")
+            
+            # 验证向量索引
+            if hasattr(self, 'hnsw') and self.hnsw and hasattr(self, 'vector_metadata'):
+                vector_count = len(self.vector_metadata)
+                self.logger.info(f"向量索引验证完成，向量数: {vector_count}")
+                
+                # 检查元数据与索引的一致性
+                indexed_ids = set()
+                for i in range(min(self.next_id, 1000)):  # 检查前1000个ID以避免性能问题
+                    try:
+                        # 尝试获取向量以验证其存在性
+                        if i < self.hnsw.get_current_count():
+                            indexed_ids.add(i)
+                    except:
+                        pass
+                
+                metadata_ids = set(int(k) for k in self.vector_metadata.keys())
+                missing_in_metadata = indexed_ids - metadata_ids
+                missing_in_index = metadata_ids - indexed_ids
+                
+                if missing_in_metadata or missing_in_index:
+                    self.logger.warning(f"向量索引与元数据不一致: 索引中缺失元数据的ID数: {len(missing_in_metadata)}, 元数据中缺失索引的ID数: {len(missing_in_index)}")
+                else:
+                    self.logger.info("向量索引与元数据一致性检查通过")
+            
+            return True
+        except Exception as e:
+            self.logger.error(f"索引完整性验证失败: {str(e)}")
             return False

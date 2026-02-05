@@ -21,7 +21,7 @@ dependencies = [
     "pywebview>=5.0.0,<6.0.0",
     "watchdog>=3.0.0,<5.0.0",
     "pyyaml>=6.0,<7.0",
-    "PyPDF2>=3.0.1,<5.0.0",
+    "pypdf>=3.0.0,<6.0.0",
     "pdfminer.six",
     "pandas>=2.0.0,<3.0.0",
     "openpyxl>=3.1.0,<4.0.0",
@@ -77,3 +77,9 @@ typeCheckingMode = "basic"
 reportMissingImports = false
 reportMissingTypeStubs = false
 reportMissingModuleSource = false
+
+[tool.pytest.ini_options]
+addopts = "-p no:langsmith"
+markers = [
+    "performance: mark test as performance test",
+]

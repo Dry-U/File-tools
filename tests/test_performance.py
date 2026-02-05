@@ -5,8 +5,7 @@ import psutil
 import pytest
 from pathlib import Path
 from backend.core.index_manager import IndexManager
-from backend.core.rag_pipeline import HybridRetriever
-from backend.core.vector_engine import VectorEngine
+from backend.core.search_engine import SearchEngine
 
 TEST_QUERIES = ["测试内容", "关键条款", "文档总结"]
 
@@ -15,8 +14,7 @@ class PerformanceBenchmark:
         self.config = config
         self.results = {}
         self.indexer = IndexManager(config)
-        self.vector_engine = VectorEngine(config)
-        self.retriever = HybridRetriever(config, self.vector_engine)
+        self.search_engine = SearchEngine(self.indexer, config)
 
     def test_scalability(self, scale: int, test_dir: str):
         """测试可扩展性：索引时间、查询时间、内存"""
@@ -44,7 +42,7 @@ class PerformanceBenchmark:
         query_times = []
         for query in TEST_QUERIES:
             start = time.monotonic()
-            self.retriever.search(query, top_k=5)
+            self.search_engine.search(query)
             query_times.append(time.monotonic() - start)
 
         # 内存使用

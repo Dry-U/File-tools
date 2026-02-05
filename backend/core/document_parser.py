@@ -4,7 +4,7 @@
 import os
 import time
 import logging
-import PyPDF2
+import pypdf
 import pdfminer.high_level
 import pdfminer.layout
 try:
@@ -20,7 +20,7 @@ import pandas as pd
 import markdown
 # 尝试导入textract，如果失败则设置为None
 try:
-    import textract
+    import textract # type: ignore
 except ImportError:
     textract = None
 # from PIL import Image
@@ -28,7 +28,11 @@ except ImportError:
 import datetime
 try:
     import win32com.client
-except ImportError:
+except ImportError as e:
+    print(f"Warning: Failed to import win32com.client: {e}")
+    win32com = None
+except Exception as e:
+    print(f"Warning: Unexpected error importing win32com.client: {e}")
     win32com = None
 
 class DocumentParser:
@@ -167,6 +171,7 @@ class DocumentParser:
             if file_ext in self.parser_map:
                 text = self.parser_map[file_ext](file_path)
             else:
+                self.logger.info(f"未找到特定的解析器，使用通用解析器。文件: {file_path}, 扩展名: '{file_ext}', 支持的格式: {list(self.parser_map.keys())}")
                 # 尝试使用通用解析器作为后备
                 text = self._parse_generic(file_path)
             
@@ -269,11 +274,11 @@ class DocumentParser:
             except Exception as e:
                 self.logger.warning(f"pdfminer解析PDF失败 {file_path}: {str(e)}")
 
-        # 4. 如果pdfminer失败或结果为空，尝试PyPDF2
+        # 4. 如果pdfminer失败或结果为空，尝试pypdf
         if not text or not text.strip():
             try:
                 with open(file_path, 'rb') as file:
-                    reader = PyPDF2.PdfReader(file)
+                    reader = pypdf.PdfReader(file)
                     pages = reader.pages
                     if pages:
                         for page_num in range(len(pages)):
@@ -285,7 +290,7 @@ class DocumentParser:
                             if extracted:
                                 text += extracted
             except Exception as e:
-                self.logger.error(f"PyPDF2解析PDF失败 {file_path}: {str(e)}")
+                self.logger.error(f"pypdf解析PDF失败 {file_path}: {str(e)}")
 
         # 5. 如果仍然为空，尝试textract
         if not text or not text.strip():
@@ -365,6 +370,45 @@ class DocumentParser:
             # 如果没有textract或解析失败，返回错误信息
             return f"错误: 无法解析Word内容\n{str(e)}"
     
+    def _convert_doc_to_docx(self, file_path):
+        """将.doc转换为.docx并解析"""
+        if not win32com:
+            return None
+            
+        try:
+            import pythoncom
+            pythoncom.CoInitialize()
+            
+            word = win32com.client.Dispatch("Word.Application")
+            word.Visible = False
+            
+            abs_path = os.path.abspath(file_path)
+            doc = word.Documents.Open(abs_path)
+            
+            # Create temp docx path
+            import tempfile
+            temp_dir = tempfile.gettempdir()
+            # Handle filename with special chars by using hash or simple name
+            temp_docx = os.path.join(temp_dir, f"converted_{int(time.time())}_{os.path.basename(file_path)}.docx")
+            
+            # Save as DOCX (wdFormatXMLDocument = 12)
+            doc.SaveAs2(temp_docx, FileFormat=12)
+            doc.Close()
+            
+            # Parse the converted docx
+            content = self._parse_docx(temp_docx)
+            
+            # Cleanup
+            try:
+                os.remove(temp_docx)
+            except:
+                pass
+                
+            return content
+        except Exception as e:
+            self.logger.error(f"Doc转Docx失败 {file_path}: {str(e)}")
+            return None
+
     def _parse_doc_win32(self, file_path):
         """使用win32com解析.doc文件 (仅Windows)"""
         if not win32com:
@@ -373,10 +417,17 @@ class DocumentParser:
                 try:
                     return textract.process(file_path).decode('utf-8', errors='ignore')
                 except Exception as te:
+                    error_msg = str(te)
+                    if "127" in error_msg or "antiword" in error_msg:
+                        self.logger.warning(f"解析.doc失败: 缺少 'antiword' 工具。请确保系统已安装 antiword 或 Microsoft Word。")
+                        return "错误: 无法解析.doc内容 (缺少 Microsoft Word 或 antiword 工具)"
                     self.logger.warning(f"无法使用textract解析.doc文件 {file_path}: {str(te)}")
             return "错误: 无法解析.doc内容 (缺少 pywin32 依赖或非Windows环境)"
         
         try:
+            import pythoncom
+            pythoncom.CoInitialize()
+            
             # Win32 COM 作为首选
             word = win32com.client.Dispatch("Word.Application")
             word.Visible = False
@@ -387,7 +438,26 @@ class DocumentParser:
             # word.Quit() # 不要退出Word，可能影响其他进程，或者保持Word后台运行
             return text
         except Exception as e:
+            self.logger.warning(f"Win32直接解析.doc失败 {file_path}: {str(e)}，尝试转换格式...")
+            
+            # 尝试转换格式
+            converted_text = self._convert_doc_to_docx(file_path)
+            if converted_text:
+                return converted_text
+
             self.logger.error(f"Win32解析.doc失败 {file_path}: {str(e)}")
+            
+            # 尝试使用textract作为最后的后备
+            if textract:
+                try:
+                    return textract.process(file_path).decode('utf-8', errors='ignore')
+                except Exception as te:
+                    error_msg = str(te)
+                    if "127" in error_msg or "antiword" in error_msg:
+                         self.logger.warning(f"解析.doc失败: 缺少 'antiword' 工具。请确保系统已安装 antiword 或 Microsoft Word。")
+                         return "错误: 无法解析.doc内容 (缺少 Microsoft Word 或 antiword 工具)"
+                    self.logger.warning(f"无法使用textract解析.doc文件 {file_path}: {str(te)}")
+            
             return f"错误: 无法解析.doc内容\n{str(e)}"
 
     def _parse_text(self, file_path):
@@ -561,7 +631,7 @@ class DocumentParser:
         metadata = {}
         try:
             with open(file_path, 'rb') as file:
-                reader = PyPDF2.PdfReader(file)
+                reader = pypdf.PdfReader(file)
                 pdf_info = reader.metadata
                 if pdf_info:
                     for key, value in pdf_info.items():

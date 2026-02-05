@@ -13,7 +13,7 @@ class SearchEngine:
         self.index_manager = index_manager
         self.config_loader = config_loader
         self.logger = logging.getLogger(__name__)
-        
+
         # 搜索配置 - 使用ConfigLoader获取配置
         search_config = config_loader.get('search')
         if search_config is None:
@@ -21,7 +21,7 @@ class SearchEngine:
         self.text_weight = float(search_config.get('text_weight', 0.6))
         self.vector_weight = float(search_config.get('vector_weight', 0.4))
         self.max_results = int(search_config.get('max_results', 50))
-        
+
         # 新增的高级搜索配置参数
         self.bm25_k1 = float(search_config.get('bm25_k1', 1.5))
         self.bm25_b = float(search_config.get('bm25_b', 0.75))
@@ -32,7 +32,12 @@ class SearchEngine:
         # 语义搜索结果阈值（从配置读取）
         self.semantic_score_high_threshold = float(search_config.get('semantic_score_high_threshold', 60.0))
         self.semantic_score_low_threshold = float(search_config.get('semantic_score_low_threshold', 30.0))
-        
+
+        # 缓存配置
+        self.enable_cache = bool(search_config.get('enable_cache', True))
+        self.cache_ttl = int(search_config.get('cache_ttl', 3600))  # 默认1小时
+        self.cache_size = int(search_config.get('cache_size', 1000))  # 默认缓存1000个查询
+
         # 确保权重之和为1，但如果其中一个为0，则另一个为1
         if self.text_weight == 0 and self.vector_weight == 0:
             # 默认情况下，两个都为0.5
@@ -49,17 +54,86 @@ class SearchEngine:
             total_weight = self.text_weight + self.vector_weight
             self.text_weight /= total_weight
             self.vector_weight /= total_weight
+
+        # 初始化缓存
+        if self.enable_cache:
+            from collections import OrderedDict
+            import time
+            self.cache = OrderedDict()
+            self.cache_timestamps = {}
+            self.logger.info(f"搜索引擎初始化完成，文本权重: {self.text_weight}, 向量权重: {self.vector_weight}, 缓存已启用")
+        else:
+            self.cache = None
+            self.cache_timestamps = None
+            self.logger.info(f"搜索引擎初始化完成，文本权重: {self.text_weight}, 向量权重: {self.vector_weight}, 缓存已禁用")
+
+    def _get_cache_key(self, query, filters=None):
+        """生成缓存键"""
+        if filters is None:
+            filters = {}
+        # 将查询和过滤器组合成一个字符串作为缓存键
+        cache_str = f"{query}:{str(sorted(filters.items()))}"
+        import hashlib
+        return hashlib.md5(cache_str.encode()).hexdigest()
+
+    def _is_cache_valid(self, key):
+        """检查缓存是否有效"""
+        if not self.enable_cache or key not in self.cache_timestamps:
+            return False
+        # 检查是否过期
+        if time.time() - self.cache_timestamps[key] > self.cache_ttl:
+            # 删除过期缓存
+            if key in self.cache:
+                del self.cache[key]
+            if key in self.cache_timestamps:
+                del self.cache_timestamps[key]
+            return False
+        return True
+
+    def _get_from_cache(self, key):
+        """从缓存获取结果"""
+        if not self.enable_cache:
+            return None
+        if self._is_cache_valid(key):
+            # 将访问的项移到末尾（LRU）
+            result = self.cache.pop(key)
+            self.cache[key] = result
+            return result
+        return None
+
+    def _put_in_cache(self, key, result):
+        """将结果放入缓存"""
+        if not self.enable_cache:
+            return
+        # 检查缓存大小，如果超过限制则删除最久未使用的项
+        if len(self.cache) >= self.cache_size:
+            # 删除第一个项（最久未使用的）
+            oldest_key = next(iter(self.cache))
+            del self.cache[oldest_key]
+            if oldest_key in self.cache_timestamps:
+                del self.cache_timestamps[oldest_key]
         
-        self.logger.info(f"搜索引擎初始化完成，文本权重: {self.text_weight}, 向量权重: {self.vector_weight}")
+        # 添加新项
+        self.cache[key] = result
+        self.cache_timestamps[key] = time.time()
     
     def search(self, query, filters=None):
         """执行搜索，整合文本搜索和向量搜索结果"""
         start_time = time.time()
         self.logger.info(f"执行搜索: {query}, 过滤器: {filters}")
-        
+
+        # 检查缓存
+        cache_key = self._get_cache_key(query, filters)
+        if self.enable_cache:
+            cached_result = self._get_from_cache(cache_key)
+            if cached_result is not None:
+                cache_hit_time = time.time() - start_time
+                self.logger.info(f"缓存命中，返回缓存结果，耗时: {cache_hit_time:.3f}秒")
+                return cached_result
+
         # 保存当前查询以供后续使用
         self.current_query = query
-        
+
         # 如果没有提供过滤器，使用默认空字典
         if filters is None:
             filters = {}
@@ -69,25 +143,25 @@ class SearchEngine:
         file_type_filter = self._detect_file_type_filter(query)
         if file_type_filter:
             filters['file_types'] = file_type_filter
-        
+
         # 保持查询与类型筛选相互独立：不再基于查询自动推断文件类型过滤
-        
+
         # 执行文本搜索
         text_results = self._search_text(query, filters)
         self.logger.info(f"文本搜索返回 {len(text_results)} 条结果")
-        
+
         # 执行向量搜索
         vector_results = self._search_vector(query, filters)
         self.logger.info(f"向量搜索返回 {len(vector_results)} 条结果")
-        
+
         # 合并和排序结果
         combined_results = self._combine_results(text_results, vector_results)
         self.logger.info(f"合并后 {len(combined_results)} 条结果")
-        
+
         # 应用过滤器
         filtered_results = self._apply_filters(combined_results, filters)
         self.logger.info(f"过滤后 {len(filtered_results)} 条结果")
-        
+
         # 优先返回真正包含查询词的结果，剩余语义匹配结果追加在后
         limited_results = filtered_results
         if query and filtered_results:
@@ -118,10 +192,14 @@ class SearchEngine:
 
         # 限制结果数量
         limited_results = limited_results[:self.max_results]
-        
+
         search_time = time.time() - start_time
         self.logger.info(f"搜索完成，找到 {len(limited_results)} 条结果，耗时: {search_time:.3f}秒")
-        
+
+        # 将结果存入缓存
+        if self.enable_cache:
+            self._put_in_cache(cache_key, limited_results)
+
         return limited_results
 
     def _detect_file_type_filter(self, query: str):
@@ -489,3 +567,59 @@ class SearchEngine:
             words = re.findall(r'\w+', self.current_query)
             return words
         return []
+
+    def clear_cache(self):
+        """清空搜索缓存"""
+        if self.enable_cache and self.cache is not None:
+            self.cache.clear()
+            self.cache_timestamps.clear()
+            self.logger.info("搜索缓存已清空")
+
+    def get_cache_stats(self):
+        """获取缓存统计信息"""
+        if not self.enable_cache:
+            return {'enabled': False}
+        
+        current_time = time.time()
+        valid_items = 0
+        expired_items = 0
+        
+        for key, timestamp in self.cache_timestamps.items():
+            if current_time - timestamp <= self.cache_ttl:
+                valid_items += 1
+            else:
+                expired_items += 1
+        
+        return {
+            'enabled': True,
+            'size': len(self.cache),
+            'max_size': self.cache_size,
+            'ttl_seconds': self.cache_ttl,
+            'valid_items': valid_items,
+            'expired_items': expired_items
+        }
+
+    def search_with_detailed_stats(self, query, filters=None):
+        """执行搜索并返回详细统计信息"""
+        start_time = time.time()
+        
+        # 执行搜索
+        results = self.search(query, filters)
+        
+        # 计算统计信息
+        search_time = time.time() - start_time
+        stats = {
+            'results_count': len(results),
+            'search_time': search_time,
+            'query': query,
+            'filters_applied': filters is not None and len(filters) > 0,
+            'cache_enabled': self.enable_cache,
+            'text_weight': self.text_weight,
+            'vector_weight': self.vector_weight
+        }
+        
+        # 添加缓存统计（如果启用）
+        if self.enable_cache:
+            stats['cache_stats'] = self.get_cache_stats()
+        
+        return results, stats

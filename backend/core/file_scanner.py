@@ -8,8 +8,15 @@ import platform
 import time
 from datetime import datetime
 from pathlib import Path
-from typing import List, Dict, Set, Optional
+from typing import List, Dict, Set, Optional, Any
 import logging
+import fnmatch
+import hashlib
+import mimetypes
+import tantivy
+
+from backend.utils.config_loader import ConfigLoader
+from backend.core.index_manager import IndexManager
 from backend.core.document_parser import DocumentParser
 
 class FileScanner:
@@ -404,7 +411,7 @@ class FileScanner:
         """处理单个文件，检查是否应索引并执行索引操作"""
         file_path_str = str(file_path)
         self.scan_stats['total_files_scanned'] += 1
-        
+
         # 每处理10个文件就更新一次进度
         if self.progress_callback and self.scan_stats['total_files_scanned'] % 10 == 0:
             try:
@@ -413,28 +420,40 @@ class FileScanner:
                 self.progress_callback(progress)
             except Exception as e:
                 self.logger.warning(f"更新进度回调失败: {str(e)}")
-        
+
         # 检查是否应索引该文件
         if self._should_index(file_path_str):
             try:
                 # 记录文件大小
-                file_size = file_path.stat().st_size
+                file_stat = file_path.stat()
+                file_size = file_stat.st_size
                 self.scan_stats['total_size_scanned'] += file_size
-                
+
                 # 执行索引操作
                 success = self._index_file(file_path_str)
                 if success:
                     self.scan_stats['total_files_indexed'] += 1
+                    self.logger.debug(f"成功索引文件: {file_path_str}, 大小: {file_size} bytes")
                     return True
                 else:
                     self.scan_stats['total_files_skipped'] += 1
+                    self.logger.debug(f"跳过索引文件: {file_path_str} (索引失败)")
                     return False
+            except PermissionError:
+                self.logger.warning(f"无权限访问文件: {file_path_str}")
+                self.scan_stats['total_files_skipped'] += 1
+                return False
+            except OSError as e:
+                self.logger.warning(f"操作系统错误访问文件 {file_path_str}: {str(e)}")
+                self.scan_stats['total_files_skipped'] += 1
+                return False
             except Exception as e:
-                self.logger.error(f"处理文件失败 {file_path_str}: {str(e)}")
+                self.logger.error(f"处理文件失败 {file_path_str}: {str(e)}", exc_info=True)
                 self.scan_stats['total_files_skipped'] += 1
                 return False
         else:
             self.scan_stats['total_files_skipped'] += 1
+            self.logger.debug(f"跳过文件: {file_path_str} (不符合索引条件)")
             return False
     
     def _should_index(self, path: str) -> bool:
@@ -652,9 +671,142 @@ class FileScanner:
         if size_mb <= 0:
             self.logger.warning("最大文件大小必须为正数")
             return
-        
+
         self.max_file_size = size_mb * 1024 * 1024
         self.logger.info(f"已设置最大文件大小: {size_mb} MB")
+
+    def get_scannable_files(self, directory: str = None) -> List[str]:
+        """获取可扫描的文件列表"""
+        scan_dirs = [directory] if directory else self.scan_paths
+        scannable_files = []
+
+        for scan_dir in scan_dirs:
+            if not os.path.exists(scan_dir):
+                self.logger.warning(f"扫描目录不存在: {scan_dir}")
+                continue
+
+            try:
+                for root, dirs, files in os.walk(scan_dir):
+                    if self._stop_flag:
+                        break
+
+                    for file_name in files:
+                        file_path = os.path.join(root, file_name)
+                        
+                        # 检查是否应该索引此文件
+                        if self._should_index(file_path):
+                            scannable_files.append(file_path)
+                            
+            except PermissionError:
+                self.logger.error(f"无权限访问目录: {scan_dir}")
+            except Exception as e:
+                self.logger.error(f"扫描目录时出错 {scan_dir}: {str(e)}")
+
+        return scannable_files
+
+    def update_single_file(self, file_path: str) -> bool:
+        """更新单个文件的索引"""
+        try:
+            if not os.path.exists(file_path):
+                self.logger.warning(f"文件不存在: {file_path}")
+                return False
+
+            if not self._should_index(file_path):
+                self.logger.info(f"文件不符合索引条件: {file_path}")
+                return False
+
+            # 索引文件
+            success = self._index_file(file_path)
+            if success:
+                self.scan_stats['total_files_indexed'] += 1
+                self.logger.info(f"成功更新文件索引: {file_path}")
+            else:
+                self.scan_stats['total_files_skipped'] += 1
+                self.logger.warning(f"更新文件索引失败: {file_path}")
+
+            return success
+        except Exception as e:
+            self.logger.error(f"更新单个文件时出错 {file_path}: {str(e)}")
+            return False
+
+    def remove_file_from_index(self, file_path: str) -> bool:
+        """从索引中移除文件"""
+        try:
+            if self.index_manager:
+                success = self.index_manager.delete_document(file_path)
+                if success:
+                    self.logger.info(f"成功从索引中移除文件: {file_path}")
+                else:
+                    self.logger.warning(f"从索引中移除文件失败: {file_path}")
+                return success
+            else:
+                self.logger.error("索引管理器未初始化")
+                return False
+        except Exception as e:
+            self.logger.error(f"从索引中移除文件时出错 {file_path}: {str(e)}")
+            return False
+
+    def get_file_type_stats(self) -> Dict[str, int]:
+        """获取文件类型统计信息"""
+        stats = {}
+        for file_type, extensions in self.target_extensions.items():
+            count = 0
+            for ext in extensions:
+                # 这里只是统计配置中定义的类型，实际统计需要扫描文件
+                pass
+            stats[file_type] = count
+        
+        # 如果有索引管理器，可以从索引中获取实际统计
+        if self.index_manager:
+            try:
+                # 获取索引中的文件类型统计
+                searcher = self.index_manager.tantivy_index.searcher()
+                collector = tantivy.Collector()
+                
+                # 这里需要根据实际的索引结构来统计
+                # 由于我们没有直接访问tantivy的Collector，我们使用搜索来近似统计
+                for file_type in stats.keys():
+                    query = self.index_manager.tantivy_index.parse_query(file_type, ['file_type'])
+                    top_docs = searcher.search(query, 0)  # 只需要计数，不需要结果
+                    stats[file_type] = top_docs.total_count
+            except Exception as e:
+                self.logger.warning(f"获取索引中文件类型统计失败: {str(e)}")
+        
+        return stats
+
+    def scan_with_filters(self, filters: Dict = None) -> Dict:
+        """使用过滤器扫描文件"""
+        if filters is None:
+            filters = {}
+        
+        # 保存原始统计信息
+        original_stats = self.scan_stats.copy()
+        
+        # 重置统计信息
+        self.scan_stats = {
+            'total_files_scanned': 0,
+            'total_files_indexed': 0,
+            'total_files_skipped': 0,
+            'total_size_scanned': 0,
+            'scan_time': 0,
+            'last_scan_time': None
+        }
+        
+        start_time = time.time()
+        
+        # 根据过滤器执行扫描
+        scan_paths = filters.get('scan_paths', self.scan_paths)
+        file_types = filters.get('file_types', None)
+        
+        for path in scan_paths:
+            if self._stop_flag:
+                break
+            self._scan_directory_with_progress(Path(path), 0)  # 这里简化处理，不计算预估总数
+        
+        self.scan_stats['scan_time'] = time.time() - start_time
+        self.scan_stats['last_scan_time'] = time.time()
+        
+        return self.scan_stats
 
 # 示例用法
 if __name__ == "__main__":

@@ -463,6 +463,51 @@
     </div>
 </div>
 
+<!-- 确认重置模态框 (Reset Confirmation Modal) -->
+<div class="modal fade" id="resetConfirmModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered modal-sm">
+        <div class="modal-content" style="background-color: var(--llama-bg); border: 1px solid var(--llama-border); color: var(--llama-text-main);">
+            <div class="modal-header border-secondary py-2">
+                <h6 class="modal-title">确认操作</h6>
+                <button type="button" class="btn btn-llama p-1" data-bs-dismiss="modal" aria-label="Close">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" style="width: 20px; height: 20px;">
+                      <path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" />
+                    </svg>
+                </button>
+            </div>
+            <div class="modal-body text-center py-4">
+                <p class="mb-0 small">确定要恢复默认参数设置吗？</p>
+            </div>
+            <div class="modal-footer border-secondary justify-content-center p-2">
+                <button type="button" class="btn btn-sm btn-outline-secondary border-0" data-bs-dismiss="modal">取消</button>
+                <button type="button" class="btn btn-sm btn-primary px-3" onclick="confirmReset()">确定</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 未检测到更改提示模态框 (No Changes Modal) -->
+<div class="modal fade" id="noChangesModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered modal-sm">
+        <div class="modal-content" style="background-color: var(--llama-bg); border: 1px solid var(--llama-border); color: var(--llama-text-main);">
+            <div class="modal-header border-secondary py-2">
+                <h6 class="modal-title">提示</h6>
+                <button type="button" class="btn btn-llama p-1" data-bs-dismiss="modal" aria-label="Close">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" style="width: 20px; height: 20px;">
+                      <path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" />
+                    </svg>
+                </button>
+            </div>
+            <div class="modal-body text-center py-4">
+                <p class="mb-0 small">当前设置未发生改变</p>
+            </div>
+            <div class="modal-footer border-secondary justify-content-center p-2">
+                <button type="button" class="btn btn-sm btn-primary px-3" data-bs-dismiss="modal">确定</button>
+            </div>
+        </div>
+    </div>
+</div>
+
 <!-- 引入自定义 JS -->
 <script src="static/js/main.js"></script>
 

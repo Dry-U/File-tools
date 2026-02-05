@@ -1,68 +1,67 @@
-# tests/conftest.py
 import pytest
 import tempfile
-import os
+import shutil
 import sys
+import os
 from pathlib import Path
+from unittest.mock import Mock
 
-# Add the project root to sys.path to allow imports from backend
-project_root = Path(__file__).parent.parent
-sys.path.insert(0, str(project_root))
+# Add project root to python path
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 from backend.utils.config_loader import ConfigLoader
-from backend.core.file_scanner import FileScanner
-from backend.core.index_manager import IndexManager
-from backend.core.search_engine import SearchEngine
-from backend.core.model_manager import ModelManager
-from backend.core.rag_pipeline import HybridRetriever
-from backend.core.vector_engine import VectorEngine
-from backend.core.smart_indexer import SmartIndexer
 
-@pytest.fixture(scope="session")
+@pytest.fixture
 def temp_config():
-    """临时配置fixture"""
-    config_data = {
-        'system': {'data_dir': tempfile.mkdtemp()},
-        'file_scanner': {'scan_paths': [tempfile.mkdtemp()]},
-        'embedding': {'cache_dir': tempfile.mkdtemp()},
-        'ai_model': {'model_path': tempfile.mkdtemp()}
-    }
-    config_path = Path(tempfile.mkdtemp()) / 'test_config.yaml'
-    with open(config_path, 'w') as f:
-        import yaml
-        yaml.dump(config_data, f)
-    yield ConfigLoader(str(config_path))
-    # 清理
-    os.remove(config_path)
-
-@pytest.fixture
-def mock_scanner(temp_config):
-    """模拟FileScanner"""
-    return FileScanner(temp_config)
-
-@pytest.fixture
-def mock_indexer(temp_config):
-    """模拟SmartIndexer"""
-    return SmartIndexer(temp_config)
-
-@pytest.fixture
-def mock_rag(temp_config):
-    """模拟RAGPipeline（简化模型）"""
-    model_manager = ModelManager(temp_config)
-    vector_engine = VectorEngine(temp_config)
-    retriever = HybridRetriever(temp_config, vector_engine)
-    from backend.core.rag_pipeline import RAGPipeline
-    return RAGPipeline(model_manager, temp_config, retriever)
+    """Create a temporary configuration for testing"""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        # Create mock config
+        config = Mock(spec=ConfigLoader)
+        
+        # Setup basic config values
+        config_data = {
+            'system': {
+                'data_dir': tmpdir
+            },
+            'index': {
+                'tantivy_path': f'{tmpdir}/tantivy',
+                'hnsw_path': f'{tmpdir}/hnsw',
+                'metadata_path': f'{tmpdir}/metadata'
+            },
+            'search': {
+                'text_weight': 0.5,
+                'vector_weight': 0.5,
+                'max_results': 10
+            },
+            'embedding': {
+                'enabled': False
+            }
+        }
+        
+        # Setup mock methods
+        def get_side_effect(section, key=None, default=None):
+            if key is None:
+                return config_data.get(section, default or {})
+            return config_data.get(section, {}).get(key, default)
+            
+        config.get.side_effect = get_side_effect
+        config.getint.side_effect = lambda section, key, default=0: int(config_data.get(section, {}).get(key, default))
+        config.getfloat.side_effect = lambda section, key, default=0.0: float(config_data.get(section, {}).get(key, default))
+        config.getboolean.side_effect = lambda section, key, default=False: bool(config_data.get(section, {}).get(key, default))
+        
+        yield config
 
 @pytest.fixture
 def generate_test_data(tmp_path):
-    """生成测试数据目录fixture"""
-    def _generate(scale: int):
-        test_dir = tmp_path / f"scale_{scale}"
-        test_dir.mkdir()
-        for i in range(scale):
-            file_path = test_dir / f"test_{i}.txt"
-            with open(file_path, 'w') as f:
-                f.write(f"测试内容 {i}")
-        return str(test_dir)
+    """Fixture to generate test data files"""
+    def _generate(count):
+        data_dir = tmp_path / "test_data"
+        data_dir.mkdir(exist_ok=True)
+        
+        for i in range(count):
+            file_path = data_dir / f"doc_{i}.txt"
+            file_path.write_text(f"This is test document {i} with some content for searching.", encoding='utf-8')
+            
+        return str(data_dir)
+    
     return _generate

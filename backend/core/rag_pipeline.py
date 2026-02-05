@@ -968,3 +968,55 @@ class RAGPipeline:
         answer = answer.replace('[QUERY_TERM]', '').replace('[/QUERY_TERM]', '')
 
         return answer.strip()
+
+    def get_session_stats(self, session_id: str = None) -> Dict[str, Any]:
+        """获取会话统计信息"""
+        session_key = session_id or ''
+        history = self.session_histories.get(session_key, [])
+        
+        total_chars = 0
+        for turn in history:
+            total_chars += len(turn.get('q', '') or '')
+            total_chars += len(turn.get('a', '') or '')
+        
+        return {
+            'session_id': session_key,
+            'turn_count': len(history),
+            'total_characters': total_chars,
+            'max_history_turns': self.max_history_turns,
+            'max_history_chars': self.max_history_chars
+        }
+
+    def clear_session(self, session_id: str = None) -> bool:
+        """清空指定会话的历史记录"""
+        session_key = session_id or ''
+        if session_key in self.session_histories:
+            del self.session_histories[session_key]
+            return True
+        return False
+
+    def get_all_sessions(self) -> List[str]:
+        """获取所有活跃会话ID"""
+        return list(self.session_histories.keys())
+
+    def update_config(self, **kwargs):
+        """动态更新RAG配置"""
+        for key, value in kwargs.items():
+            if hasattr(self, key):
+                setattr(self, key, value)
+                logger.info(f"更新RAG配置: {key} = {value}")
+    
+    def get_config(self) -> Dict[str, Any]:
+        """获取当前RAG配置"""
+        return {
+            'max_docs': self.max_docs,
+            'max_context_chars': self.max_context_chars,
+            'max_context_chars_total': self.max_context_chars_total,
+            'max_history_turns': self.max_history_turns,
+            'max_history_chars': self.max_history_chars,
+            'max_output_tokens': self.max_output_tokens,
+            'temperature': self.temperature,
+            'prompt_template': self.prompt_template,
+            'greeting_keywords': self.greeting_keywords,
+            'reset_commands': self.reset_commands
+        }
