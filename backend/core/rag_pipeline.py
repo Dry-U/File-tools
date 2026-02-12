@@ -231,7 +231,28 @@ class RAGPipeline:
             results = self.vram_manager.get_cached_result(cache_key)
 
             if results is None:
-                results = self.search_engine.search(query) or []
+                # 使用扩展查询来提高召回率
+                search_queries = [query]
+
+                # 如果查询是缩写或短词，尝试不同的变体
+                if len(query) <= 5 or query.isupper():
+                    # 添加小写版本
+                    search_queries.append(query.lower())
+                    # 添加首字母大写版本
+                    search_queries.append(query.capitalize())
+
+                all_results = []
+                seen_paths = set()
+
+                for search_query in search_queries:
+                    query_results = self.search_engine.search(search_query) or []
+                    for res in query_results:
+                        path = res.get('path', '')
+                        if path and path not in seen_paths:
+                            seen_paths.add(path)
+                            all_results.append(res)
+
+                results = all_results
                 if results:
                     self.vram_manager.cache_result(cache_key, results, len(results))
             else:

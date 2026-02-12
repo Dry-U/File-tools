@@ -119,6 +119,49 @@ function confirmReset() {
 // Settings State Management
 let initialSettings = {};
 
+// Load settings from backend when modal opens
+async function loadSettings() {
+    try {
+        const response = await fetch('/api/config');
+        if (response.ok) {
+            const config = await response.json();
+            // Apply settings to form elements
+            if (config.ai_model) {
+                document.getElementById('tempRange').value = config.ai_model.temperature ?? 0.7;
+                document.getElementById('tempValue').innerText = config.ai_model.temperature ?? 0.7;
+                document.getElementById('topPRange').value = config.ai_model.top_p ?? 0.9;
+                document.getElementById('topPValue').innerText = config.ai_model.top_p ?? 0.9;
+                document.getElementById('topKInput').value = config.ai_model.top_k ?? 40;
+                document.getElementById('minPRange').value = config.ai_model.min_p ?? 0.05;
+                document.getElementById('minPValue').innerText = config.ai_model.min_p ?? 0.05;
+                document.getElementById('maxTokensInput').value = config.ai_model.max_tokens ?? 2048;
+                document.getElementById('seedInput').value = config.ai_model.seed ?? -1;
+                document.getElementById('repeatPenaltyRange').value = config.ai_model.repeat_penalty ?? 1.1;
+                document.getElementById('repeatPenaltyValue').innerText = config.ai_model.repeat_penalty ?? 1.1;
+                document.getElementById('freqPenaltyRange').value = config.ai_model.frequency_penalty ?? 0.0;
+                document.getElementById('freqPenaltyValue').innerText = config.ai_model.frequency_penalty ?? 0.0;
+                document.getElementById('presencePenaltyRange').value = config.ai_model.presence_penalty ?? 0.0;
+                document.getElementById('presencePenaltyValue').innerText = config.ai_model.presence_penalty ?? 0.0;
+
+                // Set interface mode
+                if (config.ai_model.interface_type === 'api') {
+                    document.getElementById('modeAPI').checked = true;
+                    document.getElementById('apiSettings').style.display = 'block';
+                } else {
+                    document.getElementById('modeWSL').checked = true;
+                    document.getElementById('apiSettings').style.display = 'none';
+                }
+
+                document.getElementById('apiUrlInput').value = config.ai_model.api_url ?? '';
+                document.getElementById('apiKeyInput').value = config.ai_model.api_key ?? '';
+                document.getElementById('modelNameInput').value = config.ai_model.api_model ?? '';
+            }
+        }
+    } catch (error) {
+        console.error('Load settings error:', error);
+    }
+}
+
 function getCurrentSettings() {
     return {
         temp: document.getElementById('tempRange').value,
@@ -139,7 +182,8 @@ function getCurrentSettings() {
 
 // Capture settings when modal opens
 const settingsModalEl = document.getElementById('settingsModal');
-settingsModalEl.addEventListener('show.bs.modal', event => {
+settingsModalEl.addEventListener('show.bs.modal', async event => {
+    await loadSettings();
     initialSettings = getCurrentSettings();
 });
 
@@ -351,7 +395,7 @@ function toggleSidebar() {
     } else {
         sidebar.classList.toggle('collapsed');
     }
-    
+
     // 更新图标
     const isVisible = isMobile ? sidebar.classList.contains('show') : !sidebar.classList.contains('collapsed');
 
@@ -695,14 +739,15 @@ async function sendMessage() {
     initialContainer.classList.remove('h-100', 'justify-content-center');
     welcomeText.style.display = 'none';
     chatContainer.style.display = 'block';
-    inputWrapper.style.background = ''; 
+    inputWrapper.style.background = '';
 
+    // 添加用户消息
     addMessage(text, 'user');
     input.value = '';
     input.style.height = 'auto';
 
-    // Add loading message
-    const loadingId = addMessage('正在思考...', 'ai', true);
+    // 添加AI加载消息（带加载动画）
+    const loadingId = addLoadingMessage();
 
     try {
         const response = await fetch('/api/chat', {
@@ -717,10 +762,9 @@ async function sendMessage() {
         });
 
         const data = await response.json();
-        
-        // Remove loading message
-        const loadingEl = document.getElementById(loadingId);
-        if (loadingEl) loadingEl.remove();
+
+        // 移除加载消息
+        removeLoadingMessage(loadingId);
 
         if (response.ok) {
             addMessage(data.answer || '没有收到回复', 'ai');
@@ -729,31 +773,68 @@ async function sendMessage() {
         }
     } catch (error) {
         console.error('Chat error:', error);
-        const loadingEl = document.getElementById(loadingId);
-        if (loadingEl) loadingEl.remove();
+        removeLoadingMessage(loadingId);
         addMessage('网络错误，请稍后重试', 'ai');
     }
 }
 
+let loadingMessages = {};
+
 function addMessage(text, type, isLoading = false) {
     const container = document.getElementById('chatContainer');
     const div = document.createElement('div');
-    div.className = 'message-row';
+    div.className = 'message-row ' + type;
     const id = 'msg-' + Date.now();
     div.id = id;
-    
+
     const icon = type === 'user' ? 'bi-person' : 'bi-robot';
     const avatarClass = type === 'user' ? 'avatar-user' : 'avatar-ai';
-    
+
+    // 处理换行符
+    const formattedText = escapeHtml(text).replace(/\n/g, '<br>');
+
     div.innerHTML = `
         <div class="message-avatar ${avatarClass}"><i class="bi ${icon}"></i></div>
         <div class="message-content">
-            <p>${text}</p>
+            <p>${formattedText}</p>
         </div>
     `;
     container.appendChild(div);
     container.scrollTop = container.scrollHeight;
     return id;
+}
+
+// 添加加载消息（带动画）
+function addLoadingMessage() {
+    const container = document.getElementById('chatContainer');
+    const div = document.createElement('div');
+    div.className = 'message-row ai';
+    const id = 'loading-' + Date.now();
+    div.id = id;
+
+    div.innerHTML = `
+        <div class="message-avatar avatar-ai"><i class="bi bi-robot"></i></div>
+        <div class="message-content">
+            <div class="loading-dots">
+                <span></span>
+                <span></span>
+                <span></span>
+            </div>
+        </div>
+    `;
+    container.appendChild(div);
+    container.scrollTop = container.scrollHeight;
+    loadingMessages[id] = div;
+    return id;
+}
+
+// 移除加载消息
+function removeLoadingMessage(id) {
+    const loadingEl = document.getElementById(id);
+    if (loadingEl) {
+        loadingEl.remove();
+        delete loadingMessages[id];
+    }
 }
 
 // 绑定回车事件

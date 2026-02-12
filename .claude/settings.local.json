@@ -9,7 +9,9 @@
       "Bash(timeout 10 python:*)",
       "Bash(timeout 8 python:*)",
       "Bash(pip install:*)",
-      "Bash(python -m py_compile:*)"
+      "Bash(python -m py_compile:*)",
+      "Bash(python main.py:*)",
+      "Bash(chcp:*)"
     ]
   }
 }

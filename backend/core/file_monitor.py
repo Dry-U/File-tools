@@ -56,9 +56,15 @@ class FileMonitor:
             config_dirs = ''
         
         if config_dirs:
-            # 分割配置中的目录列表
-            for dir_path in config_dirs.split(';'):
-                dir_path = dir_path.strip()
+            # Handle both list and string types for config_dirs
+            if isinstance(config_dirs, list):
+                dir_list = config_dirs
+            else:
+                # 分割配置中的目录列表
+                dir_list = config_dirs.split(';')
+
+            for dir_path in dir_list:
+                dir_path = str(dir_path).strip()
                 if dir_path and os.path.exists(dir_path):
                     monitored_dirs.append(os.path.abspath(dir_path))
         

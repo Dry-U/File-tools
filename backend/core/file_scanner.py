@@ -69,20 +69,21 @@ class FileScanner:
     
     def _get_scan_paths(self) -> List[str]:
         """从配置中获取扫描路径"""
-        scan_paths_str = ""
+        scan_paths_value = ""
         try:
             scan_paths_value = self.config_loader.get('file_scanner', 'scan_paths', "")
-            scan_paths_str = str(scan_paths_value)
-            self.logger.info(f"配置的扫描路径字符串: {scan_paths_str}")
+            self.logger.info(f"配置的扫描路径原始值: {scan_paths_value} (类型: {type(scan_paths_value).__name__})")
         except Exception as e:
             self.logger.error(f"获取扫描路径配置失败: {str(e)}")
-            scan_paths_str = ""
-        
-        # 确保scan_paths_str是字符串类型
-        if not isinstance(scan_paths_str, str):
-            scan_paths_str = str(scan_paths_str)
-        
-        scan_paths = scan_paths_str.split(';')
+            scan_paths_value = ""
+
+        # Handle both list and string types for scan_paths
+        if isinstance(scan_paths_value, list):
+            scan_paths = scan_paths_value
+        elif isinstance(scan_paths_value, str):
+            scan_paths = scan_paths_value.split(';') if scan_paths_value else []
+        else:
+            scan_paths = [str(scan_paths_value)] if scan_paths_value else []
         # 过滤空路径和不存在的路径
         valid_paths = []
         for path in scan_paths:

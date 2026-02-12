@@ -110,6 +110,12 @@ class ModelManager:
 
             # 确保使用 /chat/completions 端点
             request_url = self.api_url
+            # 检查URL是否有效
+            if not request_url or not request_url.startswith('http'):
+                logger.error(f"Invalid API URL: {request_url}")
+                yield "错误：API URL未配置或格式无效，请在设置中配置正确的API地址"
+                return
+
             if '/completions' in request_url and '/chat/completions' not in request_url:
                 request_url = request_url.replace('/completions', '/chat/completions')
             elif '/chat/completions' not in request_url:

@@ -142,8 +142,10 @@ def run_desktop_app():
         logger.warning("服务器在超时前未完全就绪，仍将尝试创建窗口")
 
     # 创建 Pywebview 窗口
+    # 注意：pywebview不支持直接设置窗口图标
+    # Windows图标需要在打包时通过pyinstaller的--icon参数指定
     window = webview.create_window(
-        title='智能文件检索与问答系统',
+        title='File Tools',
         url=url,
         width=1280,
         height=800,

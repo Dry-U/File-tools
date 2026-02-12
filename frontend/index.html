@@ -18,7 +18,8 @@
     <!-- 侧边栏 (Sidebar) -->
     <div class="sidebar p-3 collapsed" id="sidebar">
         <!-- Logo / Header -->
-        <div class="mb-4 px-2 mt-2">
+        <div class="mb-4 px-2 mt-2 d-flex align-items-center gap-2">
+            <img src="static/logo.svg" alt="Logo" style="width: 28px; height: 28px;">
             <h5 class="m-0 fw-bold text-light">File Tools</h5>
         </div>
 
@@ -34,6 +35,9 @@
                         <button class="btn btn-sm btn-llama active file-type-btn" data-type="docx" onclick="toggleFileType(this)">Word</button>
                         <button class="btn btn-sm btn-llama active file-type-btn" data-type="txt" onclick="toggleFileType(this)">TXT</button>
                         <button class="btn btn-sm btn-llama file-type-btn" data-type="md" onclick="toggleFileType(this)">MD</button>
+                        <button class="btn btn-sm btn-llama file-type-btn" data-type="ppt,pptx" onclick="toggleFileType(this)" title="PowerPoint演示文稿">PPT</button>
+                        <button class="btn btn-sm btn-llama file-type-btn" data-type="xls,xlsx" onclick="toggleFileType(this)" title="Excel表格">Excel</button>
+                        <button class="btn btn-sm btn-llama file-type-btn" data-type="other" onclick="toggleFileType(this)" title="其他类型文件(.zip, .rar, .7z, .py, .js, .json, .xml等)">Others</button>
                     </div>
                 </div>
 
@@ -49,21 +53,33 @@
                 <div class="settings-group">
                     <span class="settings-label">修改日期范围</span>
                     <div class="d-flex flex-column gap-2">
-                        <input type="date" class="form-control form-control-sm bg-dark text-light border-secondary" id="dateFrom" placeholder="开始日期">
-                        <input type="date" class="form-control form-control-sm bg-dark text-light border-secondary" id="dateTo" placeholder="结束日期">
+                        <div class="d-flex align-items-center gap-2">
+                            <span class="text-muted small" style="min-width: 40px;">起:</span>
+                            <input type="date" class="form-control form-control-sm bg-dark text-light border-secondary" id="dateFrom">
+                        </div>
+                        <div class="d-flex align-items-center gap-2">
+                            <span class="text-muted small" style="min-width: 40px;">止:</span>
+                            <input type="date" class="form-control form-control-sm bg-dark text-light border-secondary" id="dateTo">
+                        </div>
                     </div>
                 </div>
 
                 <div class="settings-group">
                     <span class="settings-label">高级选项</span>
                     <div class="d-flex flex-column gap-2">
-                        <div class="form-check form-switch">
-                            <input class="form-check-input" type="checkbox" id="caseSensitive">
-                            <label class="form-check-label small text-light" for="caseSensitive">区分大小写</label>
+                        <div class="form-check form-switch" title="区分大小写功能暂不可用：索引已统一转为小写存储">
+                            <input class="form-check-input" type="checkbox" id="caseSensitive" disabled>
+                            <label class="form-check-label small text-muted" for="caseSensitive" style="text-decoration: line-through;">
+                                区分大小写
+                                <i class="bi bi-slash-circle ms-1" style="font-size: 0.75rem;" title="该功能暂不可用"></i>
+                            </label>
                         </div>
-                        <div class="form-check form-switch">
-                            <input class="form-check-input" type="checkbox" id="matchWholeWord">
-                            <label class="form-check-label small text-light" for="matchWholeWord">全字匹配</label>
+                        <div class="form-check form-switch" title="全字匹配功能暂不可用">
+                            <input class="form-check-input" type="checkbox" id="matchWholeWord" disabled>
+                            <label class="form-check-label small text-muted" for="matchWholeWord" style="text-decoration: line-through;">
+                                全字匹配
+                                <i class="bi bi-slash-circle ms-1" style="font-size: 0.75rem;" title="该功能暂不可用"></i>
+                            </label>
                         </div>
                         <div class="form-check form-switch">
                             <input class="form-check-input" type="checkbox" id="searchContent" checked>
@@ -111,7 +127,7 @@
     <!-- 主内容区 (Main Content) -->
     <div class="main-content">
         <!-- 顶部导航栏 (折叠按钮 + 模式切换 + 设置按钮) -->
-        <div class="d-flex align-items-center p-3 position-absolute top-0 start-0 z-3 w-100 bg-transparent">
+        <div class="d-flex align-items-center p-3 position-absolute top-0 start-0 z-3 w-100 top-nav-bar">
             <!-- 折叠按钮 (默认显示展开图标) -->
             <button class="btn btn-llama p-1 me-3" id="sidebarToggleBtn" onclick="toggleSidebar()">
                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="size-6" style="width: 24px; height: 24px;">
@@ -170,7 +186,7 @@
         </div>
 
         <!-- 2. 智能问答视图 (原聊天界面) -->
-        <div id="view-chat" class="d-flex flex-column h-100" style="display: none !important;">
+        <div id="view-chat" class="d-flex flex-column h-100" style="display: none !important; padding-top: 60px;">
             <!-- 聊天滚动区域 -->
             <div class="chat-scroll-area flex-grow-1" id="chatContainer" style="display: none;">
                 <!-- Messages will be added here -->
@@ -230,10 +246,10 @@
                     </div>
                     
                     <!-- 内容区域 -->
-                    <div class="tab-content flex-grow-1 border-start border-secondary ps-4" id="v-pills-tabContent">
+                    <div class="tab-content flex-grow-1 border-start border-secondary" id="v-pills-tabContent">
                         
                         <!-- 1. 采样参数 -->
-                        <div class="tab-pane fade show active" id="v-pills-sampling" role="tabpanel">
+                        <div class="tab-pane fade show active ps-4" id="v-pills-sampling" role="tabpanel">
                             <h6 class="mb-3 text-light">采样设置 (Sampling)</h6>
                             
                             <div class="mb-3">
@@ -279,7 +295,7 @@
                         </div>
 
                         <!-- 2. 惩罚参数 -->
-                        <div class="tab-pane fade" id="v-pills-penalty" role="tabpanel">
+                        <div class="tab-pane fade ps-4" id="v-pills-penalty" role="tabpanel">
                             <h6 class="mb-3 text-light">惩罚设置 (Penalties)</h6>
                             
                             <div class="mb-3">
@@ -309,7 +325,7 @@
                         </div>
 
                         <!-- 3. 接入模式 -->
-                        <div class="tab-pane fade" id="v-pills-mode" role="tabpanel">
+                        <div class="tab-pane fade ps-4" id="v-pills-mode" role="tabpanel">
                             <h6 class="mb-3 text-light">AI 接入模式</h6>
                             
                             <div class="list-group mb-3">
@@ -346,7 +362,7 @@
                         </div>
 
                         <!-- 4. 关于 -->
-                        <div class="tab-pane fade" id="v-pills-about" role="tabpanel">
+                        <div class="tab-pane fade ps-4" id="v-pills-about" role="tabpanel">
                             <div class="text-center py-4">
                                 <h4 class="fw-bold mb-3">File Tools</h4>
                                 <p class="text-muted mb-4">智能文件检索与问答系统 v1.0.0</p>
@@ -424,11 +440,11 @@
 </div>
 
 <!-- 确认重建索引模态框 (Rebuild Index Confirmation Modal) -->
-<div class="modal fade" id="rebuildIndexModal" tabindex="-1" aria-hidden="true">
+<div class="modal fade" id="rebuildIndexModal" tabindex="-1" aria-hidden="true" data-bs-backdrop="static" data-bs-keyboard="false">
     <div class="modal-dialog modal-dialog-centered modal-sm">
         <div class="modal-content" style="background-color: var(--llama-bg); border: 1px solid var(--llama-border); color: var(--llama-text-main);">
             <div class="modal-header border-secondary py-2">
-                <h6 class="modal-title">确认操作</h6>
+                <h6 class="modal-title"><i class="bi bi-arrow-clockwise me-2"></i>重建索引</h6>
                 <button type="button" class="btn btn-llama p-1" data-bs-dismiss="modal" aria-label="Close" id="rebuildCloseBtn">
                     <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" style="width: 20px; height: 20px;">
                       <path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" />
@@ -437,6 +453,10 @@
             </div>
             <div class="modal-body text-center py-4" id="rebuildModalBody">
                 <p class="mb-0 small">确定要重建文件索引吗？<br>这可能需要一些时间。</p>
+                <div class="alert alert-warning mt-3 mb-0 py-2 px-2 small text-start" style="font-size: 0.75rem;">
+                    <i class="bi bi-info-circle me-1"></i>
+                    重建期间请勿操作文件，如有文件监控冲突可暂时关闭监控。
+                </div>
             </div>
             <div class="modal-footer border-secondary justify-content-center p-2" id="rebuildModalFooter">
                 <button type="button" class="btn btn-sm btn-outline-secondary border-0" data-bs-dismiss="modal">取消</button>

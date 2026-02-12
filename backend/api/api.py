@@ -596,6 +596,46 @@ async def update_config(
         raise HTTPException(status_code=500, detail=f"更新配置失败: {str(e)}")
 
 
+@api_router.get("/config")
+async def get_config(
+    config_loader: ConfigLoader = Depends(get_config_loader)
+):
+    """获取当前配置"""
+    try:
+        config = {
+            "ai_model": {
+                "temperature": config_loader.getfloat("ai_model", "temperature", 0.7),
+                "top_p": config_loader.getfloat("ai_model", "top_p", 0.9),
+                "top_k": config_loader.getint("ai_model", "top_k", 40),
+                "min_p": config_loader.getfloat("ai_model", "min_p", 0.05),
+                "max_tokens": config_loader.getint("ai_model", "max_tokens", 2048),
+                "seed": config_loader.getint("ai_model", "seed", -1),
+                "repeat_penalty": config_loader.getfloat("ai_model", "repeat_penalty", 1.1),
+                "frequency_penalty": config_loader.getfloat("ai_model", "frequency_penalty", 0.0),
+                "presence_penalty": config_loader.getfloat("ai_model", "presence_penalty", 0.0),
+                "interface_type": config_loader.get("ai_model", "interface_type", "wsl"),
+                "api_url": config_loader.get("ai_model", "api_url", ""),
+                "api_key": config_loader.get("ai_model", "api_key", ""),
+                "api_model": config_loader.get("ai_model", "api_model", ""),
+            },
+            "rag": {
+                "temperature": config_loader.getfloat("rag", "temperature", 0.5),
+                "top_p": config_loader.getfloat("rag", "top_p", 0.9),
+                "top_k": config_loader.getint("rag", "top_k", 40),
+                "min_p": config_loader.getfloat("rag", "min_p", 0.05),
+                "max_tokens": config_loader.getint("rag", "max_tokens", 2048),
+                "seed": config_loader.getint("rag", "seed", -1),
+                "repeat_penalty": config_loader.getfloat("rag", "repeat_penalty", 1.1),
+                "frequency_penalty": config_loader.getfloat("rag", "frequency_penalty", 0.0),
+                "presence_penalty": config_loader.getfloat("rag", "presence_penalty", 0.0),
+            }
+        }
+        return config
+    except Exception as e:
+        logger.error(f"Get config error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"获取配置失败: {str(e)}")
+
+
 # Include API router with /api prefix
 app.include_router(api_router, prefix="/api")
 
