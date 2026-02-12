@@ -502,6 +502,100 @@ async def chat(
         raise HTTPException(status_code=500, detail=f"Chat failed: {str(e)}")
 
 
+@api_router.get("/sessions")
+async def get_sessions(
+    rag_pipeline = Depends(get_rag_pipeline)
+):
+    """获取所有聊天会话列表"""
+    if not rag_pipeline:
+        return {"sessions": []}
+
+    try:
+        sessions = rag_pipeline.get_all_sessions()
+        return {"sessions": sessions}
+    except Exception as e:
+        logger.error(f"Get sessions error: {str(e)}")
+        return {"sessions": []}
+
+
+@api_router.delete("/sessions/{session_id}")
+async def delete_session(
+    session_id: str,
+    rag_pipeline = Depends(get_rag_pipeline)
+):
+    """删除特定会话"""
+    if not rag_pipeline:
+        raise HTTPException(status_code=500, detail="RAG pipeline not initialized")
+
+    try:
+        success = rag_pipeline.clear_session(session_id)
+        if success:
+            return {"status": "success", "message": "会话已删除"}
+        else:
+            raise HTTPException(status_code=404, detail="会话不存在")
+    except Exception as e:
+        logger.error(f"Delete session error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"删除会话失败: {str(e)}")
+
+
+@api_router.post("/config")
+async def update_config(
+    request: Request,
+    config_loader: ConfigLoader = Depends(get_config_loader)
+):
+    """更新配置并保存到文件"""
+    try:
+        body = await request.json()
+
+        # 验证配置数据
+        if not isinstance(body, dict):
+            raise HTTPException(status_code=400, detail="配置数据必须是JSON对象")
+
+        # 支持的配置节
+        valid_sections = {
+            'ai_model': ['temperature', 'top_p', 'top_k', 'min_p', 'max_tokens', 'seed',
+                        'repeat_penalty', 'frequency_penalty', 'presence_penalty',
+                        'interface_type', 'api_url', 'api_key', 'api_model', 'system_prompt'],
+            'rag': ['temperature', 'top_p', 'top_k', 'min_p', 'max_tokens', 'seed',
+                   'repeat_penalty', 'frequency_penalty', 'presence_penalty',
+                   'max_docs', 'max_context_chars', 'max_context_chars_total',
+                   'max_history_turns', 'max_history_chars', 'max_output_tokens']
+        }
+
+        # 更新配置
+        updated_sections = []
+        for section, values in body.items():
+            if section in valid_sections and isinstance(values, dict):
+                # 只更新允许的配置项
+                for key, value in values.items():
+                    if key in valid_sections[section]:
+                        config_loader.set(section, key, value)
+                updated_sections.append(section)
+
+        # 保存配置到文件
+        if updated_sections:
+            success = config_loader.save()
+            if success:
+                return {
+                    "status": "success",
+                    "message": "配置已保存",
+                    "updated_sections": updated_sections
+                }
+            else:
+                raise HTTPException(status_code=500, detail="保存配置文件失败")
+        else:
+            return {
+                "status": "warning",
+                "message": "没有有效的配置项需要更新"
+            }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Update config error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"更新配置失败: {str(e)}")
+
+
 # Include API router with /api prefix
 app.include_router(api_router, prefix="/api")
 

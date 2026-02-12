@@ -6,13 +6,6 @@ from typing import Optional, Generator, Any
 import requests  # 用于WSL API fallback
 from backend.utils.logger import setup_logger
 from backend.utils.config_loader import ConfigLoader
-# 临时定义缺失的类
-class InferenceOptimizer:
-    def __init__(self, model_manager):
-        self.model_manager = model_manager
-    def generate(self, prompt, session_id=None, max_tokens=512, temperature=0.7):
-        # 模拟生成
-        yield "模拟响应: " + prompt
 logger = setup_logger()
 
 def _normalize_text(text: str) -> str:
@@ -44,7 +37,6 @@ class ModelManager:
     """模型管理器：仅支持WSL和在线API接口"""
 
     def __init__(self, config_loader):
-        self.optimizer = InferenceOptimizer(self)
         self.config_loader = config_loader
         # 获取配置时增加健壮性检查
         try:
@@ -57,7 +49,6 @@ class ModelManager:
             self.request_timeout: int = config_loader.getint('ai_model', 'request_timeout', 60)
             self.default_max_tokens: int = config_loader.getint('ai_model', 'max_tokens', 2048)
         except Exception as e:
-            print(f"获取模型配置失败: {str(e)}")
             logger.error(f"获取模型配置失败: {str(e)}")
             # 使用默认值
             self.interface_type = 'wsl'
@@ -80,7 +71,6 @@ class ModelManager:
             try:
                 model_enabled = self.config_loader.getboolean('ai_model', 'enabled', False)
             except Exception as e:
-                print(f"检查模型启用状态失败: {str(e)}")
                 logger.error(f"检查模型启用状态失败: {str(e)}")
 
             if not model_enabled:

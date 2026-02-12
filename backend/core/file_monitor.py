@@ -490,12 +490,15 @@ if __name__ == "__main__":
     )
     
     # 这里仅作为示例，实际使用时需要传入真实的索引管理器和配置
+    logging.basicConfig(level=logging.INFO)
+    _mock_logger = logging.getLogger(__name__)
+
     class MockIndexManager:
         def update_document(self, file_path):
-            print(f"更新文档索引: {file_path}")
-            
+            _mock_logger.info(f"更新文档索引: {file_path}")
+
         def delete_document(self, file_path):
-            print(f"删除文档索引: {file_path}")
+            _mock_logger.info(f"删除文档索引: {file_path}")
     
     class MockConfig:
         def get(self, section, option, fallback=None):

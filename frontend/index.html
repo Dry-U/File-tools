@@ -47,6 +47,14 @@
                 </div>
 
                 <div class="settings-group">
+                    <span class="settings-label">修改日期范围</span>
+                    <div class="d-flex flex-column gap-2">
+                        <input type="date" class="form-control form-control-sm bg-dark text-light border-secondary" id="dateFrom" placeholder="开始日期">
+                        <input type="date" class="form-control form-control-sm bg-dark text-light border-secondary" id="dateTo" placeholder="结束日期">
+                    </div>
+                </div>
+
+                <div class="settings-group">
                     <span class="settings-label">高级选项</span>
                     <div class="d-flex flex-column gap-2">
                         <div class="form-check form-switch">
@@ -78,16 +86,13 @@
                 <button class="btn btn-outline-secondary w-100 mb-4 d-flex align-items-center justify-content-center gap-2" onclick="resetChat()">
                     <i class="bi bi-plus-lg"></i> 新建对话
                 </button>
-                
+
                 <div class="settings-group">
                     <span class="settings-label">历史记录</span>
-                    <div class="list-group list-group-flush">
-                        <button class="list-group-item list-group-item-action bg-transparent text-light border-0 px-2 py-2 small">
-                            <i class="bi bi-chat-left-text me-2"></i> 关于合同的查询...
-                        </button>
-                        <button class="list-group-item list-group-item-action bg-transparent text-light border-0 px-2 py-2 small">
-                            <i class="bi bi-chat-left-text me-2"></i> 项目计划书总结
-                        </button>
+                    <div class="list-group list-group-flush" id="historyList">
+                        <div class="text-muted small text-center py-3">
+                            <i class="bi bi-hourglass-split me-1"></i>加载中...
+                        </div>
                     </div>
                 </div>
             </div>

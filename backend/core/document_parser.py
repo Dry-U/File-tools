@@ -17,7 +17,6 @@ except ImportError:
     fitz = None
 from docx import Document as DocxDocument
 import pandas as pd
-import markdown
 # 尝试导入textract，如果失败则设置为None
 try:
     import textract # type: ignore
@@ -29,14 +28,26 @@ import datetime
 try:
     import win32com.client
 except ImportError as e:
-    print(f"Warning: Failed to import win32com.client: {e}")
+    logger = logging.getLogger(__name__)
+    logger.warning(f"Failed to import win32com.client: {e}")
     win32com = None
 except Exception as e:
-    print(f"Warning: Unexpected error importing win32com.client: {e}")
+    logger = logging.getLogger(__name__)
+    logger.warning(f"Unexpected error importing win32com.client: {e}")
     win32com = None
 
 class DocumentParser:
     """文档解析器类，用于提取各种格式文档的内容和元数据"""
+
+    # 文件大小限制常量（字节）
+    DEFAULT_MAX_FILE_SIZE_MB = 100  # 默认最大文件大小
+    MAX_FILE_SIZE_DOC_MB = 50       # Word文档最大大小
+    MAX_FILE_SIZE_TEXT_MB = 10      # 文本文件最大大小
+    MAX_FILE_SIZE_EXCEL_MB = 50     # Excel文件最大大小
+    MAX_OUTPUT_SIZE_PDF_MB = 50     # PDF输出文本最大大小
+    MAX_OUTPUT_SIZE_DOC_MB = 10     # Word输出文本最大大小
+    MAX_OUTPUT_SIZE_TEXT_MB = 10    # 文本文件输出最大大小
+
     def _parse_pptx(self, file_path):
         """解析PPTX文件"""
         try:
@@ -73,13 +84,14 @@ class DocumentParser:
 
         # 统一的文件大小限制（从配置读取，使用默认值）
         # 这些限制用于防止内存溢出
-        self.MAX_FILE_SIZE_PDF = config_loader.getint('file_scanner', 'max_file_size', 100) * 1024 * 1024  # 默认100MB
-        self.MAX_FILE_SIZE_DOC = 50 * 1024 * 1024  # 50MB for Word documents
-        self.MAX_FILE_SIZE_TEXT = 10 * 1024 * 1024  # 10MB for text files
-        self.MAX_FILE_SIZE_EXCEL = 50 * 1024 * 1024  # 50MB for Excel files
-        self.MAX_OUTPUT_SIZE_PDF = 50 * 1024 * 1024  # 50MB for PDF output text
-        self.MAX_OUTPUT_SIZE_DOC = 10 * 1024 * 1024  # 10MB for Word output text
-        self.MAX_OUTPUT_SIZE_TEXT = 10 * 1024 * 1024  # 10MB for text file read
+        max_file_size_mb = config_loader.getint('file_scanner', 'max_file_size', self.DEFAULT_MAX_FILE_SIZE_MB)
+        self.MAX_FILE_SIZE_PDF = max_file_size_mb * 1024 * 1024
+        self.MAX_FILE_SIZE_DOC = self.MAX_FILE_SIZE_DOC_MB * 1024 * 1024
+        self.MAX_FILE_SIZE_TEXT = self.MAX_FILE_SIZE_TEXT_MB * 1024 * 1024
+        self.MAX_FILE_SIZE_EXCEL = self.MAX_FILE_SIZE_EXCEL_MB * 1024 * 1024
+        self.MAX_OUTPUT_SIZE_PDF = self.MAX_OUTPUT_SIZE_PDF_MB * 1024 * 1024
+        self.MAX_OUTPUT_SIZE_DOC = self.MAX_OUTPUT_SIZE_DOC_MB * 1024 * 1024
+        self.MAX_OUTPUT_SIZE_TEXT = self.MAX_OUTPUT_SIZE_TEXT_MB * 1024 * 1024
 
         # 支持的文件类型映射到对应的解析函数
         self.parser_map = {

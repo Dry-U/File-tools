@@ -1,7 +1,15 @@
 {
   "permissions": {
     "allow": [
-      "Bash(gh pr list:*)"
+      "Bash(gh pr list:*)",
+      "Bash(dir:*)",
+      "Bash(wc -l:*)",
+      "Bash(python -c:*)",
+      "Bash(python -m pytest:*)",
+      "Bash(timeout 10 python:*)",
+      "Bash(timeout 8 python:*)",
+      "Bash(pip install:*)",
+      "Bash(python -m py_compile:*)"
     ]
   }
 }

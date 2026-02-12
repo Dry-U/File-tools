@@ -67,6 +67,11 @@ dependencies = [
 gpu = [
     "torch>=2.0.0,<3.0.0"
 ]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-html>=4.1.0",
+    "pytest-cov>=4.1.0",
+]
 
 [tool.setuptools.packages.find]
 where = ["backend"]
@@ -79,7 +84,10 @@ reportMissingTypeStubs = false
 reportMissingModuleSource = false
 
 [tool.pytest.ini_options]
-addopts = "-p no:langsmith"
+addopts = "-p no:langsmith --html=reports/test_report.html --self-contained-html"
 markers = [
     "performance: mark test as performance test",
+    "unit: mark test as unit test",
+    "integration: mark test as integration test",
 ]
+testpaths = ["tests"]

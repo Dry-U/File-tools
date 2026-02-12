@@ -55,6 +55,15 @@ ai_model:
   temperature: 0.6
   request_timeout: 600
   use_gpu: true
+  # 采样参数
+  top_p: 0.9
+  top_k: 40
+  min_p: 0.05
+  seed: -1
+  # 惩罚参数
+  repeat_penalty: 1.1
+  frequency_penalty: 0.0
+  presence_penalty: 0.0
 
 rag:
   max_docs: 3  # 增加文档数量以提供更多上下文
@@ -68,6 +77,10 @@ rag:
   frequency_penalty: 0.2
   presence_penalty: 0.2
   repetition_penalty: 1.1  # 增加重复惩罚以减少重复内容
+  # 采样参数
+  top_k: 40
+  min_p: 0.05
+  seed: -1
   prompt_template: |
     你是一名专业的中文文档分析助理。请基于【文档集合】中的内容，对用户的【问题】提供一个连贯、流畅、总结性的回答。
 
@@ -129,8 +142,10 @@ search:
   min_score: 0.3
   text_weight: 0.6  # 增加文本搜索权重，提高精确匹配
   vector_weight: 0.4  # 降低向量搜索权重，减少不相关语义匹配
-  bm25_k1: 1.5  # BM25参数，控制词频饱和度
-  bm25_b: 0.75  # BM25参数，控制文档长度标准化
+  # BM25参数
+  bm25_k1: 1.5  # 控制词频饱和度
+  bm25_b: 0.75  # 控制文档长度标准化
+  # 结果增强配置
   result_boost: true  # 启用结果增强
   filename_boost: 1.5  # 文件名匹配增强系数
   keyword_boost: 1.2  # 关键词匹配增强系数
@@ -138,12 +153,6 @@ search:
   # 语义搜索结果阈值
   semantic_score_high_threshold: 60.0  # 高质量语义结果阈值（有精确匹配时）
   semantic_score_low_threshold: 30.0  # 语义结果最低阈值（无精确匹配时）
-  bm25_k1: 1.5  # BM25参数，控制词频饱和度
-  bm25_b: 0.75  # BM25参数，控制文档长度标准化
-  result_boost: true  # 启用结果增强
-  filename_boost: 1.5  # 文件名匹配增强系数
-  keyword_boost: 1.2  # 关键词匹配增强系数
-  hybrid_boost: 1.1  # 混合搜索结果增强系数
 system:
   app_name: 智能文件检索与问答系统
   cache_dir: ./data/cache

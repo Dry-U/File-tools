@@ -224,7 +224,7 @@ class SearchEngine:
         """执行文本搜索"""
         try:
             # 调用索引管理器的文本搜索功能，获取更多结果以确保过滤后有足够数量
-            # 将过滤器传递给search_text
+            # 将过滤器传递给search_text，包括 case_sensitive 参数
             results = self.index_manager.search_text(query, limit=self.max_results * 3, filters=filters)
             self.logger.info(f"文本搜索返回 {len(results)} 条结果")
 

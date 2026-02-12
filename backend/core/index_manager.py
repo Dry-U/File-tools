@@ -33,8 +33,9 @@ class IndexManager:
             custom_dict_path = os.path.join(os.path.dirname(__file__), '..', '..', 'data', 'custom_dict.txt')
             if os.path.exists(custom_dict_path):
                 jieba.load_userdict(custom_dict_path)
-        except Exception:
-            pass
+                self.logger.debug(f"加载自定义词典: {custom_dict_path}")
+        except Exception as e:
+            self.logger.warning(f"加载自定义词典失败: {str(e)}")
         self.embedding_provider = config_loader.get('embedding', 'provider', 'fastembed')
         model_enabled = config_loader.get('embedding', 'enabled', False)
         if model_enabled:
@@ -132,9 +133,9 @@ class IndexManager:
                             vec = next(self.embedding_model.embed(['test']))
                             self.vector_dim = len(vec)
                             self.logger.info(f"Embedding模型加载成功，维度: {self.vector_dim}")
-                        except Exception:
+                        except Exception as e:
                             self.vector_dim = 384
-                            self.logger.warning(f"Embedding模型测试失败，使用默认维度: {self.vector_dim}")
+                            self.logger.warning(f"Embedding模型测试失败，使用默认维度: {self.vector_dim}, 错误: {str(e)}")
                     except Exception as e:
                         self.logger.error(f"Embedding模型创建失败，将禁用向量索引: {str(e)}")
                         self.embedding_model = None
@@ -157,8 +158,8 @@ class IndexManager:
         self.schema_updated = False
         try:
             self._ensure_schema_version()
-        except Exception:
-            pass
+        except Exception as e:
+            self.logger.warning(f"检查索引模式版本失败: {str(e)}")
 
     def _init_tantivy_index(self):
         schema_builder = tantivy.SchemaBuilder()
@@ -230,7 +231,8 @@ class IndexManager:
             self.hnsw.set_ef(200)
             self.vector_metadata = {}
             self.next_id = 0
-        except Exception:
+        except Exception as e:
+            self.logger.error(f"创建HNSW索引失败: {str(e)}")
             self.hnsw = None
             self.vector_metadata = {}
             self.next_id = 0
@@ -260,7 +262,8 @@ class IndexManager:
         try:
             tokens = jieba.lcut_for_search(text or '')
             return ' '.join([t for t in tokens if t.strip()])
-        except Exception:
+        except Exception as e:
+            self.logger.debug(f"分词失败: {str(e)}")
             return text or ''
 
     def add_document(self, document):
@@ -273,7 +276,8 @@ class IndexManager:
             fname_chars = ' '.join([c for c in document['filename']])
             try:
                 raw_content = document['content'] or ''
-            except Exception:
+            except (KeyError, TypeError) as e:
+                self.logger.debug(f"获取文档内容失败: {str(e)}")
                 raw_content = ''
             raw_text = str(raw_content)
             content_chars_source = raw_text
@@ -342,46 +346,49 @@ class IndexManager:
             return False
 
     def update_document(self, document):
+        """更新文档（先删除旧文档，再添加新文档）"""
         if not isinstance(document, dict):
             self.logger.error(f"无效的文档格式，期望字典但得到 {type(document)}")
             return False
         try:
             self.delete_document(document.get('path'))
-        except Exception:
-            pass
+        except Exception as e:
+            self.logger.debug(f"删除旧文档失败（可能不存在）{document.get('path', '')}: {str(e)}")
         return self.add_document(document)
 
     def delete_document(self, file_path):
+        """从索引中删除文档"""
         if not getattr(self, 'tantivy_index', None):
             return False
+
+        deleted_from_tantivy = False
         try:
-            try:
-                with self.tantivy_index.writer() as writer:
-                    try:
-                        query = self.tantivy_index.parse_query(f'"{file_path}"', ['path'])
-                        # 尝试通过查询删除，某些版本的python-tantivy不支持Term
-                        if hasattr(writer, 'delete_query'):
-                            writer.delete_query(query)
-                        elif hasattr(writer, 'delete_documents'):
-                            writer.delete_documents(query)
-                        # 若均不支持，则跳过删除，依赖结果去重与重建索引
-                    except Exception:
-                        pass
+            query = self.tantivy_index.parse_query(f'"{file_path}"', ['path'])
+            with self.tantivy_index.writer() as writer:
+                if hasattr(writer, 'delete_query'):
+                    writer.delete_query(query)
                     writer.commit()
-            except Exception:
-                pass
-            old_doc_id = None
+                    deleted_from_tantivy = True
+                elif hasattr(writer, 'delete_documents'):
+                    writer.delete_documents(query)
+                    writer.commit()
+                    deleted_from_tantivy = True
+                else:
+                    self.logger.warning("Tantivy writer不支持删除操作，跳过文本索引删除")
+        except Exception as e:
+            self.logger.warning(f"从Tantivy索引删除文档失败 {file_path}: {str(e)}")
+
+        # 从向量元数据中删除（HNSW不支持删除，只能删除元数据）
+        try:
             for doc_id, metadata in list(self.vector_metadata.items()):
                 if metadata.get('path') == file_path:
-                    old_doc_id = int(doc_id)
+                    del self.vector_metadata[doc_id]
+                    self.logger.debug(f"已从向量元数据中删除文档 {file_path}")
                     break
-            if old_doc_id is not None and self.hnsw is not None:
-                if str(old_doc_id) in self.vector_metadata:
-                    del self.vector_metadata[str(old_doc_id)]
-            return True
         except Exception as e:
-            self.logger.error(f"从索引中删除文档失败 {file_path}: {str(e)}")
-            return False
+            self.logger.warning(f"从向量元数据删除文档失败 {file_path}: {str(e)}")
+
+        return True
 
     def _highlight_text(self, content, query, window_size=120, max_snippets=3):
         """生成带有高亮关键词的多段文本摘要，并兼容常见的空格/大小写差异"""
@@ -582,8 +589,8 @@ class IndexManager:
                             # 如果索引中的内容不完整，尝试直接解析文件
                             parsed = self._parse_file_direct(path)
                             return parsed if parsed else content_val
-                except Exception:
-                    pass
+                except Exception as e:
+                    self.logger.debug(f"精确路径查询失败 {path}: {str(e)}")
 
                 # 2. 如果精确路径失败，尝试通过文件名查询 (作为后备)
                 filename = os.path.basename(path)
@@ -605,8 +612,8 @@ class IndexManager:
                                 # 如果索引中的内容不完整，尝试直接解析文件
                                 parsed = self._parse_file_direct(path)
                                 return parsed if parsed else content_val
-                except Exception:
-                    pass
+                except Exception as e:
+                    self.logger.debug(f"文件名查询失败 {path}: {str(e)}")
 
             except Exception as e:
                 self.logger.error(f"从索引获取内容失败: {str(e)}")
@@ -629,8 +636,8 @@ class IndexManager:
                     # 读取完整文件内容，不限制长度（调用方应自行处理大文件）
                     with open(path, 'r', encoding='utf-8', errors='ignore') as f:
                         return f.read()
-        except Exception:
-            pass
+        except Exception as e:
+            self.logger.debug(f"直接读取文件失败 {path}: {str(e)}")
         return ''
 
     def _parse_file_direct(self, path):
@@ -679,9 +686,9 @@ class IndexManager:
                     contains_query = norm_query_lower in display_lower
                     snippet = self._highlight_text(fallback_structured, norm_query)
                     structured_content = fallback_structured
-            except Exception:
-                pass
-        
+            except Exception as e:
+                self.logger.debug(f"Fallback解析失败: {str(e)}")
+
         # 转换时间戳
         modified_time = None
         if modified:
@@ -691,8 +698,8 @@ class IndexManager:
                     modified_time = datetime.datetime.fromtimestamp(modified).strftime('%Y-%m-%d %H:%M:%S')
                 else:
                     modified_time = str(modified)
-            except:
-                pass
+            except (ValueError, TypeError, OverflowError) as e:
+                self.logger.debug(f"时间戳转换失败: {str(e)}")
 
         return {
             'path': path,
@@ -712,16 +719,28 @@ class IndexManager:
             return []
         try:
             results = []
-            seg_query = self._segment(query_str)
+
+            # Handle case_sensitive option
+            case_sensitive = False
+            if filters and 'case_sensitive' in filters:
+                case_sensitive = filters['case_sensitive']
+
+            # If case insensitive, convert query to lowercase for better matching
+            if not case_sensitive:
+                query_str_processed = query_str.lower()
+            else:
+                query_str_processed = query_str
+
+            seg_query = self._segment(query_str_processed)
             self.tantivy_index.reload()
             searcher = self.tantivy_index.searcher()
             queries_to_try = []
-            
+
             # Determine fields based on filters
             search_content = True
             if filters and 'search_content' in filters:
                 search_content = filters['search_content']
-            
+
             if search_content:
                 exact_fields = ['content_raw', 'filename']
                 fields = ['filename', 'content', 'content_raw', 'keywords', 'filename_chars', 'content_chars']
@@ -736,55 +755,61 @@ class IndexManager:
 
             # 0. 优先尝试精确短语匹配，确保完全命中的文档排在前面
             try:
-                trimmed = query_str.strip()
+                trimmed = query_str_processed.strip()
                 if trimmed:
                     queries_to_try.append(self.tantivy_index.parse_query(f'"{trimmed}"', exact_fields))
-            except Exception:
-                pass
-            
+            except Exception as e:
+                self.logger.debug(f"精确短语查询构建失败: {str(e)}")
+
             if match_whole_word:
                 # 如果开启全字匹配，仅使用精确短语查询
                 # 并且尝试在所有字段上进行精确匹配
                 try:
-                    trimmed = query_str.strip()
+                    trimmed = query_str_processed.strip()
                     if trimmed:
                         queries_to_try.append(self.tantivy_index.parse_query(f'"{trimmed}"', fields))
-                except Exception: pass
+                except Exception as e:
+                    self.logger.debug(f"全字匹配查询构建失败: {str(e)}")
             else:
                 # 正常模糊搜索逻辑
                 # 简化查询构建逻辑
                 try:
                     queries_to_try.append(self.tantivy_index.parse_query(seg_query, fields))
-                except Exception: pass
-                
+                except Exception as e:
+                    self.logger.debug(f"分词查询构建失败: {str(e)}")
+
                 if query_str != seg_query:
                     try:
                         queries_to_try.append(self.tantivy_index.parse_query(query_str, fields))
-                    except Exception: pass
-                    
+                    except Exception as e:
+                        self.logger.debug(f"原始查询构建失败: {str(e)}")
+
                 # 尝试单词查询
                 try:
                     for word in seg_query.split():
                         if word.strip():
                             queries_to_try.append(self.tantivy_index.parse_query(word, fields))
-                except Exception: pass
-                
+                except Exception as e:
+                    self.logger.debug(f"单词查询构建失败: {str(e)}")
+
                 # 尝试字符查询
                 try:
                     import re
-                    for ch in re.findall(r'\w', query_str or ''):
+                    for ch in re.findall(r'\w', query_str_processed or ''):
                         if search_content:
                             queries_to_try.append(self.tantivy_index.parse_query(ch, ['filename_chars', 'content_chars']))
                         else:
                             queries_to_try.append(self.tantivy_index.parse_query(ch, ['filename_chars']))
-                except Exception: pass
-            
+                except Exception as e:
+                    self.logger.debug(f"字符查询构建失败: {str(e)}")
+
             all_hits = []
             for query in queries_to_try:
                 try:
                     hits = searcher.search(query, limit * 2).hits
                     all_hits.extend(hits)
-                except Exception:
+                except Exception as e:
+                    self.logger.debug(f"查询执行失败: {str(e)}")
                     continue
             
             unique_docs = {}
@@ -806,7 +831,8 @@ class IndexManager:
                     file_type_val = doc.get_first('file_type') or ''
                     size_val = doc.get_first('size') or 0
                     modified_val = doc.get_first('modified') or 0
-                except Exception:
+                except (AttributeError, KeyError, TypeError) as e:
+                    self.logger.debug(f"获取文档字段失败: {str(e)}")
                     continue
                 
                 # 不再限制BM25分数的上限，以便在搜索引擎中进行正确的归一化
@@ -814,13 +840,13 @@ class IndexManager:
                 raw_score = float(score)
                 
                 results.append(self._format_result(
-                    path_val, filename_val, content_val, content_raw_val, file_type_val, 
-                    size_val, modified_val, raw_score, query_str
+                    path_val, filename_val, content_val, content_raw_val, file_type_val,
+                    size_val, modified_val, raw_score, query_str_processed
                 ))
                 
             results.sort(key=lambda x: x['score'], reverse=True)
 
-            if query_str and results:
+            if query_str_processed and results:
                 # 先将包含高亮的结果排列到前面，但保留其他候选
                 highlighted = [r for r in results if 'text-danger' in (r.get('snippet') or '')]
                 if highlighted:
@@ -883,7 +909,8 @@ class IndexManager:
         try:
             vec = next(self.embedding_model.embed([text]))
             return np.array(vec, dtype=np.float32)
-        except Exception:
+        except (StopIteration, RuntimeError, ValueError) as e:
+            self.logger.debug(f"文本编码失败: {str(e)}")
             return np.zeros(getattr(self, 'vector_dim', 384), dtype=np.float32)
 
     def save_indexes(self):
@@ -952,7 +979,8 @@ class IndexManager:
     def is_index_ready(self):
         try:
             return os.path.exists(self.tantivy_index_path)
-        except Exception:
+        except (OSError, TypeError) as e:
+            self.logger.debug(f"检查索引状态失败: {str(e)}")
             return False
 
     def get_index_stats(self):
@@ -1040,8 +1068,8 @@ class IndexManager:
                         # 尝试获取向量以验证其存在性
                         if i < self.hnsw.get_current_count():
                             indexed_ids.add(i)
-                    except:
-                        pass
+                    except (RuntimeError, AttributeError) as e:
+                        self.logger.debug(f"检查向量ID {i} 失败: {str(e)}")
                 
                 metadata_ids = set(int(k) for k in self.vector_metadata.keys())
                 missing_in_metadata = indexed_ids - metadata_ids

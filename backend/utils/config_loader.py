@@ -7,6 +7,9 @@ from typing import Dict, Any, Optional
 from pathlib import Path
 import os
 import datetime
+import logging
+
+logger = logging.getLogger(__name__)
 
 class ConfigLoader:
     """配置加载器类，负责加载、验证和管理配置文件"""
@@ -22,7 +25,7 @@ class ConfigLoader:
         except FileNotFoundError:
             self.config = self._create_default_config()
         except Exception as e:
-            print(f"配置加载失败: {str(e)}")
+            logger.error(f"配置加载失败: {str(e)}")
             self.config = self._create_default_config()
         
         # 验证配置
@@ -173,9 +176,9 @@ class ConfigLoader:
             if os.name == 'posix':  # Unix-like systems
                 os.chmod(self.config_path, 0o600)  # 只有所有者可读写
 
-            print(f"已创建默认配置文件: {self.config_path}")
+            logger.info(f"已创建默认配置文件: {self.config_path}")
         except Exception as e:
-            print(f"创建默认配置文件失败: {str(e)}")
+            logger.error(f"创建默认配置文件失败: {str(e)}")
 
         return default_config
     
@@ -219,7 +222,7 @@ class ConfigLoader:
                 if expanded_path.exists() and expanded_path.is_dir():
                     validated_paths.append(str(expanded_path))
                 else:
-                    print(f"警告: 扫描路径不存在: {path}")
+                    logger.warning(f"扫描路径不存在: {path}")
             if not validated_paths:
                 # 如果没有有效路径，使用默认路径
                 default_path = Path.home() / 'Documents'
@@ -235,7 +238,7 @@ class ConfigLoader:
                 if expanded_path.exists() and expanded_path.is_dir():
                     validated_paths.append(str(expanded_path))
                 else:
-                    print(f"警告: 扫描路径不存在: {path}")
+                    logger.warning(f"扫描路径不存在: {path}")
             if not validated_paths:
                 # 如果没有有效路径，使用默认路径
                 default_path = Path.home() / 'Documents'
@@ -255,7 +258,7 @@ class ConfigLoader:
                 if expanded_path.exists() and expanded_path.is_dir():
                     validated_dirs.append(str(expanded_path))
                 else:
-                    print(f"警告: 监控目录不存在: {dir_path}")
+                    logger.warning(f"监控目录不存在: {dir_path}")
             if not validated_dirs:
                 # 如果没有有效路径，使用默认路径
                 default_path = Path.home() / 'Documents'
@@ -271,7 +274,7 @@ class ConfigLoader:
                 if expanded_path.exists() and expanded_path.is_dir():
                     validated_dirs.append(str(expanded_path))
                 else:
-                    print(f"警告: 监控目录不存在: {dir_path}")
+                    logger.warning(f"监控目录不存在: {dir_path}")
             if not validated_dirs:
                 # 如果没有有效路径，使用默认路径
                 default_path = Path.home() / 'Documents'
@@ -332,20 +335,20 @@ class ConfigLoader:
                 val = self.get(section, key, default_val)
                 if isinstance(val, (int, float)):
                     if val < min_val or val > max_val:
-                        print(f"警告: 配置项 {section}.{key} 的值 {val} 超出范围 [{min_val}, {max_val}]，使用默认值 {default_val}")
+                        logger.warning(f"配置项 {section}.{key} 的值 {val} 超出范围 [{min_val}, {max_val}]，使用默认值 {default_val}")
                         self.set(section, key, default_val)
                 else:
-                    print(f"警告: 配置项 {section}.{key} 的值 {val} 不是数值类型，使用默认值 {default_val}")
+                    logger.warning(f"配置项 {section}.{key} 的值 {val} 不是数值类型，使用默认值 {default_val}")
                     self.set(section, key, default_val)
             except Exception as e:
-                print(f"验证配置项 {section}.{key} 时出错: {e}")
+                logger.error(f"验证配置项 {section}.{key} 时出错: {e}")
                 self.set(section, key, default_val)
     
     def get(self, section, key: Optional[str] = None, default: Any = None) -> Any:
         """获取配置值"""
         # 添加类型检查，防止section为dict等不可哈希类型
         if not isinstance(section, (str, int)):
-            print(f"配置section必须是可哈希类型，收到类型: {type(section)}")
+            logger.warning(f"配置section必须是可哈希类型，收到类型: {type(section)}")
             return default
 
         if section not in self.config:
@@ -462,12 +465,12 @@ class ConfigLoader:
             # 复制当前配置文件到备份文件
             import shutil
             shutil.copy2(self.config_path, backup_path)
-            print(f"已创建配置备份: {backup_path}")
-            
+            logger.info(f"已创建配置备份: {backup_path}")
+
             # 清理旧备份，保留最近5个
             self._cleanup_old_backups()
         except Exception as e:
-            print(f"创建配置备份失败: {str(e)}")
+            logger.error(f"创建配置备份失败: {str(e)}")
     
     def _cleanup_old_backups(self) -> None:
         """清理旧的配置备份文件，保留最近5个"""
@@ -489,11 +492,11 @@ class ConfigLoader:
             for _, file in backups[5:]:
                 try:
                     file.unlink()
-                    print(f"已删除旧备份: {file}")
+                    logger.info(f"已删除旧备份: {file}")
                 except Exception as e:
-                    print(f"删除旧备份失败: {str(e)}")
+                    logger.warning(f"删除旧备份失败: {str(e)}")
         except Exception as e:
-            print(f"清理旧备份失败: {str(e)}")
+            logger.error(f"清理旧备份失败: {str(e)}")
     
     def save(self) -> bool:
         """保存配置到文件，自动创建备份"""
@@ -514,7 +517,7 @@ class ConfigLoader:
             
             return True
         except Exception as e:
-            print(f"保存配置文件失败: {str(e)}")
+            logger.error(f"保存配置文件失败: {str(e)}")
             return False
     
     def get_path(self, section: str, key: str, default: str = '') -> Path:
@@ -540,7 +543,7 @@ class ConfigLoader:
             self._validate_config()
             return True
         except Exception as e:
-            print(f"重新加载配置文件失败: {str(e)}")
+            logger.error(f"重新加载配置文件失败: {str(e)}")
             return False
 
     def update_config(self, updates: Dict[str, Any]) -> bool:
@@ -559,7 +562,7 @@ class ConfigLoader:
             self._validate_config()
             return True
         except Exception as e:
-            print(f"更新配置失败: {str(e)}")
+            logger.error(f"更新配置失败: {str(e)}")
             return False
 
     def update_section(self, section: str, values: Dict[str, Any]) -> bool:
@@ -574,7 +577,7 @@ class ConfigLoader:
             self._validate_config()
             return True
         except Exception as e:
-            print(f"更新配置节 {section} 失败: {str(e)}")
+            logger.error(f"更新配置节 {section} 失败: {str(e)}")
             return False
 
     def add_scan_path(self, path: str) -> bool:
@@ -582,7 +585,7 @@ class ConfigLoader:
         try:
             expanded_path = Path(path).expanduser()
             if not expanded_path.exists() or not expanded_path.is_dir():
-                print(f"路径不存在或不是目录: {path}")
+                logger.warning(f"路径不存在或不是目录: {path}")
                 return False
 
             scan_paths = self.get('file_scanner', 'scan_paths', [])
@@ -596,7 +599,7 @@ class ConfigLoader:
             
             return True
         except Exception as e:
-            print(f"添加扫描路径失败: {str(e)}")
+            logger.error(f"添加扫描路径失败: {str(e)}")
             return False
 
     def remove_scan_path(self, path: str) -> bool:
@@ -613,7 +616,7 @@ class ConfigLoader:
             
             return True
         except Exception as e:
-            print(f"移除扫描路径失败: {str(e)}")
+            logger.error(f"移除扫描路径失败: {str(e)}")
             return False
 
     def enable_ai_model(self) -> bool:
@@ -622,7 +625,7 @@ class ConfigLoader:
             self.set('ai_model', 'enabled', True)
             return True
         except Exception as e:
-            print(f"启用AI模型失败: {str(e)}")
+            logger.error(f"启用AI模型失败: {str(e)}")
             return False
 
     def disable_ai_model(self) -> bool:
@@ -631,5 +634,5 @@ class ConfigLoader:
             self.set('ai_model', 'enabled', False)
             return True
         except Exception as e:
-            print(f"禁用AI模型失败: {str(e)}")
+            logger.error(f"禁用AI模型失败: {str(e)}")
             return False

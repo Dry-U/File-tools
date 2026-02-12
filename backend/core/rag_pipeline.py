@@ -995,9 +995,51 @@ class RAGPipeline:
             return True
         return False
 
-    def get_all_sessions(self) -> List[str]:
-        """获取所有活跃会话ID"""
-        return list(self.session_histories.keys())
+    def get_all_sessions(self) -> List[Dict[str, Any]]:
+        """获取所有活跃会话的详细信息"""
+        sessions = []
+        for session_id, history in self.session_histories.items():
+            if not history:
+                continue
+
+            # 生成会话标题（基于第一条用户消息）
+            title = self._generate_session_title(history)
+
+            # 获取创建时间（第一条消息的时间戳）
+            created_at = history[0].get('timestamp', 0)
+
+            # 获取最后一条消息
+            last_message = history[-1].get('content', '') if history else ''
+            if len(last_message) > 50:
+                last_message = last_message[:50] + '...'
+
+            sessions.append({
+                'session_id': session_id,
+                'title': title,
+                'created_at': created_at,
+                'last_message': last_message,
+                'message_count': len(history)
+            })
+
+        # 按创建时间倒序排列
+        sessions.sort(key=lambda x: x['created_at'], reverse=True)
+        return sessions
+
+    def _generate_session_title(self, history: List[Dict[str, str]]) -> str:
+        """基于历史记录生成会话标题"""
+        if not history:
+            return '新对话'
+
+        # 查找第一条用户消息
+        for turn in history:
+            query = turn.get('q', '').strip()
+            if query:
+                # 限制长度
+                if len(query) > 30:
+                    return query[:30] + '...'
+                return query
+
+        return '新对话'
 
     def update_config(self, **kwargs):
         """动态更新RAG配置"""

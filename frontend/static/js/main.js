@@ -143,22 +143,164 @@ settingsModalEl.addEventListener('show.bs.modal', event => {
     initialSettings = getCurrentSettings();
 });
 
-function saveSettings() {
+async function saveSettings() {
     const currentSettings = getCurrentSettings();
     if (JSON.stringify(initialSettings) === JSON.stringify(currentSettings)) {
         // Show reminder
         const noChangeModal = new bootstrap.Modal(document.getElementById('noChangesModal'));
         noChangeModal.show();
-    } else {
-        // Save logic would go here (e.g., save to localStorage or backend config)
-        // For now, just close modal
-        const modal = bootstrap.Modal.getInstance(settingsModalEl);
-        modal.hide();
+        return;
     }
+
+    // Prepare config data for backend
+    const configData = {
+        ai_model: {
+            temperature: parseFloat(currentSettings.temp),
+            top_p: parseFloat(currentSettings.topP),
+            top_k: parseInt(currentSettings.topK),
+            min_p: parseFloat(currentSettings.minP),
+            max_tokens: parseInt(currentSettings.maxTokens),
+            seed: parseInt(currentSettings.seed),
+            repeat_penalty: parseFloat(currentSettings.repeatPenalty),
+            frequency_penalty: parseFloat(currentSettings.freqPenalty),
+            presence_penalty: parseFloat(currentSettings.presencePenalty),
+            interface_type: currentSettings.mode === 'modeWSL' ? 'wsl' : 'api',
+            api_url: currentSettings.apiUrl,
+            api_key: currentSettings.apiKey,
+            api_model: currentSettings.modelName
+        },
+        rag: {
+            temperature: parseFloat(currentSettings.temp),
+            top_p: parseFloat(currentSettings.topP),
+            top_k: parseInt(currentSettings.topK),
+            min_p: parseFloat(currentSettings.minP),
+            max_tokens: parseInt(currentSettings.maxTokens),
+            seed: parseInt(currentSettings.seed),
+            repeat_penalty: parseFloat(currentSettings.repeatPenalty),
+            frequency_penalty: parseFloat(currentSettings.freqPenalty),
+            presence_penalty: parseFloat(currentSettings.presencePenalty)
+        }
+    };
+
+    try {
+        const response = await fetch('/api/config', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(configData)
+        });
+
+        const data = await response.json();
+
+        if (response.ok && data.status === 'success') {
+            // Update initial settings to current after successful save
+            initialSettings = currentSettings;
+            // Close modal
+            const modal = bootstrap.Modal.getInstance(settingsModalEl);
+            modal.hide();
+            // Show success message (optional)
+            showToast('设置已保存');
+        } else {
+            throw new Error(data.detail || '保存失败');
+        }
+    } catch (error) {
+        console.error('Save settings error:', error);
+        showToast('保存失败: ' + error.message, 'error');
+    }
+}
+
+// Toast notification helper
+function showToast(message, type = 'success') {
+    const iconMap = {
+        'success': 'bi-check-circle-fill',
+        'error': 'bi-x-circle-fill',
+        'warning': 'bi-exclamation-triangle-fill',
+        'info': 'bi-info-circle-fill'
+    };
+
+    const bgMap = {
+        'success': 'bg-success',
+        'error': 'bg-danger',
+        'warning': 'bg-warning text-dark',
+        'info': 'bg-info text-dark'
+    };
+    // Create toast element
+    const toastEl = document.createElement('div');
+    const bgClass = bgMap[type] || 'bg-success';
+    const iconClass = iconMap[type] || 'bi-check-circle-fill';
+    const isDark = type === 'success' || type === 'error';
+    const btnCloseClass = isDark ? 'btn-close-white' : '';
+
+    toastEl.className = `toast align-items-center text-white ${bgClass} border-0`;
+    toastEl.setAttribute('role', 'alert');
+    toastEl.setAttribute('aria-live', 'assertive');
+    toastEl.setAttribute('aria-atomic', 'true');
+    toastEl.innerHTML = `
+        <div class="d-flex">
+            <div class="toast-body d-flex align-items-center">
+                <i class="bi ${iconClass} me-2"></i>
+                ${message}
+            </div>
+            <button type="button" class="btn-close ${btnCloseClass} me-2 m-auto" data-bs-dismiss="toast" aria-label="Close"></button>
+        </div>
+    `;
+
+    // Add to container
+    let toastContainer = document.getElementById('toastContainer');
+    if (!toastContainer) {
+        toastContainer = document.createElement('div');
+        toastContainer.id = 'toastContainer';
+        toastContainer.className = 'toast-container position-fixed top-0 end-0 p-3';
+        toastContainer.style.zIndex = '9999';
+        document.body.appendChild(toastContainer);
+    }
+
+    toastContainer.appendChild(toastEl);
+
+    // Initialize and show toast
+    const toast = new bootstrap.Toast(toastEl, { delay: 3000 });
+    toast.show();
+
+    // Remove from DOM after hidden
+    toastEl.addEventListener('hidden.bs.toast', () => {
+        toastEl.remove();
+    });
 }
 
 // 状态管理
 let currentMode = 'search'; // 'search' or 'chat'
+
+// 会话管理
+let currentSessionId = localStorage.getItem('chat_session_id') || generateSessionId();
+
+// 生成会话ID
+function generateSessionId() {
+    const newId = 'session_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+    localStorage.setItem('chat_session_id', newId);
+    return newId;
+}
+
+// 格式化日期
+function formatDate(timestamp) {
+    if (!timestamp) return '';
+    const date = new Date(timestamp * 1000);
+    const now = new Date();
+    const diff = now - date;
+
+    // 小于1小时显示"X分钟前"
+    if (diff < 3600000) {
+        const minutes = Math.floor(diff / 60000);
+        return minutes < 1 ? '刚刚' : `${minutes}分钟前`;
+    }
+    // 小于24小时显示"X小时前"
+    if (diff < 86400000) {
+        const hours = Math.floor(diff / 3600000);
+        return `${hours}小时前`;
+    }
+    // 否则显示日期
+    return date.toLocaleDateString('zh-CN', { month: 'short', day: 'numeric' });
+}
 
 // 模式切换逻辑
 function switchMode(mode) {
@@ -256,6 +398,111 @@ function resetChat() {
     // Clear messages
     const messages = document.querySelectorAll('.message-row');
     messages.forEach(msg => msg.remove());
+
+    // Generate new session ID
+    currentSessionId = generateSessionId();
+
+    // Reload history list
+    loadChatHistory();
+}
+
+// 加载历史会话列表
+async function loadChatHistory() {
+    try {
+        const response = await fetch('/api/sessions');
+        const data = await response.json();
+        const sessions = data.sessions || [];
+        renderHistoryList(sessions);
+    } catch (error) {
+        console.error('加载历史记录失败:', error);
+    }
+}
+
+// 渲染历史记录列表
+function renderHistoryList(sessions) {
+    const historyList = document.querySelector('#sidebar-chat-content .list-group');
+    if (!historyList) return;
+
+    if (sessions.length === 0) {
+        historyList.innerHTML = `
+            <div class="text-muted small text-center py-3">
+                <i class="bi bi-inbox me-1"></i>暂无历史记录
+            </div>
+        `;
+        return;
+    }
+
+    historyList.innerHTML = sessions.map(session => `
+        <button class="list-group-item list-group-item-action bg-transparent text-light border-0 px-2 py-2 small ${session.session_id === currentSessionId ? 'active' : ''}"
+                onclick="switchToSession('${session.session_id}')">
+            <div class="d-flex align-items-center">
+                <i class="bi bi-chat-left-text me-2"></i>
+                <div class="flex-grow-1 text-truncate">
+                    <div class="text-truncate">${escapeHtml(session.title)}</div>
+                    <small class="text-muted">${formatDate(session.created_at)} · ${session.message_count}条消息</small>
+                </div>
+            </div>
+        </button>
+    `).join('');
+}
+
+// 切换到指定会话
+function switchToSession(sessionId) {
+    currentSessionId = sessionId;
+    localStorage.setItem('chat_session_id', sessionId);
+
+    // Reset chat UI
+    resetChatUI();
+
+    // Reload history to update active state
+    loadChatHistory();
+}
+
+// 重置聊天UI（不清除会话ID）
+function resetChatUI() {
+    const initialContainer = document.getElementById('chat-initial-container');
+    const welcomeText = document.getElementById('chat-welcome-text');
+    const chatContainer = document.getElementById('chatContainer');
+    const inputWrapper = document.getElementById('chat-input-wrapper');
+
+    initialContainer.classList.add('h-100', 'justify-content-center');
+    welcomeText.style.display = 'block';
+    chatContainer.style.display = 'none';
+    inputWrapper.style.background = 'none';
+
+    // Clear messages
+    const messages = document.querySelectorAll('.message-row');
+    messages.forEach(msg => msg.remove());
+}
+
+// HTML转义
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+
+// 页面加载时获取历史记录
+document.addEventListener('DOMContentLoaded', async () => {
+    await loadChatHistory();
+    await checkSystemHealth();
+});
+
+// 健康检查
+async function checkSystemHealth() {
+    try {
+        const response = await fetch('/api/health');
+        const health = await response.json();
+
+        if (health.status === 'starting') {
+            showToast('系统正在初始化，请稍候...', 'info');
+        } else if (health.status !== 'healthy') {
+            showToast('系统状态异常: ' + health.message, 'warning');
+        }
+    } catch (error) {
+        console.error('Health check error:', error);
+        showToast('无法连接到后端服务', 'error');
+    }
 }
 
 async function performSearch() {
@@ -282,7 +529,17 @@ async function performSearch() {
         filters.size_max = parseFloat(maxSizeInput) * 1024 * 1024;
     }
 
-    // 3. Advanced Options
+    // 3. Date Range
+    const dateFrom = document.getElementById('dateFrom').value;
+    const dateTo = document.getElementById('dateTo').value;
+    if (dateFrom) {
+        filters.date_from = dateFrom;
+    }
+    if (dateTo) {
+        filters.date_to = dateTo;
+    }
+
+    // 4. Advanced Options
     filters.case_sensitive = document.getElementById('caseSensitive').checked;
     filters.match_whole_word = document.getElementById('matchWholeWord').checked;
     filters.search_content = document.getElementById('searchContent').checked;
@@ -453,7 +710,10 @@ async function sendMessage() {
             headers: {
                 'Content-Type': 'application/json'
             },
-            body: JSON.stringify({ query: text })
+            body: JSON.stringify({
+                query: text,
+                session_id: currentSessionId
+            })
         });
 
         const data = await response.json();
@@ -497,16 +757,25 @@ function addMessage(text, type, isLoading = false) {
 }
 
 // 绑定回车事件
-document.getElementById('userInput').addEventListener('keydown', function(e) {
-    if (e.key === 'Enter' && !e.shiftKey) {
-        e.preventDefault();
-        sendMessage();
-    }
-});
+document.addEventListener('DOMContentLoaded', function() {
+    const userInput = document.getElementById('userInput');
+    const searchInput = document.getElementById('searchInput');
 
-document.getElementById('searchInput').addEventListener('keydown', function(e) {
-    if (e.key === 'Enter') {
-        e.preventDefault();
-        performSearch();
+    if (userInput) {
+        userInput.addEventListener('keydown', function(e) {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                sendMessage();
+            }
+        });
+    }
+
+    if (searchInput) {
+        searchInput.addEventListener('keydown', function(e) {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                performSearch();
+            }
+        });
     }
 });
