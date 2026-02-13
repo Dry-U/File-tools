@@ -21,7 +21,9 @@
       "Bash(set CI=true:*)",
       "mcp__EXA__web_search_exa",
       "Bash(node:*)",
-      "mcp__playwright__browser_navigate"
+      "mcp__playwright__browser_navigate",
+      "Bash(curl:*)",
+      "Bash(where:*)"
     ]
   }
 }

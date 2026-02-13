@@ -471,15 +471,13 @@ function fillInput(text) {
 
 function resetChat() {
     // Reset UI state
-    const initialContainer = document.getElementById('chat-initial-container');
-    const welcomeText = document.getElementById('chat-welcome-text');
+    const welcomeContainer = document.getElementById('chat-welcome-container');
     const chatContainer = document.getElementById('chatContainer');
-    const inputWrapper = document.getElementById('chat-input-wrapper');
+    const inputArea = document.getElementById('chat-input-area');
 
-    initialContainer.classList.add('h-100', 'justify-content-center');
-    welcomeText.style.display = 'block';
+    welcomeContainer.style.display = 'flex';
     chatContainer.style.display = 'none';
-    inputWrapper.style.background = 'none';
+    inputArea.style.background = 'transparent';
 
     // Clear messages
     const messages = document.querySelectorAll('.message-row');
@@ -506,7 +504,7 @@ async function loadChatHistory() {
 
 // 渲染历史记录列表
 function renderHistoryList(sessions) {
-    const historyList = document.querySelector('#sidebar-chat-content .list-group');
+    const historyList = document.getElementById('historyList');
     if (!historyList) return;
 
     if (sessions.length === 0) {
@@ -519,41 +517,25 @@ function renderHistoryList(sessions) {
     }
 
     historyList.innerHTML = sessions.map(session => {
-        // Escape for HTML attribute
         const sessionIdAttr = escapeHtml(session.session_id);
-        // For inline onclick, use JSON.stringify for proper JS string escaping
         const sessionIdJs = JSON.stringify(session.session_id).slice(1, -1);
+        const isActive = session.session_id === currentSessionId ? 'active' : '';
         return `
-        <div class="list-group-item bg-transparent text-light border-0 px-2 py-2 small ${session.session_id === currentSessionId ? 'active' : ''}"
-             style="cursor: pointer;"
+        <div class="history-item ${isActive}"
              data-session-id="${sessionIdAttr}"
-             onclick="if(!event.target.closest('.delete-btn')) switchToSession('${sessionIdJs}')">
-            <div class="d-flex align-items-center">
-                <i class="bi bi-chat-left-text me-2"></i>
-                <div class="flex-grow-1 text-truncate">
-                    <div class="text-truncate">${escapeHtml(session.title)}</div>
-                    <small class="text-muted">${formatDate(session.created_at)} · ${session.message_count}条消息</small>
-                </div>
-                <button class="btn btn-link btn-sm text-danger delete-btn p-1 ms-2" style="display: none;"
-                        onclick="deleteSession('${sessionIdJs}', event)"
-                        title="删除会话">
-                    <i class="bi bi-trash"></i>
-                </button>
+             onclick="if(!event.target.closest('.history-item-delete')) switchToSession('${sessionIdJs}')">
+            <i class="bi bi-chat-left-text history-item-icon"></i>
+            <div class="history-item-content">
+                <div class="history-item-title">${escapeHtml(session.title)}</div>
+                <div class="history-item-meta">${formatDate(session.created_at)} · ${session.message_count}条消息</div>
             </div>
+            <button class="history-item-delete"
+                    onclick="deleteSession('${sessionIdJs}', event)"
+                    title="删除会话">
+                <i class="bi bi-trash"></i>
+            </button>
         </div>
     `}).join('');
-
-    // 添加悬停显示删除按钮的效果
-    historyList.querySelectorAll('.list-group-item').forEach(item => {
-        item.addEventListener('mouseenter', () => {
-            const deleteBtn = item.querySelector('.delete-btn');
-            if (deleteBtn) deleteBtn.style.display = 'block';
-        });
-        item.addEventListener('mouseleave', () => {
-            const deleteBtn = item.querySelector('.delete-btn');
-            if (deleteBtn) deleteBtn.style.display = 'none';
-        });
-    });
 }
 
 // 切换到指定会话
@@ -597,16 +579,14 @@ async function loadSessionMessages(sessionId) {
         const messages = data.messages || [];
 
         // Show chat container even if no messages (user can start new conversation in this session)
-        const initialContainer = document.getElementById('chat-initial-container');
-        const welcomeText = document.getElementById('chat-welcome-text');
+        const welcomeContainer = document.getElementById('chat-welcome-container');
         const chatContainer = document.getElementById('chatContainer');
-        const inputWrapper = document.getElementById('chat-input-wrapper');
+        const inputArea = document.getElementById('chat-input-area');
 
         // Always switch to chat view when loading a session
-        initialContainer.classList.remove('h-100', 'justify-content-center');
-        welcomeText.style.display = 'none';
-        chatContainer.style.display = 'block';
-        inputWrapper.style.background = 'rgba(33, 37, 41, 0.95)';
+        welcomeContainer.style.display = 'none';
+        chatContainer.style.display = 'flex';
+        inputArea.style.background = 'linear-gradient(to top, var(--llama-bg) 60%, transparent)';
 
         // Render messages if any
         messages.forEach(msg => {
@@ -699,15 +679,13 @@ document.addEventListener('DOMContentLoaded', function() {
 
 // 重置聊天UI（不清除会话ID）
 function resetChatUI() {
-    const initialContainer = document.getElementById('chat-initial-container');
-    const welcomeText = document.getElementById('chat-welcome-text');
+    const welcomeContainer = document.getElementById('chat-welcome-container');
     const chatContainer = document.getElementById('chatContainer');
-    const inputWrapper = document.getElementById('chat-input-wrapper');
+    const inputArea = document.getElementById('chat-input-area');
 
-    initialContainer.classList.add('h-100', 'justify-content-center');
-    welcomeText.style.display = 'block';
+    welcomeContainer.style.display = 'flex';
     chatContainer.style.display = 'none';
-    inputWrapper.style.background = 'none';
+    inputArea.style.background = 'transparent';
 
     // Clear messages
     const messages = document.querySelectorAll('.message-row');
@@ -782,14 +760,13 @@ async function performSearch() {
     filters.search_content = document.getElementById('searchContent').checked;
 
     // Transition UI
-    const container = document.getElementById('search-content-container');
-    const headerText = document.getElementById('search-header-text');
+    const welcomeContainer = document.getElementById('search-welcome-container');
+    const inputArea = document.getElementById('search-input-area');
     const resultsContainer = document.getElementById('resultsContainer');
 
-    container.classList.remove('justify-content-center');
-    container.classList.add('pt-5');
-    headerText.style.display = 'none';
+    welcomeContainer.style.display = 'none';
     resultsContainer.style.display = 'block';
+    inputArea.style.background = 'linear-gradient(to top, var(--llama-bg) 60%, transparent)';
 
     resultsContainer.innerHTML = `
         <div class="text-center text-muted mt-5">
@@ -925,15 +902,13 @@ async function sendMessage() {
     if (!text) return;
 
     // Transition UI
-    const initialContainer = document.getElementById('chat-initial-container');
-    const welcomeText = document.getElementById('chat-welcome-text');
+    const welcomeContainer = document.getElementById('chat-welcome-container');
     const chatContainer = document.getElementById('chatContainer');
-    const inputWrapper = document.getElementById('chat-input-wrapper');
+    const inputArea = document.getElementById('chat-input-area');
 
-    initialContainer.classList.remove('h-100', 'justify-content-center');
-    welcomeText.style.display = 'none';
-    chatContainer.style.display = 'block';
-    inputWrapper.style.background = '';
+    welcomeContainer.style.display = 'none';
+    chatContainer.style.display = 'flex';
+    inputArea.style.background = 'linear-gradient(to top, var(--llama-bg) 60%, transparent)';
 
     // 添加用户消息
     addMessage(text, 'user');
@@ -981,14 +956,16 @@ function addMessage(text, type, isLoading = false) {
     const id = 'msg-' + Date.now();
     div.id = id;
 
-    const icon = type === 'user' ? 'bi-person' : 'bi-robot';
     const avatarClass = type === 'user' ? 'avatar-user' : 'avatar-ai';
+    const avatarIcon = type === 'user'
+        ? '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16"><path d="M8 8a3 3 0 1 0 0-6 3 3 0 0 0 0 6zm2-3a2 2 0 1 1-4 0 2 2 0 0 1 4 0zm4 8c0 1-1 1-1 1H3s-1 0-1-1 1-4 6-4 6 3 6 4zm-1-.004c-.001-.246-.154-.986-.832-1.664C11.516 10.68 10.289 10 8 10c-2.29 0-3.516.68-4.168 1.332-.678.678-.83 1.418-.832 1.664h10z"/></svg>'
+        : '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16"><path d="M6 12.796V3.204L11.481 8 6 12.796zm.659.753 5.48-4.796a1 1 0 0 0 0-1.506L6.66 2.451C6.011 1.885 5 2.345 5 3.204v9.592a1 1 0 0 0 1.659.753z"/></svg>';
 
     // 处理换行符
     const formattedText = escapeHtml(text).replace(/\n/g, '<br>');
 
     div.innerHTML = `
-        <div class="message-avatar ${avatarClass}"><i class="bi ${icon}"></i></div>
+        <div class="message-avatar ${avatarClass}">${avatarIcon}</div>
         <div class="message-content">
             <p>${formattedText}</p>
         </div>
@@ -1007,7 +984,11 @@ function addLoadingMessage() {
     div.id = id;
 
     div.innerHTML = `
-        <div class="message-avatar avatar-ai"><i class="bi bi-robot"></i></div>
+        <div class="message-avatar avatar-ai">
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16">
+                <path d="M6 12.796V3.204L11.481 8 6 12.796zm.659.753 5.48-4.796a1 1 0 0 0 0-1.506L6.66 2.451C6.011 1.885 5 2.345 5 3.204v9.592a1 1 0 0 0 1.659.753z"/>
+            </svg>
+        </div>
         <div class="message-content">
             <div class="loading-dots">
                 <span></span>

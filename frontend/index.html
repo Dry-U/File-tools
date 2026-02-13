@@ -16,82 +16,85 @@
 
 <div class="app-container">
     <!-- 侧边栏 (Sidebar) -->
-    <div class="sidebar p-3 collapsed" id="sidebar">
+    <div class="sidebar" id="sidebar">
         <!-- Logo / Header -->
-        <div class="mb-4 px-2 mt-2 d-flex align-items-center gap-2">
-            <img src="static/logo.svg" alt="Logo" style="width: 28px; height: 28px;">
-            <h5 class="m-0 fw-bold text-light">File Tools</h5>
+        <div class="sidebar-header">
+            <img src="static/logo.svg" alt="Logo" class="sidebar-logo">
+            <span class="sidebar-title">File Tools</span>
         </div>
 
         <!-- 侧边栏内容容器 -->
-        <div class="flex-grow-1 overflow-auto">
+        <div class="sidebar-content">
             
             <!-- 1. 文件搜索模式侧边栏内容 -->
             <div id="sidebar-search-content">
                 <div class="settings-group">
                     <span class="settings-label">文件类型</span>
-                    <div class="d-flex flex-wrap gap-2">
-                        <button class="btn btn-sm btn-llama active file-type-btn" data-type="pdf" onclick="toggleFileType(this)">PDF</button>
-                        <button class="btn btn-sm btn-llama active file-type-btn" data-type="docx" onclick="toggleFileType(this)">Word</button>
-                        <button class="btn btn-sm btn-llama active file-type-btn" data-type="txt" onclick="toggleFileType(this)">TXT</button>
-                        <button class="btn btn-sm btn-llama file-type-btn" data-type="md" onclick="toggleFileType(this)">MD</button>
-                        <button class="btn btn-sm btn-llama file-type-btn" data-type="ppt,pptx" onclick="toggleFileType(this)" title="PowerPoint演示文稿">PPT</button>
-                        <button class="btn btn-sm btn-llama file-type-btn" data-type="xls,xlsx" onclick="toggleFileType(this)" title="Excel表格">Excel</button>
-                        <button class="btn btn-sm btn-llama file-type-btn" data-type="other" onclick="toggleFileType(this)" title="其他类型文件(.zip, .rar, .7z, .py, .js, .json, .xml等)">Others</button>
+                    <div class="file-type-grid">
+                        <button class="file-type-btn active" data-type="pdf" onclick="toggleFileType(this)">PDF</button>
+                        <button class="file-type-btn active" data-type="docx" onclick="toggleFileType(this)">Word</button>
+                        <button class="file-type-btn active" data-type="txt" onclick="toggleFileType(this)">TXT</button>
+                        <button class="file-type-btn" data-type="md" onclick="toggleFileType(this)">MD</button>
+                        <button class="file-type-btn" data-type="ppt,pptx" onclick="toggleFileType(this)" title="PowerPoint演示文稿">PPT</button>
+                        <button class="file-type-btn" data-type="xls,xlsx" onclick="toggleFileType(this)" title="Excel表格">Excel</button>
+                        <button class="file-type-btn" data-type="other" onclick="toggleFileType(this)" title="其他类型文件">Others</button>
                     </div>
                 </div>
 
                 <div class="settings-group">
                     <span class="settings-label">文件大小限制 (MB)</span>
-                    <div class="d-flex gap-2 align-items-center mb-2">
-                        <input type="number" min="0" class="form-control form-control-sm bg-dark text-light border-secondary" id="minSize" placeholder="Min">
-                        <span class="text-muted">-</span>
-                        <input type="number" min="0" class="form-control form-control-sm bg-dark text-light border-secondary" id="maxSize" placeholder="Max">
+                    <div class="size-range-inputs">
+                        <input type="number" min="0" class="size-input" id="minSize" placeholder="最小">
+                        <span class="range-separator">-</span>
+                        <input type="number" min="0" class="size-input" id="maxSize" placeholder="最大">
                     </div>
                 </div>
 
                 <div class="settings-group">
                     <span class="settings-label">修改日期范围</span>
-                    <div class="d-flex flex-column gap-2">
-                        <div class="d-flex align-items-center gap-2">
-                            <span class="text-muted small" style="min-width: 40px;">起:</span>
-                            <input type="date" class="form-control form-control-sm bg-dark text-light border-secondary" id="dateFrom">
+                    <div class="date-range-inputs">
+                        <div class="date-input-row">
+                            <span class="date-label">起</span>
+                            <input type="date" class="date-input" id="dateFrom">
                         </div>
-                        <div class="d-flex align-items-center gap-2">
-                            <span class="text-muted small" style="min-width: 40px;">止:</span>
-                            <input type="date" class="form-control form-control-sm bg-dark text-light border-secondary" id="dateTo">
+                        <div class="date-input-row">
+                            <span class="date-label">止</span>
+                            <input type="date" class="date-input" id="dateTo">
                         </div>
                     </div>
                 </div>
 
                 <div class="settings-group">
                     <span class="settings-label">搜索选项</span>
-                    <div class="d-flex flex-column gap-2">
-                        <div class="form-check form-switch">
-                            <input class="form-check-input" type="checkbox" id="searchContent" checked>
-                            <label class="form-check-label small text-light" for="searchContent">搜索文件内容</label>
-                        </div>
+                    <div class="search-options">
+                        <label class="switch-label">
+                            <input type="checkbox" id="searchContent" checked>
+                            <span class="switch-slider"></span>
+                            <span class="switch-text">搜索文件内容</span>
+                        </label>
                     </div>
                 </div>
 
-                <div class="settings-group mt-4 pt-3 border-top border-secondary">
-                    <button class="btn btn-outline-secondary w-100 d-flex align-items-center justify-content-center gap-2" onclick="showRebuildModal()">
-                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="size-6" style="width: 16px; height: 16px;">
+                <div class="settings-group rebuild-section">
+                    <button class="rebuild-btn" onclick="showRebuildModal()">
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" style="width: 16px; height: 16px;">
                           <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 12c0-1.232-.046-2.453-.138-3.662a4.006 4.006 0 0 0-3.7-3.7 48.678 48.678 0 0 0-7.324 0 4.006 4.006 0 0 0-3.7 3.7c-.017.22-.032.441-.046.662M19.5 12l3-3m-3 3-3-3m-12 3c0 1.232.046 2.453.138 3.662a4.006 4.006 0 0 0 3.7 3.7 48.656 48.656 0 0 0 7.324 0 4.006 4.006 0 0 0 3.7-3.7c.017-.22.032-.441.046-.662M4.5 12l3 3m-3-3-3 3" />
-                        </svg> 重建索引
+                        </svg>
+                        <span>重建索引</span>
                     </button>
                 </div>
             </div>
 
             <!-- 2. 智能问答模式侧边栏内容 -->
             <div id="sidebar-chat-content" style="display: none;">
-                <button class="btn btn-outline-secondary w-100 mb-4 d-flex align-items-center justify-content-center gap-2" onclick="resetChat()">
-                    <i class="bi bi-plus-lg"></i> 新建对话
+                <button class="new-chat-btn" onclick="resetChat()">
+                    <i class="bi bi-plus-lg"></i>
+                    <span>新建对话</span>
                 </button>
 
                 <div class="settings-group">
                     <span class="settings-label">历史记录</span>
-                    <div class="list-group list-group-flush" id="historyList">
+                    <div class="history-list" id="historyList">
                         <div class="text-muted small text-center py-3">
                             <i class="bi bi-hourglass-split me-1"></i>加载中...
                         </div>
@@ -102,9 +105,9 @@
         </div>
 
         <!-- 底部状态 -->
-        <div class="mt-auto pt-3">
-            <div class="d-flex align-items-center text-muted small">
-                <span class="status-dot bg-success rounded-circle d-inline-block me-2" style="width: 8px; height: 8px;"></span>
+        <div class="sidebar-footer">
+            <div class="status-indicator">
+                <span class="status-dot"></span>
                 <span>系统就绪</span>
             </div>
         </div>
@@ -112,93 +115,88 @@
 
     <!-- 主内容区 (Main Content) -->
     <div class="main-content">
-        <!-- 顶部导航栏 (折叠按钮 + 模式切换 + 设置按钮) -->
-        <div class="d-flex align-items-center p-3 position-absolute top-0 start-0 z-3 w-100 top-nav-bar">
-            <!-- 折叠按钮 (默认显示展开图标) -->
-            <button class="btn btn-llama p-1 me-3" id="sidebarToggleBtn" onclick="toggleSidebar()">
-                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="size-6" style="width: 24px; height: 24px;">
+        <!-- 顶部导航栏 -->
+        <div class="top-nav-bar">
+            <!-- 左侧：折叠按钮 -->
+            <button class="nav-icon-btn" id="sidebarToggleBtn" onclick="toggleSidebar()" aria-label="切换侧边栏">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
                   <path stroke-linecap="round" stroke-linejoin="round" d="M8.25 9V5.25A2.25 2.25 0 0 1 10.5 3h6a2.25 2.25 0 0 1 2.25 2.25v13.5A2.25 2.25 0 0 1 16.5 21h-6a2.25 2.25 0 0 1-2.25-2.25V15M12 9l3 3m0 0-3 3m3-3H2.25" />
                 </svg>
             </button>
 
-            <!-- 模式切换 Tabs -->
-            <div class="d-flex">
+            <!-- 中间：模式切换 Tabs -->
+            <div class="nav-tabs-wrapper">
                 <div class="nav-tab-btn active" id="tab-search" onclick="switchMode('search')">文件搜索</div>
                 <div class="nav-tab-btn" id="tab-chat" onclick="switchMode('chat')">智能问答</div>
             </div>
 
-            <!-- 设置按钮 -->
-            <button class="btn btn-llama p-2 ms-auto" data-bs-toggle="modal" data-bs-target="#settingsModal">
-                <i class="bi bi-gear-fill"></i>
+            <!-- 右侧：设置按钮 -->
+            <button class="nav-icon-btn" data-bs-toggle="modal" data-bs-target="#settingsModal" aria-label="设置">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.324.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 011.37.49l1.296 2.247a1.125 1.125 0 01-.26 1.431l-1.003.827c-.293.24-.438.613-.431.992a6.759 6.759 0 010 .255c-.007.378.138.75.43.99l1.005.828c.424.35.534.954.26 1.43l-1.298 2.247a1.125 1.125 0 01-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.57 6.57 0 01-.22.128c-.331.183-.581.495-.644.869l-.212 1.28c-.09.543-.56.941-1.11.941h-2.594c-.55 0-1.02-.398-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 01-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 01-1.369-.49l-1.297-2.247a1.125 1.125 0 01.26-1.431l1.004-.827c.292-.24.437-.613.43-.992a6.932 6.932 0 010-.255c.007-.378-.138-.75-.43-.99l-1.004-.828a1.125 1.125 0 01-.26-1.43l1.297-2.247a1.125 1.125 0 011.37-.491l1.216.456c.356.133.751.072 1.076-.124.072-.044.146-.087.22-.128.332-.183.582-.495.644-.869l.214-1.281z" />
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                </svg>
             </button>
         </div>
 
         <!-- 1. 文件搜索视图 -->
-        <div id="view-search" class="d-flex flex-column h-100 overflow-hidden">
-            <div id="search-content-container" class="d-flex flex-column justify-content-center h-100 w-100 overflow-auto" style="transition: all 0.3s ease;">
-                
-                <!-- Header -->
-                <div class="text-center mb-4 flex-shrink-0" id="search-header-text">
-                    <h1 class="display-4 fw-bold text-secondary">File Tools</h1>
-                    <p class="text-muted">快速查找本地文档</p>
-                </div>
-                
-                <!-- Input Area Wrapper (Matches Chat View) -->
-                <div class="w-100 flex-shrink-0" style="padding: 1.5rem;">
-                    <div class="container" style="max-width: 800px;">
-                        <!-- 搜索框 -->
-                        <div class="input-box-container">
-                            <input type="text" class="form-control custom-textarea" id="searchInput" placeholder="输入关键词搜索..." style="height: 40px;">
-                            <button class="btn btn-primary rounded-circle ms-2" style="width: 40px; height: 40px; padding: 0; display: flex; align-items: center; justify-content: center;" onclick="performSearch()">
-                                <i class="bi bi-search"></i>
-                            </button>
-                        </div>
-                        <!-- Invisible spacer to match Chat View's disclaimer height for perfect centering -->
-                        <div class="text-center mt-2" style="visibility: hidden;">
-                            <small class="text-muted" style="font-size: 0.7rem;">Placeholder</small>
-                        </div>
-                    </div>
-                </div>
+        <div id="view-search" class="search-view">
+            <!-- 搜索结果区域 (有结果时显示) -->
+            <div class="search-results" id="resultsContainer" style="display: none;">
+                <!-- Results will be added here -->
+            </div>
 
-                <!-- 搜索结果列表 (Initially hidden) -->
-                <div id="resultsContainer" class="container mt-4 pb-5" style="max-width: 800px; display: none;">
-                    <!-- 结果示例 -->
-                    <div class="text-center text-muted mt-5">
-                        <i class="bi bi-search display-4 opacity-25"></i>
-                        <p class="mt-3">输入关键词开始搜索</p>
+            <!-- 初始欢迎区域 (无结果时显示) -->
+            <div class="search-welcome" id="search-welcome-container">
+                <div class="search-welcome-content">
+                    <h1 class="search-title">File Tools</h1>
+                    <p class="search-subtitle">快速查找本地文档</p>
+                </div>
+            </div>
+
+            <!-- 输入框区域 (固定在底部) -->
+            <div class="search-input-area" id="search-input-area">
+                <div class="search-input-wrapper">
+                    <div class="search-input-box">
+                        <input type="text" class="search-input" id="searchInput" placeholder="输入关键词搜索...">
+                        <button class="search-btn" onclick="performSearch()" aria-label="搜索">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="currentColor" viewBox="0 0 16 16">
+                                <path d="M11.742 10.344a6.5 6.5 0 1 0-1.397 1.398h-.001c.03.04.062.078.098.115l3.85 3.85a1 1 0 0 0 1.415-1.414l-3.85-3.85a1.007 1.007 0 0 0-.115-.1zM12 6.5a5.5 5.5 0 1 1-11 0 5.5 5.5 0 0 1 11 0z"/>
+                            </svg>
+                        </button>
                     </div>
                 </div>
             </div>
         </div>
 
-        <!-- 2. 智能问答视图 (原聊天界面) -->
-        <div id="view-chat" class="d-flex flex-column h-100" style="display: none !important; padding-top: 60px;">
-            <!-- 聊天滚动区域 -->
-            <div class="chat-scroll-area flex-grow-1" id="chatContainer" style="display: none;">
+        <!-- 2. 智能问答视图 -->
+        <div id="view-chat" class="chat-view" style="display: none;">
+            <!-- 消息列表区域 (有消息时显示) -->
+            <div class="chat-messages" id="chatContainer" style="display: none;">
                 <!-- Messages will be added here -->
             </div>
 
-            <!-- 初始欢迎/输入区域容器 -->
-            <div id="chat-initial-container" class="d-flex flex-column justify-content-center h-100 w-100">
-                
-                <!-- 欢迎文字 -->
-                <div class="text-center mb-4" id="chat-welcome-text">
-                    <h1 class="display-4 fw-bold text-secondary">File Tools</h1>
-                    <p class="text-muted">我可以帮您检索本地文档，或者回答一般性问题。</p>
+            <!-- 初始欢迎区域 (无消息时显示) -->
+            <div class="chat-welcome" id="chat-welcome-container">
+                <div class="chat-welcome-content">
+                    <h1 class="chat-title">File Tools</h1>
+                    <p class="chat-subtitle">我可以帮您检索本地文档，或者回答一般性问题。</p>
                 </div>
+            </div>
 
-                <!-- 底部输入框 -->
-                <div class="input-area-wrapper w-100" id="chat-input-wrapper" style="background: none;">
-                    <div class="container" style="max-width: 800px;">
-                        <div class="input-box-container">
-                            <textarea class="form-control custom-textarea" id="userInput" rows="1" placeholder="输入您的问题..." oninput="autoResize(this)"></textarea>
-                            <button class="btn btn-primary rounded-circle ms-2" style="width: 40px; height: 40px; padding: 0; display: flex; align-items: center; justify-content: center;" onclick="sendMessage()">
-                                <i class="bi bi-send-fill"></i>
-                            </button>
-                        </div>
-                        <div class="text-center mt-2">
-                            <small class="text-muted" style="font-size: 0.7rem;">AI 生成的内容可能不准确，请核对重要信息。</small>
-                        </div>
+            <!-- 输入框区域 (固定在底部) -->
+            <div class="chat-input-area" id="chat-input-area">
+                <div class="chat-input-wrapper">
+                    <div class="chat-input-box">
+                        <textarea class="chat-textarea" id="userInput" rows="1" placeholder="输入您的问题..." oninput="autoResize(this)"></textarea>
+                        <button class="chat-send-btn" onclick="sendMessage()" aria-label="发送">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="currentColor" viewBox="0 0 16 16">
+                                <path d="M15.854.146a.5.5 0 0 1 .11.54l-5.819 14.547a.75.75 0 0 1-1.329.124l-3.178-4.995L.643 7.184a.75.75 0 0 1 .124-1.33L15.314.037a.5.5 0 0 1 .54.11ZM6.636 10.07l2.761 4.338L14.13 2.576 6.636 10.07Zm6.787-8.201L1.591 6.602l4.339 2.76 7.494-7.493Z"/>
+                            </svg>
+                        </button>
+                    </div>
+                    <div class="chat-disclaimer">
+                        <small>AI 生成的内容可能不准确，请核对重要信息。</small>
                     </div>
                 </div>
             </div>
@@ -411,51 +409,6 @@
                 <div>
                     <button type="button" class="btn btn-primary" onclick="saveSettings()">保存更改</button>
                 </div>
-            </div>
-        </div>
-    </div>
-</div>
-
-<!-- 确认重置模态框 (Reset Confirmation Modal) -->
-<div class="modal fade" id="resetConfirmModal" tabindex="-1" aria-hidden="true">
-    <div class="modal-dialog modal-dialog-centered modal-sm">
-        <div class="modal-content" style="background-color: var(--llama-bg); border: 1px solid var(--llama-border); color: var(--llama-text-main);">
-            <div class="modal-header border-secondary py-2">
-                <h6 class="modal-title">确认操作</h6>
-                <button type="button" class="btn btn-llama p-1" data-bs-dismiss="modal" aria-label="Close">
-                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" style="width: 20px; height: 20px;">
-                      <path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" />
-                    </svg>
-                </button>
-            </div>
-            <div class="modal-body text-center py-4">
-                <p class="mb-0 small">确定要恢复默认参数设置吗？</p>
-            </div>
-            <div class="modal-footer border-secondary justify-content-center p-2">
-                <button type="button" class="btn btn-sm btn-outline-secondary border-0" data-bs-dismiss="modal">取消</button>
-                <button type="button" class="btn btn-sm btn-primary px-3" onclick="confirmReset()">确定</button>
-            </div>
-        </div>
-    </div>
-</div>
-
-<!-- 未检测到更改提示模态框 (No Changes Modal) -->
-<div class="modal fade" id="noChangesModal" tabindex="-1" aria-hidden="true">
-    <div class="modal-dialog modal-dialog-centered modal-sm">
-        <div class="modal-content" style="background-color: var(--llama-bg); border: 1px solid var(--llama-border); color: var(--llama-text-main);">
-            <div class="modal-header border-secondary py-2">
-                <h6 class="modal-title">提示</h6>
-                <button type="button" class="btn btn-llama p-1" data-bs-dismiss="modal" aria-label="Close">
-                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" style="width: 20px; height: 20px;">
-                      <path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" />
-                    </svg>
-                </button>
-            </div>
-            <div class="modal-body text-center py-4">
-                <p class="mb-0 small">未检测到参数更改</p>
-            </div>
-            <div class="modal-footer border-secondary justify-content-center p-2">
-                <button type="button" class="btn btn-sm btn-primary px-3" data-bs-dismiss="modal">确定</button>
             </div>
         </div>
     </div>
