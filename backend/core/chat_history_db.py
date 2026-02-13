@@ -1,11 +1,18 @@
 """Chat history database manager using SQLite."""
 
+import re
 import sqlite3
-import json
 import time
 import threading
 from pathlib import Path
 from typing import List, Dict, Any, Optional
+
+from backend.utils.logger import setup_logger
+
+logger = setup_logger(__name__)
+
+# Pre-compile session ID validation regex
+SESSION_ID_PATTERN = re.compile(r'^[\w\-.$@:]+$')
 
 
 class ChatHistoryDB:
@@ -91,8 +98,7 @@ class ChatHistoryDB:
         if len(session_id) > 256:
             return False
         # Allow alphanumeric, underscore, hyphen, and some safe characters
-        import re
-        return bool(re.match(r'^[\w\-.$@:]+$', session_id))
+        return bool(SESSION_ID_PATTERN.match(session_id))
 
     def create_session(self, session_id: str, title: str = None) -> bool:
         """Create a new session.
@@ -119,7 +125,7 @@ class ChatHistoryDB:
             conn.commit()
             return cursor.rowcount > 0
         except Exception as e:
-            print(f"Error creating session: {e}")
+            logger.error(f"Error creating session: {e}")
             return False
 
     def add_message(self, session_id: str, role: str, content: str) -> bool:
@@ -177,7 +183,7 @@ class ChatHistoryDB:
             conn.commit()
             return True
         except Exception as e:
-            print(f"Error adding message: {e}")
+            logger.error(f"Error adding message: {e}")
             return False
 
     def get_session_messages(self, session_id: str, limit: int = None) -> List[Dict[str, Any]]:
@@ -216,7 +222,7 @@ class ChatHistoryDB:
             rows = cursor.fetchall()
             return [dict(row) for row in rows]
         except Exception as e:
-            print(f"Error getting session messages: {e}")
+            logger.error(f"Error getting session messages: {e}")
             return []
 
     def get_all_sessions(self) -> List[Dict[str, Any]]:
@@ -256,7 +262,7 @@ class ChatHistoryDB:
 
             return sessions
         except Exception as e:
-            print(f"Error getting all sessions: {e}")
+            logger.error(f"Error getting all sessions: {e}")
             return []
 
     def delete_session(self, session_id: str) -> bool:
@@ -279,7 +285,7 @@ class ChatHistoryDB:
             conn.commit()
             return cursor.rowcount > 0
         except Exception as e:
-            print(f"Error deleting session: {e}")
+            logger.error(f"Error deleting session: {e}")
             return False
 
     def clear_session_messages(self, session_id: str) -> bool:
@@ -306,7 +312,7 @@ class ChatHistoryDB:
             conn.commit()
             return True
         except Exception as e:
-            print(f"Error clearing session messages: {e}")
+            logger.error(f"Error clearing session messages: {e}")
             return False
 
     def session_exists(self, session_id: str) -> bool:
@@ -331,7 +337,7 @@ class ChatHistoryDB:
             )
             return cursor.fetchone() is not None
         except Exception as e:
-            print(f"Error checking session existence: {e}")
+            logger.error(f"Error checking session existence: {e}")
             return False
 
     def close(self):

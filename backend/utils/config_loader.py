@@ -11,14 +11,17 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+
 class ConfigLoader:
     """配置加载器类，负责加载、验证和管理配置文件"""
+
     def __init__(self, config_path: Optional[str] = None):
         # 默认配置路径，如果未指定则使用当前目录下的config.yaml
         default_path = Path('config.yaml')
-        self.config_path = Path(config_path).resolve() if config_path is not None else default_path.resolve()
+        self.config_path = Path(config_path).resolve(
+        ) if config_path is not None else default_path.resolve()
         self.config: Dict[str, Any] = {}  # 初始化空配置
-        
+
         # 尝试加载配置文件，如果不存在则创建默认配置
         try:
             self.config = self._load_config()
@@ -27,24 +30,24 @@ class ConfigLoader:
         except Exception as e:
             logger.error(f"配置加载失败: {str(e)}")
             self.config = self._create_default_config()
-        
+
         # 验证配置
         self._validate_config()
-    
+
     def _load_config(self) -> Dict[str, Any]:
         """从文件加载配置"""
         if not self.config_path.exists():
             raise FileNotFoundError(f"配置文件未找到: {self.config_path}")
-        
+
         with open(self.config_path, 'r', encoding='utf-8') as f:
             config = yaml.safe_load(f)
-        
+
         # 确保配置是字典类型
         if not isinstance(config, dict):
             config = {}
-        
+
         return config
-    
+
     def _create_default_config(self) -> Dict[str, Any]:
         """创建默认配置文件"""
         # 确保配置目录存在
@@ -170,7 +173,8 @@ class ConfigLoader:
         # 保存默认配置到文件
         try:
             with open(self.config_path, 'w', encoding='utf-8') as f:
-                yaml.dump(default_config, f, allow_unicode=True, default_flow_style=False)
+                yaml.dump(default_config, f, allow_unicode=True,
+                          default_flow_style=False)
 
             # 确保配置文件有正确的权限
             if os.name == 'posix':  # Unix-like systems
@@ -181,11 +185,12 @@ class ConfigLoader:
             logger.error(f"创建默认配置文件失败: {str(e)}")
 
         return default_config
-    
+
     def _validate_config(self) -> None:
         """验证配置的有效性"""
         # 确保必要的配置部分存在
-        required_sections = ['system', 'file_scanner', 'search', 'monitor', 'embedding', 'ai_model', 'rag', 'interface', 'advanced', 'index']
+        required_sections = ['system', 'file_scanner', 'search', 'monitor',
+                             'embedding', 'ai_model', 'rag', 'interface', 'advanced', 'index']
 
         for section in required_sections:
             if section not in self.config:
@@ -212,7 +217,8 @@ class ConfigLoader:
         log_dir.mkdir(parents=True, exist_ok=True)
 
         # 验证并修正扫描路径
-        scan_paths = self.get('file_scanner', 'scan_paths', str(Path.home() / 'Documents'))
+        scan_paths = self.get('file_scanner', 'scan_paths',
+                              str(Path.home() / 'Documents'))
         if isinstance(scan_paths, str):
             # 如果是字符串，转换为列表
             paths = [p.strip() for p in scan_paths.split(';') if p.strip()]
@@ -248,7 +254,8 @@ class ConfigLoader:
             self.set('file_scanner', 'scan_paths', validated_paths)
 
         # 验证监控目录
-        monitor_dirs = self.get('monitor', 'directories', str(Path.home() / 'Documents'))
+        monitor_dirs = self.get('monitor', 'directories',
+                                str(Path.home() / 'Documents'))
         if isinstance(monitor_dirs, str):
             # 如果是字符串，转换为列表
             dirs = [d.strip() for d in monitor_dirs.split(';') if d.strip()]
@@ -320,7 +327,8 @@ class ConfigLoader:
             ('ai_model', 'temperature', 0.6, 0.0, 2.0),
             ('ai_model', 'request_timeout', 600, 10, 3600),
             ('interface', 'font_size', 12, 8, 24),
-            ('interface', 'max_preview_size', 5242880, 1024, 50*1024*1024),  # 1KB到50MB
+            ('interface', 'max_preview_size',
+             5242880, 1024, 50*1024*1024),  # 1KB到50MB
             ('interface', 'splitter_pos', 300, 100, 1000),
             ('system', 'log_max_size', 10, 1, 100),  # MB
             ('system', 'log_backup_count', 5, 1, 20),
@@ -335,15 +343,17 @@ class ConfigLoader:
                 val = self.get(section, key, default_val)
                 if isinstance(val, (int, float)):
                     if val < min_val or val > max_val:
-                        logger.warning(f"配置项 {section}.{key} 的值 {val} 超出范围 [{min_val}, {max_val}]，使用默认值 {default_val}")
+                        logger.warning(
+                            f"配置项 {section}.{key} 的值 {val} 超出范围 [{min_val}, {max_val}]，使用默认值 {default_val}")
                         self.set(section, key, default_val)
                 else:
-                    logger.warning(f"配置项 {section}.{key} 的值 {val} 不是数值类型，使用默认值 {default_val}")
+                    logger.warning(
+                        f"配置项 {section}.{key} 的值 {val} 不是数值类型，使用默认值 {default_val}")
                     self.set(section, key, default_val)
             except Exception as e:
                 logger.error(f"验证配置项 {section}.{key} 时出错: {e}")
                 self.set(section, key, default_val)
-    
+
     def get(self, section, key: Optional[str] = None, default: Any = None) -> Any:
         """获取配置值"""
         # 添加类型检查，防止section为dict等不可哈希类型
@@ -404,7 +414,7 @@ class ConfigLoader:
             return self.config[section]
 
         return self.config[section].get(key, default)
-    
+
     def getint(self, section: str, key: str, default: int = 0) -> int:
         """获取整数值的配置"""
         value = self.get(section, key, default)
@@ -412,7 +422,7 @@ class ConfigLoader:
             return int(value)
         except (ValueError, TypeError):
             return default
-    
+
     def getfloat(self, section: str, key: str, default: float = 0.0) -> float:
         """获取浮点数值的配置"""
         value = self.get(section, key, default)
@@ -420,7 +430,7 @@ class ConfigLoader:
             return float(value)
         except (ValueError, TypeError):
             return default
-    
+
     def getboolean(self, section: str, key: str, default: bool = False) -> bool:
         """获取布尔值的配置"""
         value = self.get(section, key, default)
@@ -432,35 +442,36 @@ class ConfigLoader:
             return bool(int(value))
         except (ValueError, TypeError):
             return default
-    
+
     def getlist(self, section: str, key: str, default: Optional[list] = None, delimiter: str = ';') -> list:
         """获取列表形式的配置"""
         if default is None:
             default = []
-        
+
         value = self.get(section, key, default)
         if isinstance(value, list):
             return value
         if isinstance(value, str):
             return [item.strip() for item in value.split(delimiter) if item.strip()]
         return default
-    
+
     def set(self, section: str, key: str, value: Any) -> None:
         """设置配置值"""
         if section not in self.config:
             self.config[section] = {}
-        
+
         self.config[section][key] = value
-    
+
     def _backup_config(self) -> None:
         """备份当前配置文件"""
         if not self.config_path.exists():
             return
-        
+
         # 创建备份文件名，添加时间戳
         timestamp = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
-        backup_path = self.config_path.parent / f"{self.config_path.stem}_{timestamp}.{self.config_path.suffix}"
-        
+        backup_path = self.config_path.parent / \
+            f"{self.config_path.stem}_{timestamp}.{self.config_path.suffix}"
+
         try:
             # 复制当前配置文件到备份文件
             import shutil
@@ -471,23 +482,23 @@ class ConfigLoader:
             self._cleanup_old_backups()
         except Exception as e:
             logger.error(f"创建配置备份失败: {str(e)}")
-    
+
     def _cleanup_old_backups(self) -> None:
         """清理旧的配置备份文件，保留最近5个"""
         try:
             config_dir = self.config_path.parent
             stem = self.config_path.stem
             suffix = self.config_path.suffix
-            
+
             # 查找所有备份文件
             backups = []
             for file in config_dir.iterdir():
                 if file.is_file() and file.name.startswith(f"{stem}_") and file.name.endswith(suffix):
                     backups.append((file.stat().st_mtime, file))
-            
+
             # 按修改时间排序（最新的在前）
             backups.sort(reverse=True)
-            
+
             # 删除超过5个的旧备份
             for _, file in backups[5:]:
                 try:
@@ -497,41 +508,40 @@ class ConfigLoader:
                     logger.warning(f"删除旧备份失败: {str(e)}")
         except Exception as e:
             logger.error(f"清理旧备份失败: {str(e)}")
-    
+
     def save(self) -> bool:
-        """保存配置到文件，自动创建备份"""
+        """保存配置到文件"""
         try:
-            # 先创建备份
-            self._backup_config()
-            
+
             # 确保配置目录存在
             config_dir = self.config_path.parent
             config_dir.mkdir(parents=True, exist_ok=True)
-            
+
             with open(self.config_path, 'w', encoding='utf-8') as f:
-                yaml.dump(self.config, f, allow_unicode=True, default_flow_style=False)
-            
+                yaml.dump(self.config, f, allow_unicode=True,
+                          default_flow_style=False)
+
             # 确保配置文件有正确的权限
             if os.name == 'posix':  # Unix-like systems
                 os.chmod(self.config_path, 0o600)  # 只有所有者可读写
-            
+
             return True
         except Exception as e:
             logger.error(f"保存配置文件失败: {str(e)}")
             return False
-    
+
     def get_path(self, section: str, key: str, default: str = '') -> Path:
         """获取路径形式的配置"""
         path_str = self.get(section, key, default)
         if not path_str:
             return Path()
-        
+
         # 处理用户主目录符号
         if isinstance(path_str, str) and path_str.startswith('~'):
             path_str = os.path.expanduser(path_str)
-        
+
         return Path(path_str).resolve()
-    
+
     def get_all(self) -> Dict[str, Any]:
         """获取所有配置"""
         return self.config.copy()
@@ -558,7 +568,7 @@ class ConfigLoader:
                 else:
                     # 如果不是字典，假定是直接的section=value形式
                     self.config[section] = values
-            
+
             self._validate_config()
             return True
         except Exception as e:
@@ -570,10 +580,10 @@ class ConfigLoader:
         try:
             if section not in self.config:
                 self.config[section] = {}
-            
+
             for key, value in values.items():
                 self.config[section][key] = value
-            
+
             self._validate_config()
             return True
         except Exception as e:
@@ -590,13 +600,14 @@ class ConfigLoader:
 
             scan_paths = self.get('file_scanner', 'scan_paths', [])
             if isinstance(scan_paths, str):
-                scan_paths = [p.strip() for p in scan_paths.split(';') if p.strip()]
-            
+                scan_paths = [p.strip()
+                              for p in scan_paths.split(';') if p.strip()]
+
             path_str = str(expanded_path)
             if path_str not in scan_paths:
                 scan_paths.append(path_str)
                 self.set('file_scanner', 'scan_paths', scan_paths)
-            
+
             return True
         except Exception as e:
             logger.error(f"添加扫描路径失败: {str(e)}")
@@ -607,13 +618,14 @@ class ConfigLoader:
         try:
             scan_paths = self.get('file_scanner', 'scan_paths', [])
             if isinstance(scan_paths, str):
-                scan_paths = [p.strip() for p in scan_paths.split(';') if p.strip()]
-            
+                scan_paths = [p.strip()
+                              for p in scan_paths.split(';') if p.strip()]
+
             expanded_path = str(Path(path).expanduser())
             if expanded_path in scan_paths:
                 scan_paths.remove(expanded_path)
                 self.set('file_scanner', 'scan_paths', scan_paths)
-            
+
             return True
         except Exception as e:
             logger.error(f"移除扫描路径失败: {str(e)}")

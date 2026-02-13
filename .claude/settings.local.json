@@ -11,7 +11,17 @@
       "Bash(pip install:*)",
       "Bash(python -m py_compile:*)",
       "Bash(python main.py:*)",
-      "Bash(chcp:*)"
+      "Bash(chcp:*)",
+      "mcp__context7__resolve-library-id",
+      "mcp__zread__get_repo_structure",
+      "mcp__context7__query-docs",
+      "mcp__web-search-prime__webSearchPrime",
+      "mcp__fetch__fetch",
+      "Bash(npx -y @smithery/cli@latest install:*)",
+      "Bash(set CI=true:*)",
+      "mcp__EXA__web_search_exa",
+      "Bash(node:*)",
+      "mcp__playwright__browser_navigate"
     ]
   }
 }

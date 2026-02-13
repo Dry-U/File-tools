@@ -19,8 +19,18 @@ from backend.core.model_manager import ModelManager
 from backend.core.search_engine import SearchEngine
 from backend.core.vram_manager import VRAMManager
 from backend.core.chat_history_db import ChatHistoryDB
+from backend.core.query_processor import QueryProcessor
 
 logger = setup_logger()
+
+# Try to import sklearn for cosine similarity, but make it optional
+try:
+    from sklearn.metrics.pairwise import cosine_similarity
+    import numpy as np
+    SKLEARN_AVAILABLE = True
+except ImportError:
+    SKLEARN_AVAILABLE = False
+    cosine_similarity = None
 
 DEFAULT_PROMPT = (
     "你是一名专业的中文文档分析助理。请严格基于【文档集合】中的内容，对用户的【问题】提供准确、全面的回答。\n\n"
@@ -51,22 +61,42 @@ class RAGPipeline:
         except Exception:
             rag_config = {}
 
-        self.max_docs = int(rag_config.get('max_docs', 3))
-        self.max_context_chars = int(rag_config.get('max_context_chars', 1200))
-        default_total = self.max_context_chars * self.max_docs
-        self.max_context_chars_total = int(rag_config.get('max_context_chars_total', default_total))
+        # 先设置基本配置（在_update_model_limits之前）
         self.max_history_turns = int(rag_config.get('max_history_turns', 6))
         self.max_history_chars = int(rag_config.get('max_history_chars', 800))
-        self.max_output_tokens = int(rag_config.get('max_output_tokens', 512))
-        self.temperature = float(rag_config.get('temperature', 0.7))
         self.prompt_template = rag_config.get('prompt_template', DEFAULT_PROMPT)
+
+        # 从模型管理器获取动态参数
+        self._update_model_limits()
         self.fallback_response = rag_config.get(
             'fallback_response',
             "你好！我是 FileTools Copilot，当前检索没有找到相关文档，请告诉我需要查询的内容。"
         )
         self.context_exhausted_response = rag_config.get(
             'context_exhausted_response',
-            "对话过长，为避免超出上下文，请说‘重置’或简要概括后再继续。"
+            "对话过长，为避免超出上下文，请说'重置'或简要概括后再继续。"
+        )
+        self.reset_response = rag_config.get(
+            'reset_response',
+            "已清空上下文，可以重新开始提问。"
+        )
+        self.greeting_response = rag_config.get('greeting_response', self.fallback_response)
+        phrases = rag_config.get('greeting_keywords', []) or []
+        if isinstance(phrases, str):
+            phrases = [p.strip() for p in phrases.split(',') if p.strip()]
+        self.greeting_keywords = [p.lower() for p in phrases if p]
+
+        reset_cmds = rag_config.get('reset_commands', ['重置', '清空上下文', 'reset', 'restart']) or []
+        self.reset_commands = [c.strip().lower() for c in reset_cmds if c]
+
+        # 设置其他响应配置
+        self.fallback_response = rag_config.get(
+            'fallback_response',
+            "你好！我是 FileTools Copilot，当前检索没有找到相关文档，请告诉我需要查询的内容。"
+        )
+        self.context_exhausted_response = rag_config.get(
+            'context_exhausted_response',
+            "对话过长，为避免超出上下文，请说'重置'或简要概括后再继续。"
         )
         self.reset_response = rag_config.get(
             'reset_response',
@@ -83,6 +113,60 @@ class RAGPipeline:
 
         # Use SQLite for chat history persistence
         self.chat_db = ChatHistoryDB()
+
+        # 初始化查询处理器
+        try:
+            self.query_processor = QueryProcessor(config_loader)
+            logger.info("查询处理器初始化完成")
+        except Exception as e:
+            logger.warning(f"查询处理器初始化失败: {e}")
+            self.query_processor = None
+
+    def reload_model_manager(self):
+        """
+        重新加载ModelManager - 在配置变更后调用
+        强制重新创建ModelManager以应用新配置
+        """
+        try:
+            from backend.core.model_manager import ModelManager
+            logger.info("重新初始化ModelManager...")
+
+            # 关闭旧的model_manager
+            if self.model_manager:
+                self.model_manager.close()
+
+            # 创建新的ModelManager
+            self.model_manager = ModelManager(self.config_loader)
+            self._update_model_limits()
+
+            logger.info(f"ModelManager重新初始化完成: mode={self.model_manager.get_mode().value}")
+            return True
+        except Exception as e:
+            logger.error(f"重新初始化ModelManager失败: {e}")
+            raise
+
+    def _update_model_limits(self):
+        """根据模型模式更新限制参数"""
+        limits = self.model_manager.get_model_limits()
+
+        self.max_docs = limits['max_docs']
+        self.max_context_chars = limits['chunk_size']
+
+        # 计算预留空间：系统提示词 + 提示词模板 + 历史记录预算
+        system_prompt = self.config_loader.get('ai_model', 'system_prompt', '')
+        template_overhead = len(self.prompt_template) if self.prompt_template else 0
+        system_overhead = len(system_prompt) if system_prompt else 0
+        history_budget = self.max_history_chars
+        # 额外预留20%的缓冲空间
+        reserved_space = int((template_overhead + system_overhead + history_budget) * 1.2)
+
+        self.max_context_chars_total = max(limits['max_context'] - reserved_space, 1000)
+        self.max_output_tokens = limits['max_tokens']
+        self.temperature = limits['temperature']
+
+        logger.info(f"RAG参数已更新为 {self.model_manager.get_mode().value} 模式: "
+                   f"max_docs={self.max_docs}, chunk_size={self.max_context_chars}, "
+                   f"max_context={self.max_context_chars_total}, temperature={self.temperature}")
 
     def _adjust_context_for_memory(self, doc_budget: int) -> int:
         """Adjust document budget based on memory constraints"""
@@ -236,15 +320,25 @@ class RAGPipeline:
             results = self.vram_manager.get_cached_result(cache_key)
 
             if results is None:
-                # 使用扩展查询来提高召回率
+                # 使用QueryProcessor扩展查询
                 search_queries = [query]
+
+                if self.query_processor:
+                    try:
+                        expanded_queries = self.query_processor.process(query)
+                        # 添加扩展查询（限制数量避免性能问题）
+                        search_queries.extend(expanded_queries[:2])
+                        logger.info(f"查询扩展: {query} -> {search_queries}")
+                    except Exception as e:
+                        logger.warning(f"查询扩展失败: {e}")
 
                 # 如果查询是缩写或短词，尝试不同的变体
                 if len(query) <= 5 or query.isupper():
-                    # 添加小写版本
                     search_queries.append(query.lower())
-                    # 添加首字母大写版本
                     search_queries.append(query.capitalize())
+
+                # 去重
+                search_queries = list(dict.fromkeys(search_queries))
 
                 all_results = []
                 seen_paths = set()
@@ -441,16 +535,14 @@ class RAGPipeline:
                     content_embedding = next(embedding_model.embed([content]))
 
                     # 计算余弦相似度
-                    from sklearn.metrics.pairwise import cosine_similarity
-                    import numpy as np
-
-                    query_vec = np.array(query_embedding).reshape(1, -1)
-                    content_vec = np.array(content_embedding).reshape(1, -1)
-
-                    similarity = cosine_similarity(query_vec, content_vec)[0][0]
-
-                    # 转换为百分制
-                    return float(similarity * 100.0)
+                    if SKLEARN_AVAILABLE:
+                        query_vec = np.array(query_embedding).reshape(1, -1)
+                        content_vec = np.array(content_embedding).reshape(1, -1)
+                        similarity = cosine_similarity(query_vec, content_vec)[0][0]
+                        # 转换为百分制
+                        return float(similarity * 100.0)
+                    else:
+                        logger.warning("sklearn not available, falling back to Jaccard similarity")
 
         except Exception as e:
             # 如果嵌入模型不可用，则回退到Jaccard相似度计算
@@ -772,7 +864,7 @@ class RAGPipeline:
             return ''
 
         available_content = remaining - overhead
-        if available_content <= len(content):
+        if available_content >= len(content):
             return section
 
         if available_content > 300:

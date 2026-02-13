@@ -1,14 +1,68 @@
-// 监听模式切换，显示/隐藏 API 设置
+// 监听模式切换，显示/隐藏对应设置面板
 document.querySelectorAll('input[name="aiMode"]').forEach(radio => {
     radio.addEventListener('change', function() {
+        const localSettings = document.getElementById('localSettings');
         const apiSettings = document.getElementById('apiSettings');
         if (document.getElementById('modeAPI').checked) {
+            localSettings.style.display = 'none';
             apiSettings.style.display = 'block';
         } else {
+            localSettings.style.display = 'block';
             apiSettings.style.display = 'none';
         }
     });
 });
+
+// API提供商变更时自动填充默认URL
+function onProviderChange() {
+    const provider = document.getElementById('apiProviderSelect').value;
+    const urlInput = document.getElementById('apiUrlInput');
+    const modelInput = document.getElementById('modelNameInput');
+
+    const defaults = {
+        'siliconflow': {
+            url: 'https://api.siliconflow.cn/v1/chat/completions',
+            model: 'deepseek-ai/DeepSeek-V2.5'
+        },
+        'deepseek': {
+            url: 'https://api.deepseek.com/v1/chat/completions',
+            model: 'deepseek-chat'
+        },
+        'custom': {
+            url: '',
+            model: ''
+        }
+    };
+
+    if (defaults[provider]) {
+        urlInput.value = defaults[provider].url;
+        modelInput.value = defaults[provider].model;
+    }
+}
+
+// 测试API连接
+async function testAPIConnection() {
+    const btn = document.querySelector('button[onclick="testAPIConnection()"]');
+    const originalText = btn.innerHTML;
+    btn.innerHTML = '<i class="bi bi-arrow-repeat spin"></i>测试中...';
+    btn.disabled = true;
+
+    try {
+        const response = await fetch('/api/model/test');
+        const result = await response.json();
+
+        if (result.status === 'ok') {
+            alert(`连接成功！\n模式: ${result.mode}\n模型: ${result.model}`);
+        } else {
+            alert(`连接失败: ${result.error || '未知错误'}`);
+        }
+    } catch (error) {
+        alert(`测试出错: ${error.message}`);
+    } finally {
+        btn.innerHTML = originalText;
+        btn.disabled = false;
+    }
+}
 
 // 恢复默认设置 (显示弹窗)
 function resetSettings() {
@@ -125,36 +179,31 @@ async function loadSettings() {
         const response = await fetch('/api/config');
         if (response.ok) {
             const config = await response.json();
-            // Apply settings to form elements
             if (config.ai_model) {
-                document.getElementById('tempRange').value = config.ai_model.temperature ?? 0.7;
-                document.getElementById('tempValue').innerText = config.ai_model.temperature ?? 0.7;
-                document.getElementById('topPRange').value = config.ai_model.top_p ?? 0.9;
-                document.getElementById('topPValue').innerText = config.ai_model.top_p ?? 0.9;
-                document.getElementById('topKInput').value = config.ai_model.top_k ?? 40;
-                document.getElementById('minPRange').value = config.ai_model.min_p ?? 0.05;
-                document.getElementById('minPValue').innerText = config.ai_model.min_p ?? 0.05;
-                document.getElementById('maxTokensInput').value = config.ai_model.max_tokens ?? 2048;
-                document.getElementById('seedInput').value = config.ai_model.seed ?? -1;
-                document.getElementById('repeatPenaltyRange').value = config.ai_model.repeat_penalty ?? 1.1;
-                document.getElementById('repeatPenaltyValue').innerText = config.ai_model.repeat_penalty ?? 1.1;
-                document.getElementById('freqPenaltyRange').value = config.ai_model.frequency_penalty ?? 0.0;
-                document.getElementById('freqPenaltyValue').innerText = config.ai_model.frequency_penalty ?? 0.0;
-                document.getElementById('presencePenaltyRange').value = config.ai_model.presence_penalty ?? 0.0;
-                document.getElementById('presencePenaltyValue').innerText = config.ai_model.presence_penalty ?? 0.0;
+                // 设置模式
+                const isApiMode = config.ai_model.mode === 'api';
+                document.getElementById('modeAPI').checked = isApiMode;
+                document.getElementById('modeLocal').checked = !isApiMode;
+                document.getElementById('localSettings').style.display = isApiMode ? 'none' : 'block';
+                document.getElementById('apiSettings').style.display = isApiMode ? 'block' : 'none';
 
-                // Set interface mode
-                if (config.ai_model.interface_type === 'api') {
-                    document.getElementById('modeAPI').checked = true;
-                    document.getElementById('apiSettings').style.display = 'block';
-                } else {
-                    document.getElementById('modeWSL').checked = true;
-                    document.getElementById('apiSettings').style.display = 'none';
+                // 本地模式配置
+                if (config.ai_model.local) {
+                    document.getElementById('localUrlInput').value = config.ai_model.local.api_url ?? 'http://localhost:8000/v1/chat/completions';
                 }
 
-                document.getElementById('apiUrlInput').value = config.ai_model.api_url ?? '';
-                document.getElementById('apiKeyInput').value = config.ai_model.api_key ?? '';
-                document.getElementById('modelNameInput').value = config.ai_model.api_model ?? '';
+                // API模式配置
+                if (config.ai_model.api) {
+                    document.getElementById('apiProviderSelect').value = config.ai_model.api.provider ?? 'siliconflow';
+                    document.getElementById('apiUrlInput').value = config.ai_model.api.api_url ?? '';
+                    document.getElementById('apiKeyInput').value = config.ai_model.api.api_key ?? '';
+                    document.getElementById('modelNameInput').value = config.ai_model.api.model_name ?? '';
+                }
+
+                // 安全配置
+                if (config.ai_model.security) {
+                    document.getElementById('verifySslCheck').checked = config.ai_model.security.verify_ssl ?? true;
+                }
             }
         }
     } catch (error) {
@@ -163,20 +212,18 @@ async function loadSettings() {
 }
 
 function getCurrentSettings() {
+    const isApiMode = document.getElementById('modeAPI').checked;
     return {
-        temp: document.getElementById('tempRange').value,
-        topP: document.getElementById('topPRange').value,
-        topK: document.getElementById('topKInput').value,
-        minP: document.getElementById('minPRange').value,
-        maxTokens: document.getElementById('maxTokensInput').value,
-        seed: document.getElementById('seedInput').value,
-        repeatPenalty: document.getElementById('repeatPenaltyRange').value,
-        freqPenalty: document.getElementById('freqPenaltyRange').value,
-        presencePenalty: document.getElementById('presencePenaltyRange').value,
-        mode: document.querySelector('input[name="aiMode"]:checked').id,
+        mode: isApiMode ? 'api' : 'local',
+        // 本地模式配置
+        localUrl: document.getElementById('localUrlInput').value,
+        // API模式配置
+        apiProvider: document.getElementById('apiProviderSelect').value,
         apiUrl: document.getElementById('apiUrlInput').value,
         apiKey: document.getElementById('apiKeyInput').value,
-        modelName: document.getElementById('modelNameInput').value
+        modelName: document.getElementById('modelNameInput').value,
+        // 安全配置
+        verifySsl: document.getElementById('verifySslCheck').checked
     };
 }
 
@@ -196,33 +243,28 @@ async function saveSettings() {
         return;
     }
 
-    // Prepare config data for backend
+    // Prepare config data for backend - 使用嵌套对象结构
     const configData = {
         ai_model: {
-            temperature: parseFloat(currentSettings.temp),
-            top_p: parseFloat(currentSettings.topP),
-            top_k: parseInt(currentSettings.topK),
-            min_p: parseFloat(currentSettings.minP),
-            max_tokens: parseInt(currentSettings.maxTokens),
-            seed: parseInt(currentSettings.seed),
-            repeat_penalty: parseFloat(currentSettings.repeatPenalty),
-            frequency_penalty: parseFloat(currentSettings.freqPenalty),
-            presence_penalty: parseFloat(currentSettings.presencePenalty),
-            interface_type: currentSettings.mode === 'modeWSL' ? 'wsl' : 'api',
-            api_url: currentSettings.apiUrl,
-            api_key: currentSettings.apiKey,
-            api_model: currentSettings.modelName
+            mode: currentSettings.mode,
+            local: {
+                api_url: currentSettings.localUrl
+            },
+            api: {
+                provider: currentSettings.apiProvider,
+                api_url: currentSettings.apiUrl,
+                api_key: currentSettings.apiKey,
+                model_name: currentSettings.modelName
+            },
+            security: {
+                verify_ssl: currentSettings.verifySsl,
+                timeout: 120,
+                retry_count: 2
+            }
         },
         rag: {
-            temperature: parseFloat(currentSettings.temp),
-            top_p: parseFloat(currentSettings.topP),
-            top_k: parseInt(currentSettings.topK),
-            min_p: parseFloat(currentSettings.minP),
-            max_tokens: parseInt(currentSettings.maxTokens),
-            seed: parseInt(currentSettings.seed),
-            repeat_penalty: parseFloat(currentSettings.repeatPenalty),
-            frequency_penalty: parseFloat(currentSettings.freqPenalty),
-            presence_penalty: parseFloat(currentSettings.presencePenalty)
+            max_history_turns: 3,
+            max_history_chars: 1000
         }
     };
 
@@ -479,8 +521,8 @@ function renderHistoryList(sessions) {
     historyList.innerHTML = sessions.map(session => {
         // Escape for HTML attribute
         const sessionIdAttr = escapeHtml(session.session_id);
-        // For inline onclick, we need to escape quotes properly
-        const sessionIdJs = session.session_id.replace(/"/g, '&quot;').replace(/'/g, "\\'");
+        // For inline onclick, use JSON.stringify for proper JS string escaping
+        const sessionIdJs = JSON.stringify(session.session_id).slice(1, -1);
         return `
         <div class="list-group-item bg-transparent text-light border-0 px-2 py-2 small ${session.session_id === currentSessionId ? 'active' : ''}"
              style="cursor: pointer;"
@@ -792,8 +834,9 @@ async function performSearch() {
         let html = '<div class="d-flex flex-column gap-3">';
         results.forEach(result => {
             const iconClass = getFileIcon(result.file_name);
+            const safePath = JSON.stringify(result.path).slice(1, -1);
             html += `
-                <div class="card bg-transparent border-secondary search-result-card" onclick="previewFile('${result.path.replace(/\\/g, '\\\\')}')" style="cursor: pointer;">
+                <div class="card bg-transparent border-secondary search-result-card" onclick="previewFile('${safePath}')" style="cursor: pointer;">
                     <div class="card-body p-3">
                         <div class="d-flex w-100 justify-content-between align-items-start mb-2">
                             <h6 class="card-title mb-0 text-primary text-break pe-3">

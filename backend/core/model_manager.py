@@ -1,104 +1,264 @@
-# src/core/model_manager.py
+# backend/core/model_manager.py
 import os
-import time
 import json
-from typing import Optional, Generator, Any
-import requests  # 用于WSL API fallback
+import time
+import hashlib
+from typing import Optional, Generator, Dict, Any
+from enum import Enum
+import requests
+from requests.adapters import HTTPAdapter, Retry
+
 from backend.utils.logger import setup_logger
 from backend.utils.config_loader import ConfigLoader
+from backend.core.privacy_guard import get_privacy_guard
+
 logger = setup_logger()
 
+
+class ModelError(Exception):
+    """模型调用错误基类"""
+    pass
+
+
+class APIKeyError(ModelError):
+    """API密钥错误"""
+    pass
+
+
+class NetworkError(ModelError):
+    """网络连接错误"""
+    pass
+
+
+class RateLimitError(ModelError):
+    """速率限制"""
+    pass
+
+
+class ContextLengthError(ModelError):
+    """上下文超长"""
+    pass
+
+
 def _normalize_text(text: str) -> str:
+    """修复编码问题"""
     if not isinstance(text, str) or not text:
         return text
 
-    # 如果已经包含正常的Unicode字符（例如中文），则无需处理
     if any(ord(ch) > 255 for ch in text):
         return text
 
-    # 检测是否存在较多的扩展拉丁字符，可能是UTF-8被当作Latin-1解析后的"乱码"
     extended = sum(1 for ch in text if 0x80 <= ord(ch) <= 0xFF)
     if extended == 0:
         return text
 
     try:
-        # 尝试修复常见的编码错误
         fixed = text.encode('latin-1').decode('utf-8')
         return fixed
     except (UnicodeDecodeError, UnicodeEncodeError):
         return text
 
-def _normalize_text_wrapper(text: str) -> str:
-    """包装器，用于在类方法中调用"""
-    return _normalize_text(text)
+
+class ModelMode(Enum):
+    """模型模式"""
+    LOCAL = "local"
+    API = "api"
 
 
 class ModelManager:
-    """模型管理器：仅支持WSL和在线API接口"""
+    """
+    模型管理器 - 支持本地和API两种模式
+    始终启用隐私保护
+    """
 
-    def __init__(self, config_loader):
+    def __init__(self, config_loader: ConfigLoader):
         self.config_loader = config_loader
-        # 获取配置时增加健壮性检查
+        self.privacy_guard = get_privacy_guard()
+
+        # 获取当前模式（带异常处理）
         try:
-            self.interface_type: str = config_loader.get('ai_model', 'interface_type', 'wsl')
-            self.api_url: str = config_loader.get('ai_model', 'api_url', 'http://localhost:8000/v1/chat/completions')
-            self.api_key: str = config_loader.get('ai_model', 'api_key', '')
-            self.api_format: str = config_loader.get('ai_model', 'api_format', 'openai_chat')
-            self.api_model_name: str = config_loader.get('ai_model', 'api_model', 'wsl')
-            self.system_prompt: str = config_loader.get('ai_model', 'system_prompt', '')
-            self.request_timeout: int = config_loader.getint('ai_model', 'request_timeout', 60)
-            self.default_max_tokens: int = config_loader.getint('ai_model', 'max_tokens', 2048)
-        except Exception as e:
-            logger.error(f"获取模型配置失败: {str(e)}")
-            # 使用默认值
-            self.interface_type = 'wsl'
-            self.api_url = 'http://localhost:8000/v1/chat/completions'
-            self.api_key = ''
-            self.api_format = 'openai_chat'
-            self.api_model_name = 'wsl'
-            self.system_prompt = ''
-            self.request_timeout = 60
-            self.default_max_tokens = 2048
+            mode_str = config_loader.get('ai_model', 'mode', 'local')
+            self.mode = ModelMode(mode_str)
+        except ValueError:
+            logger.warning(f"Invalid mode configured, defaulting to local")
+            self.mode = ModelMode.LOCAL
 
-        if self.interface_type == 'api':
-            self.api_model_name = config_loader.get('ai_model', 'api_model', 'gpt-3.5-turbo')
+        # 安全配置
+        self.verify_ssl = config_loader.getboolean('ai_model', 'security.verify_ssl', True)
+        self.timeout = config_loader.getint('ai_model', 'security.timeout', 120)
+        self.retry_count = config_loader.getint('ai_model', 'security.retry_count', 2)
 
-    def generate(self, prompt: str, session_id: Optional[str] = None, max_tokens: int = 512, temperature: float = 0.7) -> Generator[str, None, None]:
-        """根据配置的接口类型进行推理生成 - 现在只支持WSL和API"""
+        # 根据模式加载配置
+        if self.mode == ModelMode.LOCAL:
+            self._init_local_config()
+        else:
+            self._init_api_config()
+
+        # 创建会话（带连接池和重试）
+        self.session = self._create_session()
+
+    def _init_local_config(self):
+        """初始化本地模型配置"""
+        self.api_url = self.config_loader.get('ai_model', 'local.api_url',
+                                               'http://localhost:8000/v1/chat/completions')
+        self.api_key = ""
+        self.model_name = "local"
+        self.max_context = self.config_loader.getint('ai_model', 'local.max_context', 4096)
+        self.default_max_tokens = self.config_loader.getint('ai_model', 'local.max_tokens', 512)
+        self.default_temperature = 0.3  # 本地模型使用更低温度
+
+    def _init_api_config(self):
+        """初始化API模型配置"""
+        self.api_url = self.config_loader.get('ai_model', 'api.api_url',
+                                               'https://api.siliconflow.cn/v1/chat/completions')
+        # 获取当前provider
+        provider = self.config_loader.get('ai_model', 'api.provider', 'siliconflow')
+        # 优先从新的多provider结构获取key
+        self.api_key = self.config_loader.get('ai_model', f'api.keys.{provider}', '')
+        if not self.api_key:
+            # 回退到旧配置
+            self.api_key = self.config_loader.get('ai_model', 'api.api_key', '')
+        self.model_name = self.config_loader.get('ai_model', 'api.model_name',
+                                                   'deepseek-ai/DeepSeek-V2.5')
+        self.max_context = self.config_loader.getint('ai_model', 'api.max_context', 8192)
+        self.default_max_tokens = self.config_loader.getint('ai_model', 'api.max_tokens', 2048)
+        self.default_temperature = 0.7
+
+    def _create_session(self) -> requests.Session:
+        """创建带连接池和重试的会话"""
+        session = requests.Session()
+
+        retry_strategy = Retry(
+            total=self.retry_count,
+            backoff_factor=1,
+            status_forcelist=[429, 500, 502, 503, 504],
+        )
+
+        adapter = HTTPAdapter(
+            pool_connections=5,
+            pool_maxsize=10,
+            max_retries=retry_strategy
+        )
+
+        session.mount("http://", adapter)
+        session.mount("https://", adapter)
+
+        return session
+
+    def get_mode(self) -> ModelMode:
+        """获取当前模式"""
+        return self.mode
+
+    def get_model_limits(self) -> Dict[str, Any]:
+        """获取当前模型的限制参数"""
+        if self.mode == ModelMode.LOCAL:
+            return {
+                'max_context': self.max_context,
+                'max_docs': 3,
+                'chunk_size': 500,
+                'chunk_overlap': 100,
+                'temperature': self.default_temperature,
+                'max_tokens': self.default_max_tokens,
+            }
+        else:
+            return {
+                'max_context': self.max_context,
+                'max_docs': 5,
+                'chunk_size': 1500,
+                'chunk_overlap': 200,
+                'temperature': self.default_temperature,
+                'max_tokens': self.default_max_tokens,
+            }
+
+    def _validate_api_config(self):
+        """验证API配置"""
+        if self.mode == ModelMode.API:
+            if not self.api_key:
+                raise APIKeyError("API密钥未配置")
+            if not self.api_url:
+                raise NetworkError("API URL未配置")
+            if not self.api_url.startswith(('http://', 'https://')):
+                raise NetworkError("API URL必须以http://或https://开头")
+            # 基本URL格式验证
+            from urllib.parse import urlparse
+            parsed = urlparse(self.api_url)
+            if not parsed.netloc:
+                raise NetworkError("API URL格式无效")
+
+    def _handle_response_error(self, response: requests.Response):
+        """处理响应错误"""
+        if response.status_code == 401:
+            raise APIKeyError("API密钥无效或已过期")
+        elif response.status_code == 429:
+            raise RateLimitError("请求过于频繁，请稍后再试")
+        elif response.status_code == 413:
+            raise ContextLengthError("请求内容过长")
+        elif response.status_code >= 500:
+            raise NetworkError(f"服务器错误: {response.status_code}")
+        elif response.status_code >= 400:
+            raise ModelError(f"请求错误: {response.status_code} - {response.text}")
+
+    def generate(self, prompt: str, session_id: Optional[str] = None,
+                 max_tokens: Optional[int] = None,
+                 temperature: Optional[float] = None) -> Generator[str, None, None]:
+        """
+        生成回答 - 始终经过隐私保护处理
+
+        Args:
+            prompt: 输入提示词
+            session_id: 会话ID
+            max_tokens: 最大生成token数
+            temperature: 温度参数
+
+        Yields:
+            生成的文本片段
+        """
         try:
             # 检查模型是否启用
-            model_enabled = False
-            try:
-                model_enabled = self.config_loader.getboolean('ai_model', 'enabled', False)
-            except Exception as e:
-                logger.error(f"检查模型启用状态失败: {str(e)}")
-
+            model_enabled = self.config_loader.getboolean('ai_model', 'enabled', False)
             if not model_enabled:
-                yield "模拟响应: " + prompt
+                yield "AI功能未启用，请在设置中开启"
                 return
 
-            # 根据接口类型选择不同的生成方式
-            if self.interface_type == 'wsl':
-                for chunk in self._wsl_generate(prompt, max_tokens, temperature):
-                    yield _normalize_text(chunk)
-            elif self.interface_type == 'api':
-                for chunk in self._api_generate(prompt, max_tokens, temperature):
-                    yield _normalize_text(chunk)
-            else:
-                yield f"错误：未知的AI接口类型: {self.interface_type}。当前仅支持 'wsl' 和 'api'。"
+            # 隐私保护：脱敏处理
+            redacted_prompt = self.privacy_guard.redact(prompt)
+            if redacted_prompt != prompt:
+                logger.debug("Prompt redacted for privacy")  # 使用debug级别避免泄露信息
+
+            # 验证配置
+            self._validate_api_config()
+
+            # 使用默认参数
+            effective_max_tokens = max_tokens or self.default_max_tokens
+            effective_temperature = temperature or self.default_temperature
+
+            # 调用生成
+            for chunk in self._chat_generate(redacted_prompt, effective_max_tokens,
+                                             effective_temperature):
+                yield _normalize_text(chunk)
+
+        except APIKeyError as e:
+            logger.error(f"API密钥错误: {e}")
+            yield f"错误：API密钥无效 - {str(e)}"
+        except NetworkError as e:
+            logger.error(f"网络错误: {e}")
+            yield f"错误：网络连接失败 - {str(e)}"
+        except RateLimitError as e:
+            logger.error(f"速率限制: {e}")
+            yield f"错误：{str(e)}"
+        except ContextLengthError as e:
+            logger.error(f"上下文超长: {e}")
+            yield f"错误：内容过长，请缩短输入或精简文档"
         except Exception as e:
             logger.error(f"生成失败: {e}")
             yield f"错误：{str(e)}"
 
-    def _wsl_generate(self, prompt: str, max_tokens: int, temperature: float) -> Generator[str, None, None]:
-        """WSL API生成 - 代理到通用API生成"""
-        # 根据配置决定使用 Chat API 还是 Completion API
-        if self.api_format == 'openai_chat':
-            return self._chat_generate(prompt, max_tokens, temperature)
-        return self._api_generate(prompt, max_tokens, temperature)
-
-    def _chat_generate(self, prompt: str, max_tokens: int, temperature: float) -> Generator[str, None, None]:
-        """OpenAI Chat API生成"""
+    def _chat_generate(self, prompt: str, max_tokens: int,
+                       temperature: float) -> Generator[str, None, None]:
+        """
+        OpenAI Chat API 生成
+        同时适用于本地和API模式
+        """
         try:
             headers = {
                 'Content-Type': 'application/json'
@@ -106,228 +266,149 @@ class ModelManager:
             if self.api_key:
                 headers['Authorization'] = f'Bearer {self.api_key}'
 
-            effective_max_tokens = max_tokens or self.default_max_tokens
-
             # 确保使用 /chat/completions 端点
             request_url = self.api_url
-            # 检查URL是否有效
-            if not request_url or not request_url.startswith('http'):
-                logger.error(f"Invalid API URL: {request_url}")
-                yield "错误：API URL未配置或格式无效，请在设置中配置正确的API地址"
-                return
-
             if '/completions' in request_url and '/chat/completions' not in request_url:
                 request_url = request_url.replace('/completions', '/chat/completions')
             elif '/chat/completions' not in request_url:
-                # 如果URL没有明确指定端点，尝试追加
                 if request_url.endswith('/'):
                     request_url += 'chat/completions'
                 else:
                     request_url += '/chat/completions'
 
-            # 构建消息列表
-            messages = [{"role": "user", "content": prompt}]
-            # 如果有系统提示词，可以添加
-            if self.system_prompt:
-                messages.insert(0, {"role": "system", "content": self.system_prompt})
+            # 获取系统提示词
+            system_prompt = self.config_loader.get('ai_model', 'system_prompt', '')
 
+            # 构建消息列表
+            messages = []
+            if system_prompt:
+                messages.append({"role": "system", "content": system_prompt})
+            messages.append({"role": "user", "content": prompt})
+
+            # 构建请求体
             payload = {
-                "model": self.api_model_name,
+                "model": self.model_name,
                 "messages": messages,
                 "temperature": temperature,
-                "max_tokens": effective_max_tokens,
+                "max_tokens": max_tokens,
                 "stream": True
             }
 
+            # API模式添加额外参数
+            if self.mode == ModelMode.API:
+                payload["top_p"] = 0.9
+
             logger.debug(f"Chat API Request URL: {request_url}")
 
-            response = requests.post(
+            # 根据模式调整超时：本地模型通常响应较慢
+            if self.mode == ModelMode.LOCAL:
+                connect_timeout, read_timeout = 5, self.timeout * 2
+            else:
+                connect_timeout, read_timeout = 10, self.timeout
+
+            response = self.session.post(
                 request_url,
                 json=payload,
                 headers=headers,
                 stream=True,
-                timeout=self.request_timeout
+                timeout=(connect_timeout, read_timeout),
+                verify=self.verify_ssl
             )
 
+            # 处理错误
             if response.status_code >= 400:
-                logger.error(f"Chat API Error: {response.status_code} - {response.text}")
-                yield f"错误：API返回 {response.status_code}"
-                return
+                self._handle_response_error(response)
 
             response.raise_for_status()
 
-            # 手动处理编码，避免 iter_lines(decode_unicode=True) 可能的问题
+            # 处理流式响应
             if not response.encoding:
                 response.encoding = 'utf-8'
 
-            for line in response.iter_lines():
-                if not line: continue
-
-                # 解码行
-                try:
-                    decoded_line = line.decode('utf-8').strip()
-                except Exception:
+            buffer = ""
+            for line in response.iter_lines(decode_unicode=True):
+                if not line:
                     continue
 
-                if not decoded_line: continue
+                line = line.strip()
+                if not line:
+                    continue
 
-                if decoded_line.startswith('data:'):
-                    data_str = decoded_line[5:].strip()
+                if line.startswith('data:'):
+                    data_str = line[5:].strip()
                 else:
                     continue
 
                 if data_str == '[DONE]':
                     break
 
+                # 处理可能的JSON截断
+                if buffer:
+                    data_str = buffer + data_str
+                    buffer = ""
+
                 try:
                     chunk = json.loads(data_str)
                 except json.JSONDecodeError:
-                    logger.warning(f"JSON Decode Error for chunk: {data_str}")
+                    buffer = data_str
                     continue
 
                 choices = chunk.get('choices', [])
-                if not choices: continue
+                if not choices:
+                    continue
 
                 delta = choices[0].get('delta', {})
                 content = delta.get('content', '')
 
-                # 检查结束原因
-                finish_reason = choices[0].get('finish_reason')
-                if finish_reason:
-                    logger.info(f"Generation finished. Reason: {finish_reason}")
-
                 if content:
-                    yield _normalize_text_wrapper(content)
+                    yield content
 
-        except Exception as e:
-            logger.error(f"Chat API调用失败: {e}")
-            yield f"错误：Chat API调用失败 - {str(e)}"
+        except requests.exceptions.Timeout:
+            raise NetworkError(f"请求超时（{self.timeout}秒）")
+        except requests.exceptions.ConnectionError:
+            raise NetworkError("无法连接到模型服务")
+        except requests.exceptions.RequestException as e:
+            raise NetworkError(f"请求异常: {str(e)}")
 
-    def _api_generate(self, prompt: str, max_tokens: int, temperature: float) -> Generator[str, None, None]:
-        """通用API生成 - 为 Qwen3-VL-2B-Thinking-abliterated 模型优化"""
+    def test_connection(self) -> Dict[str, Any]:
+        """测试连接 - 用于健康检查"""
         try:
-            headers = {
-                'Content-Type': 'application/json'
-            }
+            self._validate_api_config()
 
-            # 如果配置了API密钥，添加到请求头
+            headers = {'Content-Type': 'application/json'}
             if self.api_key:
                 headers['Authorization'] = f'Bearer {self.api_key}'
 
-            effective_max_tokens = max_tokens or self.default_max_tokens
-
-            # 从配置中获取额外的生成参数
-            try:
-                rag_config = self.config_loader.get('rag', {})
-                top_p = rag_config.get('top_p', 1.0)
-                frequency_penalty = rag_config.get('frequency_penalty', 0.0)
-                presence_penalty = rag_config.get('presence_penalty', 0.0)
-                repetition_penalty = rag_config.get('repetition_penalty', 1.0)
-            except:
-                top_p = 1.0
-                frequency_penalty = 0.0
-                presence_penalty = 0.0
-                repetition_penalty = 1.0
-
-            # 强制使用 /v1/completions 端点，因为我们发送的是 raw prompt
-            request_url = self.api_url
-            if '/chat/completions' in request_url:
-                request_url = request_url.replace('/chat/completions', '/completions')
-
-            payload = {
-                "prompt": prompt,
-                "temperature": temperature,
-                "max_tokens": effective_max_tokens,
-                "top_p": top_p,
-                "top_k": 40,
-                "frequency_penalty": frequency_penalty,
-                "presence_penalty": presence_penalty,
-                "repetition_penalty": repetition_penalty,
-                "stream": True
+            # 发送一个简单的请求测试连接
+            test_payload = {
+                "model": self.model_name,
+                "messages": [{"role": "user", "content": "test"}],
+                "max_tokens": 1
             }
 
-            # 打印调试信息
-            logger.debug(f"API Request URL: {request_url}")
-            # logger.debug(f"API Request Payload: {json.dumps(payload, ensure_ascii=False)}")
-
-            response = requests.post(
-                request_url,
-                json=payload,
+            response = self.session.post(
+                self.api_url,
+                json=test_payload,
                 headers=headers,
-                stream=True,
-                timeout=self.request_timeout
+                timeout=10,
+                verify=self.verify_ssl
             )
 
-            if response.status_code >= 400:
-                logger.error(f"API Error Status: {response.status_code}")
-                logger.error(f"API Error Response: {response.text}")
+            if response.status_code == 200:
+                return {"status": "ok", "mode": self.mode.value, "model": self.model_name}
+            elif response.status_code == 401:
+                return {"status": "error", "error": "API密钥无效"}
+            else:
+                return {"status": "error", "error": f"HTTP {response.status_code}"}
 
-            response.raise_for_status()
-            if not response.encoding:
-                response.encoding = 'utf-8'
-
-            content_type = response.headers.get('Content-Type', '').lower()
-            # 对于 completions API, 通常返回的是 text/event-stream
-            if 'text/event-stream' not in content_type and not response.headers.get('Transfer-Encoding') == 'chunked':
-                # 处理非流式响应（不太常见，但以防万一）
-                data = response.json()
-                choices = data.get('choices', []) if isinstance(data, dict) else []
-                if choices:
-                    text = choices[0].get('text', '')
-                    if text:
-                        yield _normalize_text(text)
-                return
-
-            # 处理流式响应
-            # 简化逻辑：直接输出所有内容，不进行
-
-            buffer = ""
-            for raw_line in response.iter_lines(decode_unicode=True):
-                if raw_line is None:
-                    continue
-
-                # 如果我们在buffer模式（上一行JSON不完整），我们需要拼接
-                if buffer:
-                    # 恢复被iter_lines消耗的换行符（假设分裂是因为换行符）
-                    current_text = buffer + "\n" + raw_line
-                else:
-                    # 新的行，处理 data: 前缀
-                    line = raw_line.strip()
-                    if not line:
-                        continue
-                    if line.startswith('data:'):
-                        current_text = line[5:].strip()
-                    elif line == '[DONE]':
-                        continue
-                    else:
-                        # 可能是注释或无效行
-                        continue
-
-                if not current_text or current_text == '[DONE]':
-                    continue
-
-                try:
-                    chunk = json.loads(current_text)
-                    buffer = "" # 解析成功，清空buffer
-                except json.JSONDecodeError:
-                    # 解析失败，可能是因为JSON不完整（被换行符切断），存入buffer等待下一行
-                    buffer = current_text
-                    continue
-
-                choices = chunk.get('choices', []) if isinstance(chunk, dict) else []
-                if not choices:
-                    continue
-
-                text_piece = choices[0].get('text', '')
-                if not text_piece:
-                    continue
-
-                # DEBUG: Print raw text piece to console to verify what model sends
-                # print(f"DEBUG CHUNK: {repr(text_piece)}")
-
-                # 直接输出，不做任何过滤
-                yield _normalize_text_wrapper(text_piece)
-
+        except APIKeyError as e:
+            return {"status": "error", "error": str(e)}
+        except NetworkError as e:
+            return {"status": "error", "error": str(e)}
         except Exception as e:
-            logger.error(f"API调用失败: {e}")
-            yield f"错误：API调用失败。" 
+            return {"status": "error", "error": str(e)}
+
+    def close(self):
+        """关闭会话，释放资源"""
+        if self.session:
+            self.session.close()

@@ -2,9 +2,11 @@
 # -*- coding: utf-8 -*-
 """搜索引擎模块 - 集成文本搜索和向量搜索功能"""
 import os
+import re
 import time
 import logging
 from datetime import datetime
+from typing import List, Dict, Any
 import numpy as np
 
 class SearchEngine:
@@ -122,6 +124,16 @@ class SearchEngine:
         start_time = time.time()
         self.logger.info(f"执行搜索: {query}, 过滤器: {filters}")
 
+        # 使用QueryProcessor扩展查询
+        try:
+            from backend.core.query_processor import QueryProcessor
+            query_processor = QueryProcessor(self.config_loader)
+            expanded_queries = query_processor.process(query)
+            self.logger.info(f"查询扩展: {expanded_queries}")
+        except Exception as e:
+            self.logger.warning(f"查询扩展失败: {e}")
+            expanded_queries = [query]
+
         # 检查缓存
         cache_key = self._get_cache_key(query, filters)
         if self.enable_cache:
@@ -146,17 +158,40 @@ class SearchEngine:
 
         # 保持查询与类型筛选相互独立：不再基于查询自动推断文件类型过滤
 
-        # 执行文本搜索
-        text_results = self._search_text(query, filters)
-        self.logger.info(f"文本搜索返回 {len(text_results)} 条结果")
+        # 执行多路召回：原始查询 + 扩展查询
+        all_text_results = []
+        all_vector_results = []
+        seen_paths = set()
 
-        # 执行向量搜索
-        vector_results = self._search_vector(query, filters)
-        self.logger.info(f"向量搜索返回 {len(vector_results)} 条结果")
+        # 对每个扩展查询执行搜索
+        for search_query in expanded_queries[:3]:  # 限制最多3个查询以避免性能问题
+            # 执行文本搜索
+            text_results = self._search_text(search_query, filters)
+            for result in text_results:
+                path = result.get('path', '')
+                if path and path not in seen_paths:
+                    seen_paths.add(path)
+                    result['search_query'] = search_query  # 记录匹配的查询
+                    all_text_results.append(result)
+
+            # 执行向量搜索
+            vector_results = self._search_vector(search_query, filters)
+            for result in vector_results:
+                path = result.get('path', '')
+                if path and path not in seen_paths:
+                    seen_paths.add(path)
+                    result['search_query'] = search_query
+                    all_vector_results.append(result)
+
+        self.logger.info(f"多路召回: 文本搜索 {len(all_text_results)} 条, 向量搜索 {len(all_vector_results)} 条")
 
         # 合并和排序结果
-        combined_results = self._combine_results(text_results, vector_results)
+        combined_results = self._combine_results(all_text_results, all_vector_results)
         self.logger.info(f"合并后 {len(combined_results)} 条结果")
+
+        # 重排序优化
+        combined_results = self._rerank_results(query, combined_results)
+        self.logger.info(f"重排序后 {len(combined_results)} 条结果")
 
         # 应用过滤器
         filtered_results = self._apply_filters(combined_results, filters)
@@ -567,6 +602,91 @@ class SearchEngine:
             words = re.findall(r'\w+', self.current_query)
             return words
         return []
+
+    def _rerank_results(self, query: str, results: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """
+        对搜索结果进行重排序
+
+        评分因素：
+        1. 基础搜索得分 (30%)
+        2. 文件名匹配度 (40%) - 大幅提高文件名权重
+        3. 关键词密度 (15%)
+        4. 时效性 - 文档新旧 (10%)
+        5. 文档长度惩罚（避免过长文档）(5%)
+        """
+        if not results:
+            return results
+
+        query_lower = query.lower()
+        query_words = set(re.findall(r'\w+', query_lower))
+
+        for result in results:
+            original_score = result.get('score', 0)
+            new_score = 0.0
+
+            # 1. 基础搜索得分 (30%)
+            new_score += original_score * 0.3
+
+            # 2. 文件名匹配度 (40%) - 大幅提高权重
+            filename = os.path.basename(result.get('path', '')).lower()
+            filename_score = 0.0
+
+            # 完整查询匹配文件名
+            if query_lower in filename:
+                filename_score = 100.0
+            else:
+                # 部分匹配
+                matched_words = sum(1 for word in query_words if word in filename)
+                if matched_words > 0:
+                    filename_score = (matched_words / max(len(query_words), 1)) * 80.0
+
+                # 文件名变体匹配（如"rcp说明"匹配"rcp"）
+                for variant in ['说明', '文档', '指南', '手册', '介绍', '简介']:
+                    if query_lower + variant in filename or variant + query_lower in filename:
+                        filename_score = max(filename_score, 90.0)
+                        break
+
+            new_score += filename_score * 0.4
+
+            # 3. 关键词密度 (15%)
+            content = (result.get('content', '') or result.get('snippet', '')).lower()
+            keyword_count = content.count(query_lower)
+            for word in query_words:
+                keyword_count += content.count(word)
+
+            keyword_score = min(keyword_count * 2, 30)  # 上限30分
+            new_score += keyword_score * 0.15
+
+            # 4. 时效性 (10%) - 越新越好
+            time_score = 0.0
+            try:
+                modified_time = result.get('modified')
+                if modified_time:
+                    if isinstance(modified_time, str):
+                        modified_time = datetime.strptime(modified_time, '%Y-%m-%d %H:%M:%S')
+                    days_old = (datetime.now() - modified_time).days
+                    time_score = max(0, 20 - days_old * 0.1)  # 新文档加分，每天减0.1分
+            except Exception:
+                pass
+
+            new_score += time_score * 0.1
+
+            # 5. 文档长度惩罚 (5%) - 避免过长文档
+            length_penalty = 0.0
+            content_length = len(content)
+            if content_length > 10000:
+                length_penalty = -5.0
+            elif content_length > 5000:
+                length_penalty = -2.0
+
+            new_score += length_penalty * 0.05
+
+            # 确保分数在合理范围内
+            result['score'] = min(max(new_score, 0.0), 100.0)
+            result['original_score'] = original_score  # 保留原始分数用于调试
+
+        # 按新分数排序
+        return sorted(results, key=lambda x: x['score'], reverse=True)
 
     def clear_cache(self):
         """清空搜索缓存"""

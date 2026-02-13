@@ -5,19 +5,27 @@ advanced:
   optimize_interval: 86400
   whoosh_mem_limit: 512
 ai_model:
-  api_format: openai_chat
-  api_key: ''
-  api_model: ''
-  api_url: 'http://127.0.0.1:8080/v1/chat/completions'
+  api:
+    api_key: ''
+    api_url: https://api.deepseek.com/v1/chat/completions
+    keys:
+      custom: ''
+      deepseek: ''
+      siliconflow: ''
+    max_context: 8192
+    max_tokens: 2048
+    model_name: deepseek-chat
+    provider: deepseek
   enabled: true
-  frequency_penalty: 0
-  interface_type: wsl
-  max_tokens: 2048
-  min_p: 0.05
-  presence_penalty: 0
-  repeat_penalty: 1.5
-  request_timeout: 600
-  seed: -1
+  local:
+    api_url: http://localhost:8000/v1/chat/completions
+    max_context: 4096
+    max_tokens: 512
+  mode: api
+  security:
+    retry_count: 2
+    timeout: 120
+    verify_ssl: true
   system_prompt: '你是一名专业的中文文档助理。请根据下方的【文档集合】回答用户的【问题】。
 
     规则：
@@ -31,10 +39,6 @@ ai_model:
     4. 如果文档中没有相关信息，请直接说明未找到。
 
     '
-  temperature: 0.7
-  top_k: 40
-  top_p: 0.9
-  use_gpu: true
 embedding:
   batch_size: 8
   cache_dir: data/models/
@@ -77,7 +81,7 @@ monitor:
   ignored_patterns: .git;.svn;.hg;__pycache__;.idea;.vscode;node_modules;venv;env;.DS_Store;Thumbs.db
   refresh_interval: 1
 rag:
-  context_exhausted_response: 对话过长，为避免超出上下文，请说‘重置’或简要概括后再继续。
+  context_exhausted_response: 对话过长，为避免超出上下文，请说'重置'或简要概括后再继续。
   fallback_response: '我在本地索引中暂时没有找到与" {query} "直接对应的正文内容。
 
     你可以：

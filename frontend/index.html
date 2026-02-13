@@ -313,36 +313,72 @@
                         <!-- 3. 接入模式 -->
                         <div class="tab-pane fade ps-4" id="v-pills-mode" role="tabpanel">
                             <h6 class="mb-3 text-light">AI 接入模式</h6>
-                            
+
                             <div class="list-group mb-3">
                                 <label class="list-group-item d-flex gap-3 bg-transparent border-secondary text-light">
-                                    <input class="form-check-input flex-shrink-0" type="radio" name="aiMode" id="modeWSL" checked>
+                                    <input class="form-check-input flex-shrink-0" type="radio" name="aiMode" id="modeLocal" checked>
                                     <span>
-                                        <strong class="d-block">WSL 本地模式</strong>
-                                        <small class="text-muted">使用本地 WSL 环境运行的模型 (llama.cpp)</small>
+                                        <strong class="d-block">本地模式</strong>
+                                        <small class="text-muted">使用本地运行的模型 (llama.cpp/Ollama)</small>
                                     </span>
                                 </label>
                                 <label class="list-group-item d-flex gap-3 bg-transparent border-secondary text-light">
                                     <input class="form-check-input flex-shrink-0" type="radio" name="aiMode" id="modeAPI">
                                     <span>
-                                        <strong class="d-block">API 远程模式</strong>
-                                        <small class="text-muted">连接到 OpenAI 兼容的 API 服务</small>
+                                        <strong class="d-block">API 模式</strong>
+                                        <small class="text-muted">连接到云端 API (硅基流动/DeepSeek等)</small>
                                     </span>
                                 </label>
                             </div>
 
+                            <!-- 本地模式配置 -->
+                            <div id="localSettings" class="mt-3 p-3 border border-secondary rounded bg-dark">
+                                <div class="mb-2">
+                                    <label class="form-label small text-muted">本地 API URL</label>
+                                    <input type="text" class="form-control form-control-sm bg-dark text-light border-secondary" id="localUrlInput" placeholder="http://localhost:8000/v1/chat/completions" value="http://localhost:8000/v1/chat/completions">
+                                    <div class="form-text text-muted small">本地模型服务端点</div>
+                                </div>
+                            </div>
+
+                            <!-- API模式配置 -->
                             <div id="apiSettings" class="mt-3 p-3 border border-secondary rounded bg-dark" style="display: none;">
                                 <div class="mb-2">
+                                    <label class="form-label small text-muted">API 提供商</label>
+                                    <select class="form-select form-select-sm bg-dark text-light border-secondary" id="apiProviderSelect" onchange="onProviderChange()">
+                                        <option value="siliconflow">硅基流动 (SiliconFlow)</option>
+                                        <option value="deepseek">DeepSeek 官方</option>
+                                        <option value="custom">自定义</option>
+                                    </select>
+                                </div>
+                                <div class="mb-2">
                                     <label class="form-label small text-muted">API URL</label>
-                                    <input type="text" class="form-control form-control-sm bg-dark text-light border-secondary" id="apiUrlInput" placeholder="http://localhost:8000/v1">
+                                    <input type="text" class="form-control form-control-sm bg-dark text-light border-secondary" id="apiUrlInput" placeholder="https://api.siliconflow.cn/v1/chat/completions">
                                 </div>
                                 <div class="mb-2">
                                     <label class="form-label small text-muted">API Key</label>
                                     <input type="password" class="form-control form-control-sm bg-dark text-light border-secondary" id="apiKeyInput" placeholder="sk-...">
+                                    <div class="form-text text-muted small">密钥仅存储在本地，不会上传</div>
                                 </div>
                                 <div class="mb-2">
-                                    <label class="form-label small text-muted">Model Name</label>
-                                    <input type="text" class="form-control form-control-sm bg-dark text-light border-secondary" id="modelNameInput" placeholder="gpt-3.5-turbo">
+                                    <label class="form-label small text-muted">模型名称</label>
+                                    <input type="text" class="form-control form-control-sm bg-dark text-light border-secondary" id="modelNameInput" placeholder="deepseek-ai/DeepSeek-V2.5">
+                                </div>
+                                <div class="mt-3 pt-2 border-top border-secondary">
+                                    <button type="button" class="btn btn-sm btn-outline-secondary w-100" onclick="testAPIConnection()">
+                                        <i class="bi bi-lightning me-1"></i>测试连接
+                                    </button>
+                                </div>
+                            </div>
+
+                            <!-- 安全配置 -->
+                            <div class="mt-3 p-3 border border-secondary rounded bg-dark">
+                                <h6 class="small text-light mb-2">安全与隐私</h6>
+                                <div class="form-check form-switch mb-2">
+                                    <input class="form-check-input" type="checkbox" id="verifySslCheck" checked>
+                                    <label class="form-check-label small text-light" for="verifySslCheck">验证 SSL 证书</label>
+                                </div>
+                                <div class="form-text text-muted small">
+                                    <i class="bi bi-shield-check me-1"></i>隐私保护始终启用：自动检测并脱敏手机号、身份证、邮箱
                                 </div>
                             </div>
                         </div>
