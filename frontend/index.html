@@ -65,22 +65,8 @@
                 </div>
 
                 <div class="settings-group">
-                    <span class="settings-label">高级选项</span>
+                    <span class="settings-label">搜索选项</span>
                     <div class="d-flex flex-column gap-2">
-                        <div class="form-check form-switch" title="区分大小写功能暂不可用：索引已统一转为小写存储">
-                            <input class="form-check-input" type="checkbox" id="caseSensitive" disabled>
-                            <label class="form-check-label small text-muted" for="caseSensitive" style="text-decoration: line-through;">
-                                区分大小写
-                                <i class="bi bi-slash-circle ms-1" style="font-size: 0.75rem;" title="该功能暂不可用"></i>
-                            </label>
-                        </div>
-                        <div class="form-check form-switch" title="全字匹配功能暂不可用">
-                            <input class="form-check-input" type="checkbox" id="matchWholeWord" disabled>
-                            <label class="form-check-label small text-muted" for="matchWholeWord" style="text-decoration: line-through;">
-                                全字匹配
-                                <i class="bi bi-slash-circle ms-1" style="font-size: 0.75rem;" title="该功能暂不可用"></i>
-                            </label>
-                        </div>
                         <div class="form-check form-switch">
                             <input class="form-check-input" type="checkbox" id="searchContent" checked>
                             <label class="form-check-label small text-light" for="searchContent">搜索文件内容</label>
@@ -528,6 +514,29 @@
             </div>
             <div class="modal-footer border-secondary justify-content-center p-2">
                 <button type="button" class="btn btn-sm btn-primary px-3" data-bs-dismiss="modal">确定</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 删除会话确认模态框 (Delete Session Confirmation Modal) -->
+<div class="modal fade" id="deleteSessionModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered modal-sm">
+        <div class="modal-content" style="background-color: var(--llama-bg); border: 1px solid var(--llama-border); color: var(--llama-text-main);">
+            <div class="modal-header border-secondary py-2">
+                <h6 class="modal-title"><i class="bi bi-trash me-2"></i>确认删除</h6>
+                <button type="button" class="btn btn-llama p-1" data-bs-dismiss="modal" aria-label="Close">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" style="width: 20px; height: 20px;">
+                      <path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" />
+                    </svg>
+                </button>
+            </div>
+            <div class="modal-body text-center py-4">
+                <p class="mb-0 small">确定要删除这个会话吗？<br>此操作无法撤销。</p>
+            </div>
+            <div class="modal-footer border-secondary justify-content-center p-2">
+                <button type="button" class="btn btn-sm btn-outline-secondary border-0" data-bs-dismiss="modal">取消</button>
+                <button type="button" class="btn btn-sm btn-danger px-3" id="confirmDeleteBtn">删除</button>
             </div>
         </div>
     </div>

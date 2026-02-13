@@ -1,15 +1,17 @@
-# 智能文件检索与问答系统
+# File Tools - 智能文件检索与问答系统
 
 基于 Python 的本地文件智能管理工具，提供高效文件扫描、语义检索和 AI 增强问答功能。
 
 ## 核心特性
 
--  **混合检索**：结合 Tantivy 全文检索和 HNSWLib 向量检索
--  **智能问答**：基于 RAG 技术的文档智能问答
--  **多格式支持**：PDF、Word、Excel、Markdown 等多种文档格式
--  **实时监控**：自动监控文件变化并增量更新索引
--  **日志**：结构化日志记录，支持 JSON 格式和上下文追踪
--  **高性能**：优化的索引和搜索算法，支持大规模文档库
+- **混合检索**：结合 Tantivy 全文检索和 HNSWLib 向量检索
+- **智能问答**：基于 RAG 技术的文档智能问答，支持会话管理
+- **多格式支持**：PDF、Word、Excel、PPT、Markdown 等多种文档格式
+- **实时监控**：自动监控文件变化并增量更新索引
+- **设置持久化**：前端设置可直接保存到配置文件
+- **历史记录**：智能问答支持多会话历史记录
+- **日志**：结构化日志记录，支持 JSON 格式和上下文追踪
+- **高性能**：优化的索引和搜索算法，支持大规模文档库
 
 ## 技术栈
 
@@ -92,8 +94,12 @@ pip install -e .
 
 ```yaml
 ai_model:
-  enabled: true  # 启用 AI 问答功能 (默认 false)
-  provider: "wsl" # 或 "api"
+  enabled: true  # 启用 AI 问答功能
+  interface_type: "wsl"  # 或 "api"
+  api_url: "http://localhost:8080/v1/chat/completions"
+  api_key: ""
+  temperature: 0.7
+  max_tokens: 2048
 
 file_scanner:
   scan_paths:
@@ -104,9 +110,9 @@ monitor:
   directories:
     - "C:/Users/YourName/Documents"
 
-interface:
-  theme: "light"  # 或 "dark"
-  language: "zh_CN"
+search:
+  text_weight: 0.6
+  vector_weight: 0.4
 ```
 
 启动应用：
@@ -119,7 +125,7 @@ uv run python main.py
 python main.py
 ```
 
-启动后会打开一个标题为「智能文件检索与问答系统」的原生桌面窗口。
+启动后会打开一个标题为「File Tools」的原生桌面窗口。
 API 服务在 `http://127.0.0.1:8000` 上运行；若端口被占用，将自动选择 `8001–8010` 中的可用端口。
 
 **API 端点：**
@@ -128,6 +134,10 @@ API 服务在 `http://127.0.0.1:8000` 上运行；若端口被占用，将自动
 - 搜索：`POST /api/search`
 - 问答：`POST /api/chat`
 - 文件预览：`POST /api/preview`
+- 获取配置：`GET /api/config`
+- 更新配置：`POST /api/config`
+- 获取会话列表：`GET /api/sessions`
+- 删除会话：`DELETE /api/sessions/{session_id}`
 
 ## 核心功能
 
@@ -149,8 +159,10 @@ API 服务在 `http://127.0.0.1:8000` 上运行；若端口被占用，将自动
 
 - **交互式界面**：全新的聊天对话界面，支持上下文连续问答
 - **RAG 技术**：基于检索增强生成，精准回答用户提问
+- **会话管理**：支持多会话管理，历史记录自动保存
 - **引用溯源**：回答中包含来源文档引用，点击即可查看原文
-- **模型支持**：支持本地模型或远程 API
+- **模型支持**：支持本地模型（WSL）或远程 API（OpenAI 兼容）
+- **参数调节**：支持 temperature、top_p、max_tokens 等采样参数实时调整
 
 ### 4. 文件监控
 

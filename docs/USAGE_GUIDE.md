@@ -1,14 +1,16 @@
-# 智能文件检索与问答系统 - 使用手册
+# File Tools - 使用手册
 
 ## 项目概述
 
-智能文件检索与问答系统是一个基于Python的本地文件智能管理工具，提供高效文件扫描、语义检索和AI增强问答功能。
+File Tools 是一个基于Python的本地文件智能管理工具，提供高效文件扫描、语义检索和AI增强问答功能。
 
 ## 核心特性
 
 - **混合检索**：结合Tantivy全文检索和HNSWLib向量检索
 - **智能问答**：基于RAG技术的文档智能问答
-- **多格式支持**：PDF、Word、Excel、Markdown等多种文档格式
+- **多格式支持**：PDF、Word、Excel、PPT、Markdown等多种文档格式
+- **设置持久化**：前端设置可直接保存到配置文件
+- **历史记录**：智能问答支持多会话历史记录
 - **实时监控**：自动监控文件变化并增量更新索引
 - **日志记录**：结构化日志记录，支持JSON格式和上下文追踪
 
@@ -40,21 +42,33 @@ pip install -e .
 
 ```yaml
 ai_model:
-  enabled: true  # 启用 AI 问答功能 (默认 false)
-  provider: "openai" # 或 "local"
+  enabled: true  # 启用 AI 问答功能
+  interface_type: "wsl"  # 接口类型: wsl 或 api
+  api_url: "http://localhost:8080/v1/chat/completions"
+  api_key: ""
+  api_model: "gpt-3.5-turbo"
+  temperature: 0.7
+  top_p: 0.9
+  top_k: 40
+  max_tokens: 2048
 
 file_scanner:
   scan_paths:
     - "C:/Users/YourName/Documents"
+  file_types:
+    document: [".txt", ".md", ".pdf", ".doc", ".docx"]
+    spreadsheet: [".xls", ".xlsx", ".csv"]
+    presentation: [".ppt", ".pptx"]
+    archive: [".zip", ".rar", ".7z"]
 
 monitor:
   enabled: true
   directories:
     - "C:/Users/YourName/Documents"
 
-interface:
-  theme: "light"  # 或 "dark"
-  language: "zh_CN"
+search:
+  text_weight: 0.6
+  vector_weight: 0.4
 ```
 
 ## 启动应用
@@ -69,7 +83,7 @@ uv run python main.py
 python main.py
 ```
 
-启动后会打开一个标题为「智能文件检索与问答系统」的原生桌面窗口。
+启动后会打开一个标题为「File Tools」的原生桌面窗口。
 API 服务在 `http://127.0.0.1:8000` 上运行；若端口被占用，将自动选择 `8001–8010` 中的可用端口。
 
 ## 功能使用指南
@@ -99,9 +113,11 @@ API 服务在 `http://127.0.0.1:8000` 上运行；若端口被占用，将自动
 - 系统将检索相关文档并生成回答
 
 #### 会话管理
-- 系统支持多轮对话
-- 使用"重置"命令清空对话历史
-- 会话信息在客户端维护
+- 系统支持多轮对话，自动保持上下文
+- 侧边栏显示历史会话列表，点击可切换会话
+- 点击"新建对话"创建新会话
+- 会话信息在服务器端维护，刷新页面后仍然保留
+- 使用"重置"命令清空当前对话历史
 
 #### 问答技巧
 - 提问时尽量具体明确
@@ -116,9 +132,11 @@ API 服务在 `http://127.0.0.1:8000` 上运行；若端口被占用，将自动
 - 更新搜索和问答系统的索引
 
 #### 设置管理
-- 点击右上角的齿轮图标
-- 调整AI模型参数
-- 修改系统配置
+- 点击右上角的齿轮图标打开设置面板
+- **采样参数**：调整 temperature、top_p、max_tokens 等
+- **惩罚参数**：设置 frequency_penalty、presence_penalty 等
+- **接入模式**：切换 WSL 本地模式或 API 远程模式
+- 点击"保存更改"将设置持久化到配置文件
 
 ## API 接口
 
@@ -156,6 +174,32 @@ POST /api/preview
 {
   "path": "文件路径"
 }
+```
+
+### 获取配置
+```
+GET /api/config
+```
+
+### 更新配置
+```
+POST /api/config
+{
+  "ai_model": {
+    "temperature": 0.7,
+    "api_url": "http://localhost:8080/v1/chat/completions"
+  }
+}
+```
+
+### 获取会话列表
+```
+GET /api/sessions
+```
+
+### 删除会话
+```
+DELETE /api/sessions/{session_id}
 ```
 
 ## 配置详解

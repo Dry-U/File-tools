@@ -18,6 +18,7 @@ from backend.utils.config_loader import ConfigLoader
 from backend.core.model_manager import ModelManager
 from backend.core.search_engine import SearchEngine
 from backend.core.vram_manager import VRAMManager
+from backend.core.chat_history_db import ChatHistoryDB
 
 logger = setup_logger()
 
@@ -80,7 +81,8 @@ class RAGPipeline:
         reset_cmds = rag_config.get('reset_commands', ['重置', '清空上下文', 'reset', 'restart']) or []
         self.reset_commands = [c.strip().lower() for c in reset_cmds if c]
 
-        self.session_histories: Dict[str, List[Dict[str, str]]] = {}
+        # Use SQLite for chat history persistence
+        self.chat_db = ChatHistoryDB()
 
     def _adjust_context_for_memory(self, doc_budget: int) -> int:
         """Adjust document budget based on memory constraints"""
@@ -120,12 +122,30 @@ class RAGPipeline:
         return clean.replace('\xa0', ' ').strip()
 
     def _build_history(self, session_id: str, budget: int) -> (str, int):
-        history = self.session_histories.get(session_id, []) or []
-        if not history or budget <= 0:
+        # 从数据库获取会话历史
+        messages = self.chat_db.get_session_messages(session_id)
+        if not messages or budget <= 0:
             return '', 0
 
-        # 改进：按时间倒序获取最近的对话轮次，但保留重要的上下文
-        turns = history[-self.max_history_turns :]
+        # 构建问答对
+        history = []
+        current_q, current_a = None, None
+        for msg in messages:
+            if msg['role'] == 'user':
+                if current_q is not None:
+                    history.append({'q': current_q, 'a': current_a or ''})
+                current_q = msg['content']
+                current_a = None
+            elif msg['role'] == 'assistant':
+                current_a = msg['content']
+        if current_q is not None:
+            history.append({'q': current_q, 'a': current_a or ''})
+
+        if not history:
+            return '', 0
+
+        # 按时间倒序获取最近的对话轮次
+        turns = history[-self.max_history_turns:]
         used = 0
         parts: List[str] = []
 
@@ -169,35 +189,20 @@ class RAGPipeline:
         return "\n".join(parts), used
 
     def _remember_turn(self, session_id: str, query: str, answer: str) -> None:
-        history = self.session_histories.setdefault(session_id, [])
+        # 确保会话存在
+        if not self.chat_db.session_exists(session_id):
+            self.chat_db.create_session(session_id)
 
-        # 改进：添加会话条目时，包括时间戳以更好地管理过期
-        import time
-        history.append({
-            'q': query,
-            'a': answer,
-            'timestamp': time.time()  # 添加时间戳
-        })
+        # 保存用户消息
+        self.chat_db.add_message(session_id, 'user', query)
+        # 保存助手消息
+        self.chat_db.add_message(session_id, 'assistant', answer)
 
-        # 限制对话轮次数量
-        if len(history) > self.max_history_turns:
-            overflow = len(history) - self.max_history_turns
-            del history[0:overflow]
-
-        def _total_len(items: List[Dict[str, str]]) -> int:
-            total = 0
-            for item in items:
-                total += len(item.get('q', '') or '')
-                total += len(item.get('a', '') or '')
-            return total
-
-        # 智能地根据字符数清理历史记录，保留最近的重要对话
-        while _total_len(history) > self.max_history_chars and len(history) > 1:
-            # 删除最旧的条目
-            history.pop(0)
+        # 注意：数据库层面不自动清理旧消息，保留完整历史
+        # 上下文截断在 _build_history 中根据预算处理
 
     def _reset_session(self, session_id: str) -> None:
-        self.session_histories.pop(session_id, None)
+        self.chat_db.delete_session(session_id)
 
     @staticmethod
     def _has_query_overlap(cleaned: str, query: str) -> bool:
@@ -993,16 +998,18 @@ class RAGPipeline:
     def get_session_stats(self, session_id: str = None) -> Dict[str, Any]:
         """获取会话统计信息"""
         session_key = session_id or ''
-        history = self.session_histories.get(session_key, [])
-        
+        messages = self.chat_db.get_session_messages(session_key)
+
         total_chars = 0
-        for turn in history:
-            total_chars += len(turn.get('q', '') or '')
-            total_chars += len(turn.get('a', '') or '')
-        
+        for msg in messages:
+            total_chars += len(msg.get('content', '') or '')
+
+        # 计算对话轮次（用户消息数）
+        turn_count = sum(1 for msg in messages if msg.get('role') == 'user')
+
         return {
             'session_id': session_key,
-            'turn_count': len(history),
+            'turn_count': turn_count,
             'total_characters': total_chars,
             'max_history_turns': self.max_history_turns,
             'max_history_chars': self.max_history_chars
@@ -1011,56 +1018,12 @@ class RAGPipeline:
     def clear_session(self, session_id: str = None) -> bool:
         """清空指定会话的历史记录"""
         session_key = session_id or ''
-        if session_key in self.session_histories:
-            del self.session_histories[session_key]
-            return True
-        return False
+        return self.chat_db.delete_session(session_key)
 
     def get_all_sessions(self) -> List[Dict[str, Any]]:
         """获取所有活跃会话的详细信息"""
-        sessions = []
-        for session_id, history in self.session_histories.items():
-            if not history:
-                continue
-
-            # 生成会话标题（基于第一条用户消息）
-            title = self._generate_session_title(history)
-
-            # 获取创建时间（第一条消息的时间戳）
-            created_at = history[0].get('timestamp', 0)
-
-            # 获取最后一条消息
-            last_message = history[-1].get('content', '') if history else ''
-            if len(last_message) > 50:
-                last_message = last_message[:50] + '...'
-
-            sessions.append({
-                'session_id': session_id,
-                'title': title,
-                'created_at': created_at,
-                'last_message': last_message,
-                'message_count': len(history)
-            })
-
-        # 按创建时间倒序排列
-        sessions.sort(key=lambda x: x['created_at'], reverse=True)
-        return sessions
-
-    def _generate_session_title(self, history: List[Dict[str, str]]) -> str:
-        """基于历史记录生成会话标题"""
-        if not history:
-            return '新对话'
-
-        # 查找第一条用户消息
-        for turn in history:
-            query = turn.get('q', '').strip()
-            if query:
-                # 限制长度
-                if len(query) > 30:
-                    return query[:30] + '...'
-                return query
-
-        return '新对话'
+        # 直接从数据库获取所有会话信息
+        return self.chat_db.get_all_sessions()
 
     def update_config(self, **kwargs):
         """动态更新RAG配置"""

@@ -76,12 +76,14 @@ main.py → Pywebview Window + FastAPI (后台线程)
 - Delegates to `file_scanner.index_file()` when available, otherwise falls back to minimal document construction
 
 ### Important Config Sections
-- `file_scanner.scan_paths`: Semicolon-separated directories to index
+- `file_scanner.scan_paths`: List of directories to index (YAML list format)
 - `monitor.enabled`: Auto-monitor file changes with watchdog
+- `monitor.directories`: List of directories to monitor (YAML list format)
 - `search.text_weight` / `search.vector_weight`: Hybrid search balance
 - `embedding.provider`: `fastembed` or `modelscope`
 - `ai_model.enabled`: Enable RAG chat
 - `ai_model.interface_type`: `wsl` (Windows WSL) or `api` (OpenAI-compatible)
+- `ai_model.api_url`: API endpoint for remote LLM (e.g., `http://localhost:8080/v1/chat/completions`)
 
 ### RAG Pipeline Details (`backend/core/rag_pipeline.py`)
 - Multi-stage document collection with VRAM-aware context sizing via `VRAMManager.adjust_context_size()`
@@ -100,6 +102,11 @@ index_manager = None
 rag_pipeline = None
 file_monitor = None
 ```
+
+### Frontend State Management
+- **Settings Persistence**: Frontend settings saved via `/api/config` endpoint, validated and persisted to `config.yaml`
+- **Session Management**: Chat sessions tracked server-side with `session_id`, stored in `RAGPipeline.session_histories`
+- **Mode Switching**: Dual-mode UI (search/chat) with sidebar content switching
 
 ### Windows-Specific Code
 1. **DLL Loading** (`main.py:14-24`, `rag_pipeline.py:8-14`): Torch DLL path added to PATH using `os.add_dll_directory()`
@@ -124,8 +131,12 @@ file_monitor = None
 ### API Endpoints
 - `GET /` - Main HTML page
 - `GET /api/health` - Health check (`{"status": "healthy" | "starting"}`)
-- `POST /api/search` - Search with query and optional filters
-- `POST /api/chat` - RAG chat with optional session_id
+- `POST /api/search` - Search with query and optional filters (date_range, file_types, etc.)
+- `POST /api/chat` - RAG chat with optional session_id for conversation history
 - `POST /api/preview` - Preview file content
 - `POST /api/rebuild-index` - Full index rebuild
+- `GET /api/config` - Get current configuration
+- `POST /api/config` - Update configuration (persists to config.yaml)
+- `GET /api/sessions` - Get all chat sessions
+- `DELETE /api/sessions/{session_id}` - Delete specific session
 - `/static/*` - Static files from `frontend/static/`

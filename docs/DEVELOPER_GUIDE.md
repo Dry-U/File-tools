@@ -1,4 +1,4 @@
-# 智能文件检索与问答系统 - 开发者文档
+# File Tools - 开发者文档
 
 ## 项目架构
 
@@ -140,12 +140,32 @@ def get_index_manager(config_loader = Depends(get_config_loader)):
 # API 路由前缀为 /api
 api_router = APIRouter()
 
+@api_router.get("/health")
+async def health_check():
+    ...
+
 @api_router.post("/search")
 async def search(...):
     ...
 
 @api_router.post("/chat")
 async def chat(...):
+    ...
+
+@api_router.get("/config")
+async def get_config(...):
+    ...
+
+@api_router.post("/config")
+async def update_config(...):
+    ...
+
+@api_router.get("/sessions")
+async def get_sessions(...):
+    ...
+
+@api_router.delete("/sessions/{session_id}")
+async def delete_session(...):
     ...
 ```
 
@@ -189,12 +209,18 @@ async def chat(...):
 ### 页面结构
 - 双模式界面：文件搜索 + 智能问答
 - 响应式设计
-- 暗色主题支持
+- 暗色主题（Llama Style）
 
 ### 组件结构
-- 侧边栏：配置和过滤器
+- 侧边栏：配置、过滤器、历史记录
 - 主内容区：搜索结果或对话界面
-- 设置模态框：参数调整
+- 设置模态框：采样参数、惩罚参数、接入模式
+- 重建索引弹窗：带进度提示
+
+### 功能特性
+- **设置持久化**：前端设置通过 `/api/config` 保存到后端
+- **会话管理**：聊天会话通过 `/api/sessions` 进行管理
+- **实时状态**：健康检查、索引重建进度等
 
 ## 测试策略
 

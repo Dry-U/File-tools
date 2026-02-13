@@ -476,31 +476,184 @@ function renderHistoryList(sessions) {
         return;
     }
 
-    historyList.innerHTML = sessions.map(session => `
-        <button class="list-group-item list-group-item-action bg-transparent text-light border-0 px-2 py-2 small ${session.session_id === currentSessionId ? 'active' : ''}"
-                onclick="switchToSession('${session.session_id}')">
+    historyList.innerHTML = sessions.map(session => {
+        // Escape for HTML attribute
+        const sessionIdAttr = escapeHtml(session.session_id);
+        // For inline onclick, we need to escape quotes properly
+        const sessionIdJs = session.session_id.replace(/"/g, '&quot;').replace(/'/g, "\\'");
+        return `
+        <div class="list-group-item bg-transparent text-light border-0 px-2 py-2 small ${session.session_id === currentSessionId ? 'active' : ''}"
+             style="cursor: pointer;"
+             data-session-id="${sessionIdAttr}"
+             onclick="if(!event.target.closest('.delete-btn')) switchToSession('${sessionIdJs}')">
             <div class="d-flex align-items-center">
                 <i class="bi bi-chat-left-text me-2"></i>
                 <div class="flex-grow-1 text-truncate">
                     <div class="text-truncate">${escapeHtml(session.title)}</div>
                     <small class="text-muted">${formatDate(session.created_at)} · ${session.message_count}条消息</small>
                 </div>
+                <button class="btn btn-link btn-sm text-danger delete-btn p-1 ms-2" style="display: none;"
+                        onclick="deleteSession('${sessionIdJs}', event)"
+                        title="删除会话">
+                    <i class="bi bi-trash"></i>
+                </button>
             </div>
-        </button>
-    `).join('');
+        </div>
+    `}).join('');
+
+    // 添加悬停显示删除按钮的效果
+    historyList.querySelectorAll('.list-group-item').forEach(item => {
+        item.addEventListener('mouseenter', () => {
+            const deleteBtn = item.querySelector('.delete-btn');
+            if (deleteBtn) deleteBtn.style.display = 'block';
+        });
+        item.addEventListener('mouseleave', () => {
+            const deleteBtn = item.querySelector('.delete-btn');
+            if (deleteBtn) deleteBtn.style.display = 'none';
+        });
+    });
 }
 
 // 切换到指定会话
-function switchToSession(sessionId) {
+async function switchToSession(sessionId) {
+    if (!sessionId) {
+        console.error('switchToSession: sessionId is empty');
+        return;
+    }
+
     currentSessionId = sessionId;
     localStorage.setItem('chat_session_id', sessionId);
 
-    // Reset chat UI
+    // Reset chat UI first
     resetChatUI();
+
+    // Load session messages from server
+    const success = await loadSessionMessages(sessionId);
+
+    // If loading failed or no messages, stay on initial page
+    // Otherwise the UI is already updated by loadSessionMessages
 
     // Reload history to update active state
     loadChatHistory();
 }
+
+// 加载指定会话的消息
+async function loadSessionMessages(sessionId) {
+    try {
+        if (!sessionId) {
+            console.error('loadSessionMessages: sessionId is empty');
+            return false;
+        }
+
+        const response = await fetch(`/api/sessions/${sessionId}/messages`);
+        if (!response.ok) {
+            console.error(`加载会话消息失败: HTTP ${response.status}`);
+            return false;
+        }
+
+        const data = await response.json();
+        const messages = data.messages || [];
+
+        // Show chat container even if no messages (user can start new conversation in this session)
+        const initialContainer = document.getElementById('chat-initial-container');
+        const welcomeText = document.getElementById('chat-welcome-text');
+        const chatContainer = document.getElementById('chatContainer');
+        const inputWrapper = document.getElementById('chat-input-wrapper');
+
+        // Always switch to chat view when loading a session
+        initialContainer.classList.remove('h-100', 'justify-content-center');
+        welcomeText.style.display = 'none';
+        chatContainer.style.display = 'block';
+        inputWrapper.style.background = 'rgba(33, 37, 41, 0.95)';
+
+        // Render messages if any
+        messages.forEach(msg => {
+            if (msg.role === 'user') {
+                addMessage(msg.content, 'user');
+            } else if (msg.role === 'assistant') {
+                addMessage(msg.content, 'ai');
+            }
+        });
+
+        // Scroll to bottom
+        chatContainer.scrollTop = chatContainer.scrollHeight;
+        return true;
+    } catch (error) {
+        console.error('加载会话消息失败:', error);
+        return false;
+    }
+}
+
+// 存储待删除的sessionId
+let sessionToDelete = null;
+
+// 删除会话
+function deleteSession(sessionId, event) {
+    event.stopPropagation(); // 防止触发切换会话
+
+    if (!sessionId) return;
+
+    sessionToDelete = sessionId;
+
+    // 显示Bootstrap模态框
+    const modalEl = document.getElementById('deleteSessionModal');
+    if (modalEl) {
+        const modal = new bootstrap.Modal(modalEl);
+        modal.show();
+    } else {
+        // Fallback to confirm if modal not found
+        if (confirm('确定要删除这个会话吗？')) {
+            executeDeleteSession(sessionId);
+        }
+    }
+}
+
+// 执行删除会话
+async function executeDeleteSession(sessionId) {
+    if (!sessionId) return;
+
+    try {
+        const response = await fetch(`/api/sessions/${sessionId}`, {
+            method: 'DELETE'
+        });
+
+        if (response.ok) {
+            // If deleted session is current session, create new one
+            if (sessionId === currentSessionId) {
+                currentSessionId = generateSessionId();
+                resetChatUI();
+            }
+            // Reload history list
+            loadChatHistory();
+        } else {
+            console.error('删除会话失败');
+            showToast('删除会话失败', 'error');
+        }
+    } catch (error) {
+        console.error('删除会话错误:', error);
+        showToast('删除会话错误: ' + error.message, 'error');
+    } finally {
+        sessionToDelete = null;
+    }
+}
+
+// 绑定删除确认按钮事件
+document.addEventListener('DOMContentLoaded', function() {
+    const confirmDeleteBtn = document.getElementById('confirmDeleteBtn');
+    if (confirmDeleteBtn) {
+        confirmDeleteBtn.addEventListener('click', function() {
+            if (sessionToDelete) {
+                executeDeleteSession(sessionToDelete);
+                // 关闭模态框
+                const modalEl = document.getElementById('deleteSessionModal');
+                if (modalEl) {
+                    const modal = bootstrap.Modal.getInstance(modalEl);
+                    if (modal) modal.hide();
+                }
+            }
+        });
+    }
+});
 
 // 重置聊天UI（不清除会话ID）
 function resetChatUI() {
@@ -583,9 +736,7 @@ async function performSearch() {
         filters.date_to = dateTo;
     }
 
-    // 4. Advanced Options
-    filters.case_sensitive = document.getElementById('caseSensitive').checked;
-    filters.match_whole_word = document.getElementById('matchWholeWord').checked;
+    // 4. Search Options
     filters.search_content = document.getElementById('searchContent').checked;
 
     // Transition UI

@@ -538,6 +538,23 @@ async def delete_session(
         raise HTTPException(status_code=500, detail=f"删除会话失败: {str(e)}")
 
 
+@api_router.get("/sessions/{session_id}/messages")
+async def get_session_messages(
+    session_id: str,
+    rag_pipeline = Depends(get_rag_pipeline)
+):
+    """获取特定会话的消息列表"""
+    if not rag_pipeline:
+        raise HTTPException(status_code=500, detail="RAG pipeline not initialized")
+
+    try:
+        messages = rag_pipeline.chat_db.get_session_messages(session_id)
+        return {"session_id": session_id, "messages": messages}
+    except Exception as e:
+        logger.error(f"Get session messages error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"获取会话消息失败: {str(e)}")
+
+
 @api_router.post("/config")
 async def update_config(
     request: Request,

@@ -720,17 +720,8 @@ class IndexManager:
         try:
             results = []
 
-            # Handle case_sensitive option
-            case_sensitive = False
-            if filters and 'case_sensitive' in filters:
-                case_sensitive = filters['case_sensitive']
-
-            # If case insensitive, convert query to lowercase for better matching
-            if not case_sensitive:
-                query_str_processed = query_str.lower()
-            else:
-                query_str_processed = query_str
-
+            # 统一转小写进行搜索（索引已小写存储）
+            query_str_processed = query_str.lower()
             seg_query = self._segment(query_str_processed)
             self.tantivy_index.reload()
             searcher = self.tantivy_index.searcher()
@@ -748,11 +739,6 @@ class IndexManager:
                 exact_fields = ['filename']
                 fields = ['filename', 'filename_chars']
 
-            # Handle match_whole_word
-            match_whole_word = False
-            if filters and 'match_whole_word' in filters:
-                match_whole_word = filters['match_whole_word']
-
             # 0. 优先尝试精确短语匹配，确保完全命中的文档排在前面
             try:
                 trimmed = query_str_processed.strip()
@@ -761,47 +747,37 @@ class IndexManager:
             except Exception as e:
                 self.logger.debug(f"精确短语查询构建失败: {str(e)}")
 
-            if match_whole_word:
-                # 如果开启全字匹配，仅使用精确短语查询
-                # 并且尝试在所有字段上进行精确匹配
-                try:
-                    trimmed = query_str_processed.strip()
-                    if trimmed:
-                        queries_to_try.append(self.tantivy_index.parse_query(f'"{trimmed}"', fields))
-                except Exception as e:
-                    self.logger.debug(f"全字匹配查询构建失败: {str(e)}")
-            else:
-                # 正常模糊搜索逻辑
-                # 简化查询构建逻辑
-                try:
-                    queries_to_try.append(self.tantivy_index.parse_query(seg_query, fields))
-                except Exception as e:
-                    self.logger.debug(f"分词查询构建失败: {str(e)}")
+            # 正常模糊搜索逻辑
+            # 简化查询构建逻辑
+            try:
+                queries_to_try.append(self.tantivy_index.parse_query(seg_query, fields))
+            except Exception as e:
+                self.logger.debug(f"分词查询构建失败: {str(e)}")
 
-                if query_str != seg_query:
-                    try:
-                        queries_to_try.append(self.tantivy_index.parse_query(query_str, fields))
-                    except Exception as e:
-                        self.logger.debug(f"原始查询构建失败: {str(e)}")
-
-                # 尝试单词查询
+            if query_str != seg_query:
                 try:
-                    for word in seg_query.split():
-                        if word.strip():
-                            queries_to_try.append(self.tantivy_index.parse_query(word, fields))
+                    queries_to_try.append(self.tantivy_index.parse_query(query_str, fields))
                 except Exception as e:
-                    self.logger.debug(f"单词查询构建失败: {str(e)}")
+                    self.logger.debug(f"原始查询构建失败: {str(e)}")
 
-                # 尝试字符查询
-                try:
-                    import re
-                    for ch in re.findall(r'\w', query_str_processed or ''):
-                        if search_content:
-                            queries_to_try.append(self.tantivy_index.parse_query(ch, ['filename_chars', 'content_chars']))
-                        else:
-                            queries_to_try.append(self.tantivy_index.parse_query(ch, ['filename_chars']))
-                except Exception as e:
-                    self.logger.debug(f"字符查询构建失败: {str(e)}")
+            # 尝试单词查询
+            try:
+                for word in seg_query.split():
+                    if word.strip():
+                        queries_to_try.append(self.tantivy_index.parse_query(word, fields))
+            except Exception as e:
+                self.logger.debug(f"单词查询构建失败: {str(e)}")
+
+            # 尝试字符查询
+            try:
+                import re
+                for ch in re.findall(r'\w', query_str_processed or ''):
+                    if search_content:
+                        queries_to_try.append(self.tantivy_index.parse_query(ch, ['filename_chars', 'content_chars']))
+                    else:
+                        queries_to_try.append(self.tantivy_index.parse_query(ch, ['filename_chars']))
+            except Exception as e:
+                self.logger.debug(f"字符查询构建失败: {str(e)}")
 
             all_hits = []
             for query in queries_to_try:
