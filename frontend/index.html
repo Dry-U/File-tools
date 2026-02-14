@@ -8,7 +8,7 @@
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <!-- 引入 Bootstrap Icons -->
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css">
-    
+
     <!-- 引入自定义样式 -->
     <link rel="stylesheet" href="static/css/style.css">
 </head>
@@ -52,14 +52,15 @@
 
                 <div class="settings-group">
                     <span class="settings-label">修改日期范围</span>
-                    <div class="date-range-inputs">
-                        <div class="date-input-row">
-                            <span class="date-label">起</span>
-                            <input type="date" class="date-input" id="dateFrom">
+                    <div class="date-range-compact">
+                        <div class="date-picker-wrapper">
+                            <input type="date" class="native-date-picker" id="dateFrom">
+                            <span class="date-display" id="dateFromDisplay">开始</span>
                         </div>
-                        <div class="date-input-row">
-                            <span class="date-label">止</span>
-                            <input type="date" class="date-input" id="dateTo">
+                        <span class="range-separator">-</span>
+                        <div class="date-picker-wrapper">
+                            <input type="date" class="native-date-picker" id="dateTo">
+                            <span class="date-display" id="dateToDisplay">结束</span>
                         </div>
                     </div>
                 </div>
@@ -131,7 +132,7 @@
             </div>
 
             <!-- 右侧：设置按钮 -->
-            <button class="nav-icon-btn" data-bs-toggle="modal" data-bs-target="#settingsModal" aria-label="设置">
+            <button class="nav-icon-btn settings-btn" data-bs-toggle="modal" data-bs-target="#settingsModal" aria-label="设置">
                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
                     <path stroke-linecap="round" stroke-linejoin="round" d="M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.324.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 011.37.49l1.296 2.247a1.125 1.125 0 01-.26 1.431l-1.003.827c-.293.24-.438.613-.431.992a6.759 6.759 0 010 .255c-.007.378.138.75.43.99l1.005.828c.424.35.534.954.26 1.43l-1.298 2.247a1.125 1.125 0 01-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.57 6.57 0 01-.22.128c-.331.183-.581.495-.644.869l-.212 1.28c-.09.543-.56.941-1.11.941h-2.594c-.55 0-1.02-.398-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 01-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 01-1.369-.49l-1.297-2.247a1.125 1.125 0 01.26-1.431l1.004-.827c.292-.24.437-.613.43-.992a6.932 6.932 0 010-.255c.007-.378-.138-.75-.43-.99l-1.004-.828a1.125 1.125 0 01-.26-1.43l1.297-2.247a1.125 1.125 0 011.37-.491l1.216.456c.356.133.751.072 1.076-.124.072-.044.146-.087.22-.128.332-.183.582-.495.644-.869l.214-1.281z" />
                     <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
@@ -241,7 +242,7 @@
                                     <span>Temperature (温度)</span>
                                     <span id="tempValue">0.7</span>
                                 </label>
-                                <input type="range" class="form-range" min="0" max="2" step="0.1" id="tempRange" oninput="document.getElementById('tempValue').innerText = this.value">
+                                <input type="range" class="form-range" min="0" max="2" step="0.1" id="tempRange" value="0.7" oninput="document.getElementById('tempValue').innerText = this.value">
                                 <div class="form-text small text-muted">控制生成的随机性。值越高越随机，值越低越确定。</div>
                             </div>
 
@@ -250,7 +251,7 @@
                                     <span>Top P (核采样)</span>
                                     <span id="topPValue">0.9</span>
                                 </label>
-                                <input type="range" class="form-range" min="0" max="1" step="0.05" id="topPRange" oninput="document.getElementById('topPValue').innerText = this.value">
+                                <input type="range" class="form-range" min="0" max="1" step="0.05" id="topPRange" value="0.9" oninput="document.getElementById('topPValue').innerText = this.value">
                             </div>
 
                             <div class="mb-3">
@@ -287,7 +288,7 @@
                                     <span>Repeat Penalty (重复惩罚)</span>
                                     <span id="repeatPenaltyValue">1.1</span>
                                 </label>
-                                <input type="range" class="form-range" min="1" max="2" step="0.05" id="repeatPenaltyRange" oninput="document.getElementById('repeatPenaltyValue').innerText = this.value">
+                                <input type="range" class="form-range" min="1" max="2" step="0.05" id="repeatPenaltyRange" value="1.1" oninput="document.getElementById('repeatPenaltyValue').innerText = this.value">
                                 <div class="form-text small text-muted">防止模型重复相同的文本。</div>
                             </div>
 
@@ -296,7 +297,7 @@
                                     <span>Frequency Penalty (频率惩罚)</span>
                                     <span id="freqPenaltyValue">0.0</span>
                                 </label>
-                                <input type="range" class="form-range" min="-2" max="2" step="0.1" id="freqPenaltyRange" oninput="document.getElementById('freqPenaltyValue').innerText = this.value">
+                                <input type="range" class="form-range" min="-2" max="2" step="0.1" id="freqPenaltyRange" value="0.0" oninput="document.getElementById('freqPenaltyValue').innerText = this.value">
                             </div>
 
                             <div class="mb-3">

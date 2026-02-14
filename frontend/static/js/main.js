@@ -204,6 +204,29 @@ async function loadSettings() {
                 if (config.ai_model.security) {
                     document.getElementById('verifySslCheck').checked = config.ai_model.security.verify_ssl ?? true;
                 }
+
+                // 采样参数
+                if (config.ai_model.sampling) {
+                    document.getElementById('tempRange').value = config.ai_model.sampling.temperature ?? 0.7;
+                    document.getElementById('tempValue').innerText = config.ai_model.sampling.temperature ?? 0.7;
+                    document.getElementById('topPRange').value = config.ai_model.sampling.top_p ?? 0.9;
+                    document.getElementById('topPValue').innerText = config.ai_model.sampling.top_p ?? 0.9;
+                    document.getElementById('topKInput').value = config.ai_model.sampling.top_k ?? 40;
+                    document.getElementById('minPRange').value = config.ai_model.sampling.min_p ?? 0.05;
+                    document.getElementById('minPValue').innerText = config.ai_model.sampling.min_p ?? 0.05;
+                    document.getElementById('maxTokensInput').value = config.ai_model.sampling.max_tokens ?? 2048;
+                    document.getElementById('seedInput').value = config.ai_model.sampling.seed ?? -1;
+                }
+
+                // 惩罚参数
+                if (config.ai_model.penalties) {
+                    document.getElementById('repeatPenaltyRange').value = config.ai_model.penalties.repeat_penalty ?? 1.1;
+                    document.getElementById('repeatPenaltyValue').innerText = config.ai_model.penalties.repeat_penalty ?? 1.1;
+                    document.getElementById('freqPenaltyRange').value = config.ai_model.penalties.frequency_penalty ?? 0.0;
+                    document.getElementById('freqPenaltyValue').innerText = config.ai_model.penalties.frequency_penalty ?? 0.0;
+                    document.getElementById('presencePenaltyRange').value = config.ai_model.penalties.presence_penalty ?? 0.0;
+                    document.getElementById('presencePenaltyValue').innerText = config.ai_model.penalties.presence_penalty ?? 0.0;
+                }
             }
         }
     } catch (error) {
@@ -223,7 +246,22 @@ function getCurrentSettings() {
         apiKey: document.getElementById('apiKeyInput').value,
         modelName: document.getElementById('modelNameInput').value,
         // 安全配置
-        verifySsl: document.getElementById('verifySslCheck').checked
+        verifySsl: document.getElementById('verifySslCheck').checked,
+        // 采样参数
+        sampling: {
+            temperature: parseFloat(document.getElementById('tempRange').value),
+            top_p: parseFloat(document.getElementById('topPRange').value),
+            top_k: parseInt(document.getElementById('topKInput').value),
+            min_p: parseFloat(document.getElementById('minPRange').value),
+            max_tokens: parseInt(document.getElementById('maxTokensInput').value),
+            seed: parseInt(document.getElementById('seedInput').value)
+        },
+        // 惩罚参数
+        penalties: {
+            repeat_penalty: parseFloat(document.getElementById('repeatPenaltyRange').value),
+            frequency_penalty: parseFloat(document.getElementById('freqPenaltyRange').value),
+            presence_penalty: parseFloat(document.getElementById('presencePenaltyRange').value)
+        }
     };
 }
 
@@ -260,7 +298,10 @@ async function saveSettings() {
                 verify_ssl: currentSettings.verifySsl,
                 timeout: 120,
                 retry_count: 2
-            }
+            },
+            // 采样和惩罚参数
+            sampling: currentSettings.sampling,
+            penalties: currentSettings.penalties
         },
         rag: {
             max_history_turns: 3,
@@ -703,7 +744,94 @@ function escapeHtml(text) {
 document.addEventListener('DOMContentLoaded', async () => {
     await loadChatHistory();
     await checkSystemHealth();
+    initDatePickers();
 });
+
+// 初始化日期选择器
+function initDatePickers() {
+    const dateFrom = document.getElementById('dateFrom');
+    const dateTo = document.getElementById('dateTo');
+    const dateFromDisplay = document.getElementById('dateFromDisplay');
+    const dateToDisplay = document.getElementById('dateToDisplay');
+
+    // 辅助函数：格式化并显示日期
+    function formatAndDisplayDate(inputEl, displayEl, defaultText) {
+        if (inputEl.value) {
+            const date = new Date(inputEl.value);
+            const year = date.getFullYear();
+            const month = String(date.getMonth() + 1).padStart(2, '0');
+            const day = String(date.getDate()).padStart(2, '0');
+            // 使用完整格式：YYYY年MM月DD日
+            const formattedDate = `${year}年${month}月${day}日`;
+            displayEl.textContent = formattedDate;
+            displayEl.classList.add('has-value');
+            console.log(`Date updated: ${inputEl.id} = ${inputEl.value}, display = ${formattedDate}`);
+        } else {
+            displayEl.textContent = defaultText;
+            displayEl.classList.remove('has-value');
+        }
+    }
+
+    if (dateFrom && dateFromDisplay) {
+        // 点击wrapper区域触发日期选择器
+        const wrapperFrom = dateFrom.closest('.date-picker-wrapper');
+        if (wrapperFrom) {
+            wrapperFrom.addEventListener('click', function(e) {
+                e.preventDefault();
+                e.stopPropagation();
+                try {
+                    dateFrom.showPicker();
+                    console.log('DateFrom picker opened');
+                } catch(err) {
+                    console.log('showPicker failed, trying click');
+                    dateFrom.click();
+                }
+            });
+        }
+
+        // 日期改变时更新显示
+        dateFrom.addEventListener('change', function() {
+            console.log('DateFrom changed:', this.value);
+            formatAndDisplayDate(dateFrom, dateFromDisplay, '开始日期');
+        });
+
+        // 也监听input事件
+        dateFrom.addEventListener('input', function() {
+            console.log('DateFrom input:', this.value);
+            formatAndDisplayDate(dateFrom, dateFromDisplay, '开始日期');
+        });
+    }
+
+    if (dateTo && dateToDisplay) {
+        // 点击wrapper区域触发日期选择器
+        const wrapperTo = dateTo.closest('.date-picker-wrapper');
+        if (wrapperTo) {
+            wrapperTo.addEventListener('click', function(e) {
+                e.preventDefault();
+                e.stopPropagation();
+                try {
+                    dateTo.showPicker();
+                    console.log('DateTo picker opened');
+                } catch(err) {
+                    console.log('showPicker failed, trying click');
+                    dateTo.click();
+                }
+            });
+        }
+
+        // 日期改变时更新显示
+        dateTo.addEventListener('change', function() {
+            console.log('DateTo changed:', this.value);
+            formatAndDisplayDate(dateTo, dateToDisplay, '结束日期');
+        });
+
+        // 也监听input事件
+        dateTo.addEventListener('input', function() {
+            console.log('DateTo input:', this.value);
+            formatAndDisplayDate(dateTo, dateToDisplay, '结束日期');
+        });
+    }
+}
 
 // 健康检查
 async function checkSystemHealth() {

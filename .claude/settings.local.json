@@ -23,7 +23,9 @@
       "Bash(node:*)",
       "mcp__playwright__browser_navigate",
       "Bash(curl:*)",
-      "Bash(where:*)"
+      "Bash(where:*)",
+      "Bash(export:*)",
+      "Bash(powershell -Command:*)"
     ]
   }
 }

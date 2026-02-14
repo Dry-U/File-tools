@@ -68,6 +68,9 @@ class RAGPipeline:
 
         # 从模型管理器获取动态参数
         self._update_model_limits()
+
+        # 加载采样参数
+        self.sampling_params = self._load_sampling_params()
         self.fallback_response = rag_config.get(
             'fallback_response',
             "你好！我是 FileTools Copilot，当前检索没有找到相关文档，请告诉我需要查询的内容。"
@@ -121,6 +124,32 @@ class RAGPipeline:
         except Exception as e:
             logger.warning(f"查询处理器初始化失败: {e}")
             self.query_processor = None
+
+    def _load_sampling_params(self) -> Dict[str, Any]:
+        """加载采样参数从配置"""
+        try:
+            return {
+                'temperature': self.config_loader.getfloat('ai_model', 'sampling.temperature', 0.7),
+                'top_p': self.config_loader.getfloat('ai_model', 'sampling.top_p', 0.9),
+                'top_k': self.config_loader.getint('ai_model', 'sampling.top_k', 40),
+                'min_p': self.config_loader.getfloat('ai_model', 'sampling.min_p', 0.05),
+                'seed': self.config_loader.getint('ai_model', 'sampling.seed', -1),
+                'repeat_penalty': self.config_loader.getfloat('ai_model', 'penalties.repeat_penalty', 1.1),
+                'frequency_penalty': self.config_loader.getfloat('ai_model', 'penalties.frequency_penalty', 0.0),
+                'presence_penalty': self.config_loader.getfloat('ai_model', 'penalties.presence_penalty', 0.0)
+            }
+        except Exception as e:
+            logger.warning(f"Failed to load sampling params: {e}")
+            return {
+                'temperature': 0.7,
+                'top_p': 0.9,
+                'top_k': 40,
+                'min_p': 0.05,
+                'seed': -1,
+                'repeat_penalty': 1.1,
+                'frequency_penalty': 0.0,
+                'presence_penalty': 0.0
+            }
 
     def reload_model_manager(self):
         """
@@ -984,7 +1013,18 @@ class RAGPipeline:
 
                 def generate_content():
                     try:
-                        for piece in self.model_manager.generate(prompt, max_tokens=self.max_output_tokens, temperature=self.temperature):
+                        for piece in self.model_manager.generate(
+                            prompt,
+                            max_tokens=self.max_output_tokens,
+                            temperature=self.sampling_params['temperature'],
+                            top_p=self.sampling_params['top_p'],
+                            top_k=self.sampling_params['top_k'],
+                            min_p=self.sampling_params['min_p'],
+                            seed=self.sampling_params['seed'],
+                            repeat_penalty=self.sampling_params['repeat_penalty'],
+                            frequency_penalty=self.sampling_params['frequency_penalty'],
+                            presence_penalty=self.sampling_params['presence_penalty']
+                        ):
                             if piece:
                                 result['chunks'].append(str(piece))
                         result['completed'] = True

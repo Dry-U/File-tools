@@ -718,6 +718,21 @@ async def get_config(
                     "verify_ssl": config_loader.getboolean("ai_model", "security.verify_ssl", True),
                     "timeout": config_loader.getint("ai_model", "security.timeout", 120),
                     "retry_count": config_loader.getint("ai_model", "security.retry_count", 2),
+                },
+                # 采样参数
+                "sampling": {
+                    "temperature": config_loader.getfloat("ai_model", "sampling.temperature", 0.7),
+                    "top_p": config_loader.getfloat("ai_model", "sampling.top_p", 0.9),
+                    "top_k": config_loader.getint("ai_model", "sampling.top_k", 40),
+                    "min_p": config_loader.getfloat("ai_model", "sampling.min_p", 0.05),
+                    "max_tokens": config_loader.getint("ai_model", "sampling.max_tokens", 2048),
+                    "seed": config_loader.getint("ai_model", "sampling.seed", -1)
+                },
+                # 惩罚参数
+                "penalties": {
+                    "repeat_penalty": config_loader.getfloat("ai_model", "penalties.repeat_penalty", 1.1),
+                    "frequency_penalty": config_loader.getfloat("ai_model", "penalties.frequency_penalty", 0.0),
+                    "presence_penalty": config_loader.getfloat("ai_model", "penalties.presence_penalty", 0.0)
                 }
             },
             "rag": {

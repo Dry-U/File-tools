@@ -200,7 +200,14 @@ class ModelManager:
 
     def generate(self, prompt: str, session_id: Optional[str] = None,
                  max_tokens: Optional[int] = None,
-                 temperature: Optional[float] = None) -> Generator[str, None, None]:
+                 temperature: Optional[float] = None,
+                 top_p: Optional[float] = None,
+                 top_k: Optional[int] = None,
+                 min_p: Optional[float] = None,
+                 seed: Optional[int] = None,
+                 repeat_penalty: Optional[float] = None,
+                 frequency_penalty: Optional[float] = None,
+                 presence_penalty: Optional[float] = None) -> Generator[str, None, None]:
         """
         生成回答 - 始终经过隐私保护处理
 
@@ -209,6 +216,13 @@ class ModelManager:
             session_id: 会话ID
             max_tokens: 最大生成token数
             temperature: 温度参数
+            top_p: 核采样参数
+            top_k: Top K采样参数
+            min_p: 最小概率参数
+            seed: 随机种子
+            repeat_penalty: 重复惩罚
+            frequency_penalty: 频率惩罚
+            presence_penalty: 存在惩罚
 
         Yields:
             生成的文本片段
@@ -234,7 +248,9 @@ class ModelManager:
 
             # 调用生成
             for chunk in self._chat_generate(redacted_prompt, effective_max_tokens,
-                                             effective_temperature):
+                                             effective_temperature, top_p, top_k,
+                                             min_p, seed, repeat_penalty,
+                                             frequency_penalty, presence_penalty):
                 yield _normalize_text(chunk)
 
         except APIKeyError as e:
@@ -254,7 +270,11 @@ class ModelManager:
             yield f"错误：{str(e)}"
 
     def _chat_generate(self, prompt: str, max_tokens: int,
-                       temperature: float) -> Generator[str, None, None]:
+                       temperature: float, top_p: Optional[float] = None,
+                       top_k: Optional[int] = None, min_p: Optional[float] = None,
+                       seed: Optional[int] = None, repeat_penalty: Optional[float] = None,
+                       frequency_penalty: Optional[float] = None,
+                       presence_penalty: Optional[float] = None) -> Generator[str, None, None]:
         """
         OpenAI Chat API 生成
         同时适用于本地和API模式
@@ -294,8 +314,24 @@ class ModelManager:
                 "stream": True
             }
 
-            # API模式添加额外参数
-            if self.mode == ModelMode.API:
+            # 添加可选采样参数
+            if top_p is not None:
+                payload["top_p"] = top_p
+            if top_k is not None:
+                payload["top_k"] = top_k
+            if min_p is not None:
+                payload["min_p"] = min_p
+            if seed is not None and seed >= 0:
+                payload["seed"] = seed
+            if repeat_penalty is not None:
+                payload["repeat_penalty"] = repeat_penalty
+            if frequency_penalty is not None:
+                payload["frequency_penalty"] = frequency_penalty
+            if presence_penalty is not None:
+                payload["presence_penalty"] = presence_penalty
+
+            # API模式添加默认top_p（如果未指定）
+            if self.mode == ModelMode.API and top_p is None:
                 payload["top_p"] = 0.9
 
             logger.debug(f"Chat API Request URL: {request_url}")
