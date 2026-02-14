@@ -66,14 +66,19 @@ async function testAPIConnection() {
 
 // 恢复默认设置 (显示弹窗)
 function resetSettings() {
-    const resetModal = new bootstrap.Modal(document.getElementById('resetConfirmModal'));
+    const resetModalEl = document.getElementById('resetConfirmModal');
+    const resetModal = new bootstrap.Modal(resetModalEl);
+    resetModalEl.addEventListener('hidden.bs.modal', function disposeModal() {
+        resetModal.dispose();
+        resetModalEl.removeEventListener('hidden.bs.modal', disposeModal);
+    });
     resetModal.show();
 }
 
 // 显示重建索引确认弹窗
 function showRebuildModal() {
     const rebuildModalEl = document.getElementById('rebuildIndexModal');
-    
+
     // Reset Modal State
     document.getElementById('rebuildModalBody').innerHTML = `
         <p class="mb-0 small">确定要重建文件索引吗？<br>这可能需要一些时间。</p>
@@ -85,6 +90,10 @@ function showRebuildModal() {
     document.getElementById('rebuildCloseBtn').style.display = 'block';
 
     const rebuildModal = new bootstrap.Modal(rebuildModalEl);
+    rebuildModalEl.addEventListener('hidden.bs.modal', function disposeModal() {
+        rebuildModal.dispose();
+        rebuildModalEl.removeEventListener('hidden.bs.modal', disposeModal);
+    });
     rebuildModal.show();
 }
 
@@ -276,7 +285,12 @@ async function saveSettings() {
     const currentSettings = getCurrentSettings();
     if (JSON.stringify(initialSettings) === JSON.stringify(currentSettings)) {
         // Show reminder
-        const noChangeModal = new bootstrap.Modal(document.getElementById('noChangesModal'));
+        const noChangeModalEl = document.getElementById('noChangesModal');
+        const noChangeModal = new bootstrap.Modal(noChangeModalEl);
+        noChangeModalEl.addEventListener('hidden.bs.modal', function disposeModal() {
+            noChangeModal.dispose();
+            noChangeModalEl.removeEventListener('hidden.bs.modal', disposeModal);
+        });
         noChangeModal.show();
         return;
     }
@@ -662,6 +676,10 @@ function deleteSession(sessionId, event) {
     const modalEl = document.getElementById('deleteSessionModal');
     if (modalEl) {
         const modal = new bootstrap.Modal(modalEl);
+        modalEl.addEventListener('hidden.bs.modal', function disposeModal() {
+            modal.dispose();
+            modalEl.removeEventListener('hidden.bs.modal', disposeModal);
+        });
         modal.show();
     } else {
         // Fallback to confirm if modal not found
@@ -937,25 +955,30 @@ async function performSearch() {
         results.sort((a, b) => b.score - a.score);
 
         let html = '<div class="d-flex flex-column gap-3">';
-        results.forEach(result => {
+        results.forEach((result, index) => {
             const iconClass = getFileIcon(result.file_name);
-            const safePath = JSON.stringify(result.path).slice(1, -1);
+            // 使用 escapeHtml 转义所有动态内容，防止 XSS
+            const safeFileName = escapeHtml(result.file_name);
+            const safeSnippet = escapeHtml(result.snippet || '...');
+            const safePathDisplay = escapeHtml(result.path);
+            // 使用 data 属性存储路径，避免 XSS 风险
+            const pathAttr = escapeHtml(result.path).replace(/"/g, '&quot;');
             html += `
-                <div class="card bg-transparent border-secondary search-result-card" onclick="previewFile('${safePath}')" style="cursor: pointer;">
+                <div class="card bg-transparent border-secondary search-result-card" data-path="${pathAttr}" data-index="${index}" style="cursor: pointer;">
                     <div class="card-body p-3">
                         <div class="d-flex w-100 justify-content-between align-items-start mb-2">
                             <h6 class="card-title mb-0 text-primary text-break pe-3">
-                                <i class="bi ${iconClass} me-2"></i>${result.file_name}
+                                <i class="bi ${iconClass} me-2"></i>${safeFileName}
                             </h6>
                             <span class="badge bg-secondary bg-opacity-25 text-light border border-secondary border-opacity-50 flex-shrink-0">
                                 匹配度: ${result.score.toFixed(2)}
                             </span>
                         </div>
                         <p class="card-text small text-muted mb-2 text-break" style="display: -webkit-box; -webkit-line-clamp: 5; -webkit-box-orient: vertical; overflow: hidden;">
-                            ${result.snippet || '...'}
+                            ${safeSnippet}
                         </p>
                         <small class="text-muted d-block text-truncate">
-                            <i class="bi bi-folder2-open me-1"></i>${result.path}
+                            <i class="bi bi-folder2-open me-1"></i>${safePathDisplay}
                         </small>
                     </div>
                 </div>
@@ -964,12 +987,23 @@ async function performSearch() {
         html += '</div>';
         resultsContainer.innerHTML = html;
 
+        // 使用事件委托绑定点击事件，避免 XSS 风险
+        resultsContainer.querySelectorAll('.search-result-card').forEach(card => {
+            card.addEventListener('click', function() {
+                const path = this.getAttribute('data-path');
+                if (path) {
+                    previewFile(path);
+                }
+            });
+        });
+
     } catch (error) {
         console.error('Search error:', error);
+        const safeErrorMessage = escapeHtml(error.message);
         resultsContainer.innerHTML = `
             <div class="text-center text-danger mt-5">
                 <i class="bi bi-exclamation-circle display-4"></i>
-                <p class="mt-3">搜索出错: ${error.message}</p>
+                <p class="mt-3">搜索出错: ${safeErrorMessage}</p>
             </div>
         `;
     }
@@ -995,10 +1029,17 @@ async function previewFile(path) {
     const modalEl = document.getElementById('previewModal');
     const modalTitle = document.getElementById('previewModalTitle');
     const modalContent = document.getElementById('previewModalContent');
-    
+
     // Show modal first with loading state
     const modal = new bootstrap.Modal(modalEl);
-    modalTitle.innerText = path.split(/[\\/]/).pop(); // Show filename
+
+    // 添加隐藏事件监听器以释放资源
+    modalEl.addEventListener('hidden.bs.modal', function disposeModal() {
+        modal.dispose();
+        modalEl.removeEventListener('hidden.bs.modal', disposeModal);
+    });
+
+    modalTitle.innerText = escapeHtml(path.split(/[\\/]/).pop()); // Show filename
     modalContent.innerText = '正在加载文件内容...';
     modal.show();
 
@@ -1017,7 +1058,7 @@ async function previewFile(path) {
 
         const data = await response.json();
         modalContent.innerText = data.content || '文件内容为空';
-        
+
     } catch (error) {
         console.error('Preview error:', error);
         modalContent.innerText = '无法预览文件: ' + error.message;
@@ -1076,12 +1117,51 @@ async function sendMessage() {
 }
 
 let loadingMessages = {};
+let messageIdCounter = 0;
+
+function generateMessageId(prefix = 'msg') {
+    return `${prefix}-${Date.now()}-${++messageIdCounter}-${Math.random().toString(36).substr(2, 5)}`;
+}
+
+// 防抖函数 - 用于优化频繁触发的事件
+function debounce(func, wait, immediate = false) {
+    let timeout;
+    const executedFunction = function(...args) {
+        const later = () => {
+            timeout = null;
+            if (!immediate) func(...args);
+        };
+        const callNow = immediate && !timeout;
+        clearTimeout(timeout);
+        timeout = setTimeout(later, wait);
+        if (callNow) func(...args);
+    };
+    executedFunction.cancel = function() {
+        if (timeout) {
+            clearTimeout(timeout);
+            timeout = null;
+        }
+    };
+    return executedFunction;
+}
+
+// 节流函数 - 用于限制函数执行频率
+function throttle(func, limit) {
+    let inThrottle;
+    return function executedFunction(...args) {
+        if (!inThrottle) {
+            func(...args);
+            inThrottle = true;
+            setTimeout(() => inThrottle = false, limit);
+        }
+    };
+}
 
 function addMessage(text, type, isLoading = false) {
     const container = document.getElementById('chatContainer');
     const div = document.createElement('div');
     div.className = 'message-row ' + type;
-    const id = 'msg-' + Date.now();
+    const id = generateMessageId('msg');
     div.id = id;
 
     const avatarClass = type === 'user' ? 'avatar-user' : 'avatar-ai';
@@ -1108,7 +1188,7 @@ function addLoadingMessage() {
     const container = document.getElementById('chatContainer');
     const div = document.createElement('div');
     div.className = 'message-row ai';
-    const id = 'loading-' + Date.now();
+    const id = generateMessageId('loading');
     div.id = id;
 
     div.innerHTML = `
@@ -1140,7 +1220,10 @@ function removeLoadingMessage(id) {
     }
 }
 
-// 绑定回车事件
+// 防抖处理的搜索函数（300ms延迟）
+const debouncedSearch = debounce(performSearch, 300);
+
+// 绑定回车事件和实时搜索
 document.addEventListener('DOMContentLoaded', function() {
     const userInput = document.getElementById('userInput');
     const searchInput = document.getElementById('searchInput');
@@ -1155,10 +1238,21 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     if (searchInput) {
+        // 回车立即搜索
         searchInput.addEventListener('keydown', function(e) {
             if (e.key === 'Enter') {
                 e.preventDefault();
+                // 取消防抖搜索，立即执行
+                debouncedSearch.cancel?.();
                 performSearch();
+            }
+        });
+
+        // 输入防抖搜索（输入停止300ms后搜索）
+        searchInput.addEventListener('input', function(e) {
+            const query = e.target.value.trim();
+            if (query.length >= 2) { // 至少2个字符才触发实时搜索
+                debouncedSearch();
             }
         });
     }

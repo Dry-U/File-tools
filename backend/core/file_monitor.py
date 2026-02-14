@@ -1,10 +1,12 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-"""文件监控器模块 - 监控文件系统变化"""
+"""文件监控器模块 - 监控文件系统变化（高性能版本）"""
 import os
 import time
 import logging
+import threading
 from typing import TYPE_CHECKING, Optional
+from concurrent.futures import ThreadPoolExecutor
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler, FileSystemEvent
 from datetime import datetime
@@ -13,13 +15,18 @@ if TYPE_CHECKING:
     from backend.core.index_manager import IndexManager
 
 class FileMonitor:
-    """文件监控器类，负责监控指定目录的文件变化"""
+    """文件监控器类，负责监控指定目录的文件变化（支持并行事件处理）"""
+
+    # 默认配置
+    DEFAULT_MAX_WORKERS = 2  # 默认并行处理线程数
+    DEFAULT_BUFFER_TIMEOUT = 0.1  # 事件缓冲超时时间（秒），降低延迟
+
     def __init__(self, config_loader, index_manager=None, file_scanner=None):
         self.config_loader = config_loader
         self.index_manager: Optional['IndexManager'] = index_manager
         self.file_scanner = file_scanner
         self.logger = logging.getLogger(__name__)
-        
+
         # 监控配置 - 使用ConfigLoader获取配置
         self.monitored_dirs = self._get_monitored_directories()
         self.ignored_patterns = self._get_ignored_patterns()
@@ -27,18 +34,39 @@ class FileMonitor:
         if monitor_config is None:
             monitor_config = {}
         self.refresh_interval = int(monitor_config.get('refresh_interval', 1))
-        
+
+        # 并行处理配置
+        try:
+            self.max_workers = max(1, min(int(monitor_config.get('max_workers', self.DEFAULT_MAX_WORKERS)), 4))
+        except Exception:
+            self.max_workers = self.DEFAULT_MAX_WORKERS
+
+        # 读取防抖时间配置
+        try:
+            debounce_time = float(monitor_config.get('debounce_time', self.DEFAULT_BUFFER_TIMEOUT))
+            self._buffer_timeout = max(0.05, min(debounce_time, 1.0))  # 限制在0.05-1.0秒
+        except Exception:
+            self._buffer_timeout = self.DEFAULT_BUFFER_TIMEOUT
+
         # 初始化监控器
         self.observer = None
         self.handler = None
         self.is_running = False
-        
-        # 用于去重和防抖
+
+        # 用于去重和防抖（线程安全）
         self._event_buffer = {}
+        self._buffer_lock = threading.Lock()  # 保护 _event_buffer 和 _last_process_time 的锁
         self._last_process_time = time.time()
-        self._buffer_timeout = 0.5  # 事件缓冲超时时间（秒）
-        
-        self.logger.info(f"文件监控器初始化完成，监控目录: {', '.join(self.monitored_dirs)}")
+
+        # 并行处理线程池
+        self._executor: Optional[ThreadPoolExecutor] = None
+
+        # 处理统计
+        self._processed_count = 0
+        self._dropped_count = 0
+
+        self.logger.info(f"文件监控器初始化完成，监控目录: {', '.join(self.monitored_dirs)}, "
+                        f"并行线程: {self.max_workers}, 缓冲超时: {self._buffer_timeout}s")
     
     def _get_monitored_directories(self):
         """从配置中获取需要监控的目录"""
@@ -144,51 +172,66 @@ class FileMonitor:
         return ignored_patterns
     
     def start_monitoring(self):
-        """开始监控文件系统变化"""
+        """开始监控文件系统变化（使用线程池优化）"""
         if self.is_running:
             self.logger.warning("监控器已经在运行中")
             return
-        
+
         try:
+            # 初始化线程池
+            self._executor = ThreadPoolExecutor(max_workers=self.max_workers)
+            self._processed_count = 0
+            self._dropped_count = 0
+
             # 初始化事件处理器
             self.handler = FileChangeHandler(self, self.ignored_patterns)
-            
+
             # 初始化监控器
             self.observer = Observer()
-            
+
             # 添加需要监控的目录
             for dir_path in self.monitored_dirs:
                 self.observer.schedule(self.handler, dir_path, recursive=True)
-            
+
             # 启动监控器
             self.observer.start()
             self.is_running = True
-            
-            self.logger.info(f"文件监控已启动，监控 {len(self.monitored_dirs)} 个目录")
+
+            self.logger.info(f"文件监控已启动，监控 {len(self.monitored_dirs)} 个目录，"
+                           f"并行线程: {self.max_workers}")
         except Exception as e:
             self.logger.error(f"启动文件监控失败: {str(e)}")
             self.is_running = False
+            if self._executor:
+                self._executor.shutdown(wait=False)
+                self._executor = None
             if self.observer:
                 try:
                     self.observer.stop()
                     self.observer.join()
                 except:
                     pass
-    
+
     def stop_monitoring(self):
         """停止监控文件系统变化"""
         if not self.is_running:
             self.logger.warning("监控器尚未启动")
             return
-        
+
         try:
             # 停止监控器
             if self.observer:
                 self.observer.stop()
                 self.observer.join()
-            
+
+            # 关闭线程池
+            if self._executor:
+                self._executor.shutdown(wait=True)
+                self._executor = None
+
             self.is_running = False
-            self.logger.info("文件监控已停止")
+            self.logger.info(f"文件监控已停止，处理了 {self._processed_count} 个事件，"
+                           f"丢弃了 {self._dropped_count} 个重复事件")
         except Exception as e:
             self.logger.error(f"停止文件监控失败: {str(e)}")
     
@@ -197,26 +240,33 @@ class FileMonitor:
         # 检查是否需要忽略此事件
         if self._should_ignore(event):
             return
-        
+
         # 获取事件路径
         event_path = event.src_path if event.is_directory else event.src_path
         event_type = event.event_type
-        
+
         # 记录事件
         self.logger.debug(f"接收到文件系统事件: {event_type} - {event_path}")
-        
-        # 将事件添加到缓冲区
-        self._event_buffer[event_path] = {
-            'type': event_type,
-            'path': event_path,
-            'timestamp': time.time()
-        }
-        
-        # 定期处理缓冲区中的事件（防抖）
-        current_time = time.time()
-        if current_time - self._last_process_time >= self._buffer_timeout:
+
+        # 将事件添加到缓冲区（线程安全）
+        with self._buffer_lock:
+            self._event_buffer[event_path] = {
+                'type': event_type,
+                'path': event_path,
+                'timestamp': time.time()
+            }
+
+            # 定期处理缓冲区中的事件（防抖）
+            current_time = time.time()
+            if current_time - self._last_process_time >= self._buffer_timeout:
+                # 释放锁后处理缓冲区
+                should_process = True
+                self._last_process_time = current_time
+            else:
+                should_process = False
+
+        if should_process:
             self._process_buffer()
-            self._last_process_time = current_time
     
     def _should_ignore(self, event):
         """检查是否应该忽略某个事件"""
@@ -238,28 +288,47 @@ class FileMonitor:
         return False
     
     def _process_buffer(self):
-        """处理事件缓冲区"""
-        if not self._event_buffer:
-            return
-        
-        current_time = time.time()
-        processed_count = 0
-        
-        # 处理超时的事件
-        paths_to_remove = []
-        
-        for path, event_info in self._event_buffer.items():
-            if current_time - event_info['timestamp'] >= self._buffer_timeout:
-                self._handle_event(event_info)
-                paths_to_remove.append(path)
-                processed_count += 1
-        
-        # 从缓冲区中移除已处理的事件
-        for path in paths_to_remove:
-            del self._event_buffer[path]
-        
-        if processed_count > 0:
-            self.logger.debug(f"处理了 {processed_count} 个文件系统事件")
+        """处理事件缓冲区（使用线程池并行处理）"""
+        events_to_process = []
+
+        with self._buffer_lock:
+            if not self._event_buffer:
+                return
+
+            current_time = time.time()
+
+            # 收集需要处理的事件
+            paths_to_remove = []
+            for path, event_info in list(self._event_buffer.items()):
+                if current_time - event_info['timestamp'] >= self._buffer_timeout:
+                    events_to_process.append(event_info)
+                    paths_to_remove.append(path)
+
+            # 从缓冲区中移除已收集的事件
+            for path in paths_to_remove:
+                del self._event_buffer[path]
+
+        # 使用线程池并行处理事件
+        if events_to_process:
+            if self._executor:
+                # 提交所有事件到线程池
+                futures = [
+                    self._executor.submit(self._handle_event, event_info)
+                    for event_info in events_to_process
+                ]
+                # 等待所有任务完成
+                for future in futures:
+                    try:
+                        future.result(timeout=5.0)
+                    except Exception as e:
+                        self.logger.debug(f"事件处理失败: {e}")
+            else:
+                # 线程池未初始化，串行处理
+                for event_info in events_to_process:
+                    self._handle_event(event_info)
+
+            self._processed_count += len(events_to_process)
+            self.logger.debug(f"处理了 {len(events_to_process)} 个文件系统事件")
     
     def _handle_event(self, event_info):
         """处理单个文件系统事件"""

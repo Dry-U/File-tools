@@ -9,7 +9,9 @@ import jieba
 import hnswlib
 import numpy as np
 from datetime import datetime
+from typing import List, Dict, Any, Optional
 import json
+import threading
 
 
 class IndexManager:
@@ -161,6 +163,15 @@ class IndexManager:
         except Exception as e:
             self.logger.warning(f"检查索引模式版本失败: {str(e)}")
 
+        # 批量添加模式支持
+        self._batch_mode = False
+        self._batch_buffer = []
+        self._batch_size = config_loader.getint('index', 'batch_size', 100)
+        self._batch_commit_interval = config_loader.getint('index', 'commit_interval', 30)  # 秒
+        self._last_commit_time = time.time()
+        self._batch_lock = threading.Lock()
+        self._writer = None
+
     def _init_tantivy_index(self):
         schema_builder = tantivy.SchemaBuilder()
         self.t_path = schema_builder.add_text_field('path', stored=True, tokenizer_name='raw')
@@ -266,10 +277,110 @@ class IndexManager:
             self.logger.debug(f"分词失败: {str(e)}")
             return text or ''
 
+    def start_batch_mode(self):
+        """启动批量添加模式"""
+        with self._batch_lock:
+            if self._batch_mode:
+                return
+            self._batch_mode = True
+            self._batch_buffer = []
+            self._writer = self.tantivy_index.writer()
+            self.logger.info("启动批量添加模式")
+
+    def commit_batch(self):
+        """提交批量添加的文档"""
+        with self._batch_lock:
+            if not self._batch_mode:
+                return False
+
+            try:
+                if self._writer:
+                    self._writer.commit()
+                    self._last_commit_time = time.time()
+                    self.logger.info("批量提交完成")
+                    return True
+            except Exception as e:
+                self.logger.error(f"批量提交失败: {e}")
+            return False
+
+    def end_batch_mode(self, commit=True):
+        """结束批量添加模式"""
+        with self._batch_lock:
+            if not self._batch_mode:
+                return
+
+            try:
+                # 先处理缓冲区中剩余的文档
+                if self._batch_buffer:
+                    for doc in self._batch_buffer:
+                        self._add_doc_to_writer(doc)
+                    self._batch_buffer = []
+
+                if commit and self._writer:
+                    self._writer.commit()
+                    self.save_indexes()
+
+                if self._writer:
+                    self._writer = None
+
+                self._batch_mode = False
+                self.logger.info("结束批量添加模式")
+            except Exception as e:
+                self.logger.error(f"结束批量模式时出错: {e}")
+
+    def _add_doc_to_writer(self, document):
+        """将文档添加到 writer"""
+        seg_filename = self._segment(document['filename'])
+        seg_content = self._segment(document['content'])
+        seg_keywords = self._segment(document.get('keywords', ''))
+        fname_chars = ' '.join([c for c in document['filename']])
+        raw_text = str(document.get('content') or '')
+        content_chars = ' '.join([c for c in raw_text])
+
+        tdoc = tantivy.Document(
+            path=document['path'],
+            filename=[seg_filename],
+            filename_chars=[fname_chars],
+            content=[seg_content],
+            content_raw=[raw_text],
+            content_chars=[content_chars],
+            file_type=[document['file_type']],
+            size=int(document['size']),
+            created=int(time.mktime(document['created'].timetuple())) if isinstance(document['created'], datetime) else int(document['created']),
+            modified=int(time.mktime(document['modified'].timetuple())) if isinstance(document['modified'], datetime) else int(document['modified']),
+            keywords=[seg_keywords]
+        )
+        self._writer.add_document(tdoc)
+
     def add_document(self, document):
+        """添加文档到索引，支持批量模式"""
         if not getattr(self, 'tantivy_index', None):
             return False
+
         try:
+            # 批量模式处理
+            with self._batch_lock:
+                if self._batch_mode:
+                    self._batch_buffer.append(document)
+
+                    # 检查是否需要提交（缓冲区满或时间间隔）
+                    should_commit = (
+                        len(self._batch_buffer) >= self._batch_size or
+                        (time.time() - self._last_commit_time) >= self._batch_commit_interval
+                    )
+
+                    if should_commit:
+                        # 处理缓冲区中的所有文档
+                        for doc in self._batch_buffer:
+                            self._add_doc_to_writer(doc)
+                        self._batch_buffer = []
+                        self._writer.commit()
+                        self._last_commit_time = time.time()
+
+                    # 批量模式下向量索引稍后统一处理
+                    return self._add_vector_in_batch_mode(document)
+
+            # 非批量模式：原来的逻辑
             seg_filename = self._segment(document['filename'])
             seg_content = self._segment(document['content'])
             seg_keywords = self._segment(document.get('keywords', ''))
@@ -343,6 +454,45 @@ class IndexManager:
             return True
         except Exception as e:
             self.logger.error(f"添加文档到索引失败 {document.get('path', '')}: {str(e)}")
+            return False
+
+    def _add_vector_in_batch_mode(self, document):
+        """批量模式下延迟添加向量索引"""
+        if not self.embedding_model or self.hnsw is None:
+            return True
+
+        try:
+            content_to_encode = document['content'][:5000] if document['content'] else ''
+            if not content_to_encode.strip():
+                return True
+
+            v = np.array([self._encode_text(content_to_encode)], dtype=np.float32)
+            doc_id = self.next_id
+            ids = np.array([doc_id])
+
+            try:
+                self.hnsw.add_items(v, ids)
+            except Exception:
+                # 如果添加项目失败，尝试调整索引大小
+                try:
+                    self.hnsw.resize_index(self.hnsw.get_max_elements() + 1024)
+                    self.hnsw.add_items(v, ids)
+                except Exception as resize_e:
+                    self.logger.error(f"调整向量索引大小后仍无法添加文档: {str(resize_e)}")
+                    return False
+
+            # 记录元数据
+            self.vector_metadata[str(doc_id)] = {
+                'path': document['path'],
+                'filename': document['filename'],
+                'file_type': document['file_type'],
+                'modified': document['modified'].strftime('%Y-%m-%d %H:%M:%S') if isinstance(document['modified'], datetime) else str(document['modified'])
+            }
+            self.next_id += 1
+            return True
+
+        except Exception as e:
+            self.logger.error(f"批量模式添加向量索引失败 {document.get('path', '')}: {str(e)}")
             return False
 
     def update_document(self, document):
@@ -1060,3 +1210,45 @@ class IndexManager:
         except Exception as e:
             self.logger.error(f"索引完整性验证失败: {str(e)}")
             return False
+
+    def close(self):
+        """关闭索引管理器，释放资源"""
+        try:
+            # 确保批量模式正确结束
+            if self._batch_mode:
+                self.end_batch_mode(commit=True)
+
+            # 保存索引
+            self.save_indexes()
+
+            # 释放HNSW索引
+            if hasattr(self, 'hnsw') and self.hnsw is not None:
+                try:
+                    # HNSW没有明确的关闭方法，但我们可以删除引用
+                    del self.hnsw
+                    self.hnsw = None
+                except Exception as e:
+                    self.logger.warning(f"释放HNSW索引时出错: {e}")
+
+            # 释放Tantivy索引
+            if hasattr(self, 'tantivy_index') and self.tantivy_index is not None:
+                try:
+                    # Tantivy索引会在垃圾回收时自动清理
+                    del self.tantivy_index
+                    self.tantivy_index = None
+                except Exception as e:
+                    self.logger.warning(f"释放Tantivy索引时出错: {e}")
+
+            self.logger.info("索引管理器已关闭")
+        except Exception as e:
+            self.logger.error(f"关闭索引管理器时出错: {e}")
+
+    def __del__(self):
+        """析构函数，确保资源被释放"""
+        try:
+            if hasattr(self, '_batch_mode') and self._batch_mode:
+                self.end_batch_mode(commit=True)
+            if hasattr(self, 'hnsw') and self.hnsw is not None:
+                self.save_indexes()
+        except Exception:
+            pass  # 析构函数中不抛出异常

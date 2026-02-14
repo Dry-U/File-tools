@@ -73,9 +73,23 @@ class SearchEngine:
         """生成缓存键"""
         if filters is None:
             filters = {}
-        # 将查询和过滤器组合成一个字符串作为缓存键
-        cache_str = f"{query}:{str(sorted(filters.items()))}"
+        # 使用 json.dumps 确保缓存键稳定（处理嵌套字典等复杂对象）
+        import json
         import hashlib
+        try:
+            # 对 filters 进行标准化处理，确保相同的过滤器产生相同的键
+            normalized_filters = {}
+            for k, v in sorted(filters.items()):
+                if isinstance(v, (list, tuple)):
+                    normalized_filters[k] = tuple(sorted(str(x) for x in v))
+                elif isinstance(v, dict):
+                    normalized_filters[k] = json.dumps(v, sort_keys=True, ensure_ascii=True)
+                else:
+                    normalized_filters[k] = str(v)
+            cache_str = f"{query}:{json.dumps(normalized_filters, sort_keys=True, ensure_ascii=True)}"
+        except (TypeError, ValueError):
+            # 如果标准化失败，使用简单的字符串表示
+            cache_str = f"{query}:{str(sorted(filters.items()))}"
         return hashlib.md5(cache_str.encode()).hexdigest()
 
     def _is_cache_valid(self, key):

@@ -102,10 +102,59 @@ class ModelManager:
         self.api_url = self.config_loader.get('ai_model', 'local.api_url',
                                                'http://localhost:8000/v1/chat/completions')
         self.api_key = ""
-        self.model_name = "local"
         self.max_context = self.config_loader.getint('ai_model', 'local.max_context', 4096)
         self.default_max_tokens = self.config_loader.getint('ai_model', 'local.max_tokens', 512)
         self.default_temperature = 0.3  # 本地模型使用更低温度
+
+        # 获取用户配置的模型名称（优先）
+        configured_model = self.config_loader.get('ai_model', 'local.model_name', 'local')
+
+        # 尝试通过API自动探测模型信息
+        detected_model = self._auto_detect_model()
+
+        # 决策：优先使用用户配置，除非配置的是默认'local'且有探测结果
+        if configured_model and configured_model != 'local':
+            self.model_name = configured_model
+            logger.info(f"使用用户配置的模型名称: {self.model_name}")
+        elif detected_model:
+            self.model_name = detected_model
+            logger.info(f"自动探测到本地模型: {self.model_name}")
+        else:
+            self.model_name = configured_model or 'local'
+            logger.info(f"使用默认模型名称: {self.model_name}")
+
+        # 检测模型大小参数（用于自动调整RAG策略）
+        self.model_size_params = self._detect_model_size()
+        logger.info(f"模型大小识别结果: {self.model_size_params}")
+
+    def _auto_detect_model(self) -> Optional[str]:
+        """
+        尝试通过 /v1/models 接口自动探测模型名称
+        支持 OpenAI 兼容的 API 格式
+        """
+        try:
+            # 构造 /v1/models 端点 URL
+            base_url = self.api_url.replace('/v1/chat/completions', '').rstrip('/')
+            models_url = f"{base_url}/v1/models"
+
+            response = requests.get(models_url, timeout=5)
+            if response.status_code == 200:
+                data = response.json()
+                models = data.get('data', [])
+                if models:
+                    # 获取第一个可用模型的ID
+                    model_id = models[0].get('id', '')
+                    if model_id:
+                        logger.info(f"通过API探测到模型ID: {model_id}")
+                        return model_id
+        except requests.exceptions.ConnectionError:
+            logger.debug("无法连接到本地模型服务，跳过自动探测")
+        except requests.exceptions.Timeout:
+            logger.debug("探测模型信息超时")
+        except Exception as e:
+            logger.debug(f"自动探测模型失败: {e}")
+
+        return None
 
     def _init_api_config(self):
         """初始化API模型配置"""
@@ -149,25 +198,110 @@ class ModelManager:
         """获取当前模式"""
         return self.mode
 
+    def _detect_model_size(self) -> Dict[str, Any]:
+        """
+        尝试检测本地模型的大小参数
+        基于模型名称或配置的启发式检测
+        """
+        model_name = self.model_name.lower()
+        max_context = self.max_context
+
+        # 基于模型名称的启发式检测
+        size_hints = {
+            '1b': 1, '1.5b': 1.5, '2b': 2,
+            '3b': 3, '4b': 4, '7b': 7, '8b': 8,
+            '13b': 13, '14b': 14, '20b': 20,
+            '30b': 30, '32b': 32, '70b': 70
+        }
+
+        detected_size = None
+        for size_str, size_gb in size_hints.items():
+            if size_str in model_name:
+                detected_size = size_gb
+                break
+
+        # 根据上下文窗口推断（如果没有从名称检测到）
+        if detected_size is None:
+            if max_context <= 4096:
+                detected_size = 3  # 默认为3B配置
+            elif max_context <= 8192:
+                detected_size = 7  # 可能是7B
+            else:
+                detected_size = 13  # 更大的模型
+
+        # 分类模型大小
+        if detected_size <= 4:
+            category = 'small'  # 1-4B: 小模型
+        elif detected_size <= 8:
+            category = 'medium'  # 7-8B: 中等模型
+        else:
+            category = 'large'  # 13B+: 大模型
+
+        return {
+            'detected_size': detected_size,
+            'category': category,
+            'model_name': self.model_name
+        }
+
     def get_model_limits(self) -> Dict[str, Any]:
-        """获取当前模型的限制参数"""
+        """获取当前模型的限制参数（基于模型大小动态优化）"""
         if self.mode == ModelMode.LOCAL:
+            # 获取模型大小分类
+            model_category = getattr(self, 'model_size_params', {}).get('category', 'small')
+            max_context_size = self.max_context
+
+            # 根据模型大小分类动态调整参数
+            if model_category == 'small':
+                # 小模型（1-4B）：保守配置
+                max_docs = 3
+                chunk_size = 500
+                chunk_overlap = 80
+                min_doc_score = 0.45
+                logger.debug(f"应用小模型(1-4B)配置: max_docs={max_docs}, chunk_size={chunk_size}")
+            elif model_category == 'medium':
+                # 中等模型（7-8B）：平衡配置
+                max_docs = 4
+                chunk_size = 700
+                chunk_overlap = 100
+                min_doc_score = 0.4
+                logger.debug(f"应用中等模型(7-8B)配置: max_docs={max_docs}, chunk_size={chunk_size}")
+            else:
+                # 大模型（13B+）：宽松配置
+                max_docs = 5
+                chunk_size = 900
+                chunk_overlap = 120
+                min_doc_score = 0.35
+                logger.debug(f"应用大模型(13B+)配置: max_docs={max_docs}, chunk_size={chunk_size}")
+
+            # 根据上下文窗口做最终调整
+            if max_context_size <= 2048:
+                # 极小上下文窗口
+                max_docs = min(max_docs, 2)
+                chunk_size = min(chunk_size, 400)
+            elif max_context_size >= 16384 and model_category != 'small':
+                # 超大上下文窗口（仅对大模型）
+                max_docs += 1
+                chunk_size += 100
+
             return {
-                'max_context': self.max_context,
-                'max_docs': 3,
-                'chunk_size': 500,
-                'chunk_overlap': 100,
+                'max_context': max_context_size,
+                'max_docs': max_docs,           # 根据模型大小调整
+                'chunk_size': chunk_size,       # 适中切片长度
+                'chunk_overlap': chunk_overlap, # 适度重叠保持连贯
                 'temperature': self.default_temperature,
                 'max_tokens': self.default_max_tokens,
+                'min_doc_score': min_doc_score,  # 根据模型能力调整阈值
             }
         else:
+            # API模式：使用更高限制以充分利用远程模型能力
             return {
                 'max_context': self.max_context,
-                'max_docs': 5,
-                'chunk_size': 1500,
+                'max_docs': 10,          # API模式可以处理更多文档
+                'chunk_size': 2000,      # 更大的切片长度
                 'chunk_overlap': 200,
                 'temperature': self.default_temperature,
                 'max_tokens': self.default_max_tokens,
+                'min_doc_score': 0.4,    # API模式使用较高阈值确保质量
             }
 
     def _validate_api_config(self):
@@ -237,7 +371,7 @@ class ModelManager:
             # 隐私保护：脱敏处理
             redacted_prompt = self.privacy_guard.redact(prompt)
             if redacted_prompt != prompt:
-                logger.debug("Prompt redacted for privacy")  # 使用debug级别避免泄露信息
+                logger.debug("提示词已脱敏")  # 使用debug级别避免泄露信息
 
             # 验证配置
             self._validate_api_config()
@@ -287,14 +421,7 @@ class ModelManager:
                 headers['Authorization'] = f'Bearer {self.api_key}'
 
             # 确保使用 /chat/completions 端点
-            request_url = self.api_url
-            if '/completions' in request_url and '/chat/completions' not in request_url:
-                request_url = request_url.replace('/completions', '/chat/completions')
-            elif '/chat/completions' not in request_url:
-                if request_url.endswith('/'):
-                    request_url += 'chat/completions'
-                else:
-                    request_url += '/chat/completions'
+            request_url = self._normalize_url(self.api_url)
 
             # 获取系统提示词
             system_prompt = self.config_loader.get('ai_model', 'system_prompt', '')
@@ -422,8 +549,10 @@ class ModelManager:
                 "max_tokens": 1
             }
 
+            # 使用标准化后的 URL
+            test_url = self._normalize_url(self.api_url)
             response = self.session.post(
-                self.api_url,
+                test_url,
                 json=test_payload,
                 headers=headers,
                 timeout=10,
@@ -443,6 +572,15 @@ class ModelManager:
             return {"status": "error", "error": str(e)}
         except Exception as e:
             return {"status": "error", "error": str(e)}
+
+    def _normalize_url(self, url: str) -> str:
+        """标准化 API URL，确保使用 /chat/completions 端点"""
+        if '/chat/completions' not in url:
+            if url.endswith('/'):
+                return url + 'chat/completions'
+            else:
+                return url + '/chat/completions'
+        return url
 
     def close(self):
         """关闭会话，释放资源"""

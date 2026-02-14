@@ -8,6 +8,7 @@ from pathlib import Path
 import os
 import datetime
 import logging
+import threading
 
 logger = logging.getLogger(__name__)
 
@@ -15,7 +16,24 @@ logger = logging.getLogger(__name__)
 class ConfigLoader:
     """配置加载器类，负责加载、验证和管理配置文件"""
 
+    _instance = None
+    _lock = threading.Lock()
+    _file_lock = threading.Lock()
+
+    def __new__(cls, *args, **kwargs):
+        """单例模式确保全局只有一个ConfigLoader实例"""
+        if cls._instance is None:
+            with cls._lock:
+                if cls._instance is None:
+                    cls._instance = super().__new__(cls)
+        return cls._instance
+
     def __init__(self, config_path: Optional[str] = None):
+        # 避免重复初始化
+        if hasattr(self, '_initialized'):
+            return
+        self._initialized = True
+
         # 默认配置路径，如果未指定则使用当前目录下的config.yaml
         default_path = Path('config.yaml')
         self.config_path = Path(config_path).resolve(
@@ -35,12 +53,13 @@ class ConfigLoader:
         self._validate_config()
 
     def _load_config(self) -> Dict[str, Any]:
-        """从文件加载配置"""
+        """从文件加载配置 (线程安全)"""
         if not self.config_path.exists():
             raise FileNotFoundError(f"配置文件未找到: {self.config_path}")
 
-        with open(self.config_path, 'r', encoding='utf-8') as f:
-            config = yaml.safe_load(f)
+        with self._file_lock:
+            with open(self.config_path, 'r', encoding='utf-8') as f:
+                config = yaml.safe_load(f)
 
         # 确保配置是字典类型
         if not isinstance(config, dict):
@@ -463,7 +482,7 @@ class ConfigLoader:
         self.config[section][key] = value
 
     def _backup_config(self) -> None:
-        """备份当前配置文件"""
+        """备份当前配置文件 (线程安全)"""
         if not self.config_path.exists():
             return
 
@@ -475,7 +494,8 @@ class ConfigLoader:
         try:
             # 复制当前配置文件到备份文件
             import shutil
-            shutil.copy2(self.config_path, backup_path)
+            with self._file_lock:
+                shutil.copy2(self.config_path, backup_path)
             logger.info(f"已创建配置备份: {backup_path}")
 
             # 清理旧备份，保留最近5个
@@ -510,20 +530,21 @@ class ConfigLoader:
             logger.error(f"清理旧备份失败: {str(e)}")
 
     def save(self) -> bool:
-        """保存配置到文件"""
+        """保存配置到文件 (线程安全)"""
         try:
 
             # 确保配置目录存在
             config_dir = self.config_path.parent
             config_dir.mkdir(parents=True, exist_ok=True)
 
-            with open(self.config_path, 'w', encoding='utf-8') as f:
-                yaml.dump(self.config, f, allow_unicode=True,
-                          default_flow_style=False)
+            with self._file_lock:
+                with open(self.config_path, 'w', encoding='utf-8') as f:
+                    yaml.dump(self.config, f, allow_unicode=True,
+                              default_flow_style=False)
 
-            # 确保配置文件有正确的权限
-            if os.name == 'posix':  # Unix-like systems
-                os.chmod(self.config_path, 0o600)  # 只有所有者可读写
+                # 确保配置文件有正确的权限
+                if os.name == 'posix':  # Unix-like systems
+                    os.chmod(self.config_path, 0o600)  # 只有所有者可读写
 
             return True
         except Exception as e:

@@ -2,7 +2,8 @@
 import os
 import re
 import secrets
-from typing import Dict, List, Any, Optional
+from typing import Dict, List, Any, Optional, Callable
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeoutError
 
 # 修复 torch DLL 加载问题
 try:
@@ -92,28 +93,6 @@ class RAGPipeline:
         reset_cmds = rag_config.get('reset_commands', ['重置', '清空上下文', 'reset', 'restart']) or []
         self.reset_commands = [c.strip().lower() for c in reset_cmds if c]
 
-        # 设置其他响应配置
-        self.fallback_response = rag_config.get(
-            'fallback_response',
-            "你好！我是 FileTools Copilot，当前检索没有找到相关文档，请告诉我需要查询的内容。"
-        )
-        self.context_exhausted_response = rag_config.get(
-            'context_exhausted_response',
-            "对话过长，为避免超出上下文，请说'重置'或简要概括后再继续。"
-        )
-        self.reset_response = rag_config.get(
-            'reset_response',
-            "已清空上下文，可以重新开始提问。"
-        )
-        self.greeting_response = rag_config.get('greeting_response', self.fallback_response)
-        phrases = rag_config.get('greeting_keywords', []) or []
-        if isinstance(phrases, str):
-            phrases = [p.strip() for p in phrases.split(',') if p.strip()]
-        self.greeting_keywords = [p.lower() for p in phrases if p]
-
-        reset_cmds = rag_config.get('reset_commands', ['重置', '清空上下文', 'reset', 'restart']) or []
-        self.reset_commands = [c.strip().lower() for c in reset_cmds if c]
-
         # Use SQLite for chat history persistence
         self.chat_db = ChatHistoryDB()
 
@@ -126,17 +105,48 @@ class RAGPipeline:
             self.query_processor = None
 
     def _load_sampling_params(self) -> Dict[str, Any]:
-        """加载采样参数从配置"""
+        """加载采样参数从配置
+
+        优先从新位置(ai_model.sampling/penalties)读取，如果不存在则尝试旧位置(rag)
+        """
+        def get_float_with_fallback(section: str, key: str, fallback_section: str, fallback_key: str, default: float) -> float:
+            """尝试从主位置读取float，如果不存在则从备用位置读取"""
+            try:
+                value = self.config_loader.get(section, key, None)
+                if value is not None:
+                    return float(value)
+                # 尝试备用位置
+                value = self.config_loader.get(fallback_section, fallback_key, None)
+                if value is not None:
+                    return float(value)
+                return default
+            except (ValueError, TypeError):
+                return default
+
+        def get_int_with_fallback(section: str, key: str, fallback_section: str, fallback_key: str, default: int) -> int:
+            """尝试从主位置读取int，如果不存在则从备用位置读取"""
+            try:
+                value = self.config_loader.get(section, key, None)
+                if value is not None:
+                    return int(value)
+                # 尝试备用位置
+                value = self.config_loader.get(fallback_section, fallback_key, None)
+                if value is not None:
+                    return int(value)
+                return default
+            except (ValueError, TypeError):
+                return default
+
         try:
             return {
-                'temperature': self.config_loader.getfloat('ai_model', 'sampling.temperature', 0.7),
-                'top_p': self.config_loader.getfloat('ai_model', 'sampling.top_p', 0.9),
-                'top_k': self.config_loader.getint('ai_model', 'sampling.top_k', 40),
-                'min_p': self.config_loader.getfloat('ai_model', 'sampling.min_p', 0.05),
-                'seed': self.config_loader.getint('ai_model', 'sampling.seed', -1),
-                'repeat_penalty': self.config_loader.getfloat('ai_model', 'penalties.repeat_penalty', 1.1),
-                'frequency_penalty': self.config_loader.getfloat('ai_model', 'penalties.frequency_penalty', 0.0),
-                'presence_penalty': self.config_loader.getfloat('ai_model', 'penalties.presence_penalty', 0.0)
+                'temperature': get_float_with_fallback('ai_model', 'sampling.temperature', 'rag', 'temperature', 0.7),
+                'top_p': get_float_with_fallback('ai_model', 'sampling.top_p', 'rag', 'top_p', 0.9),
+                'top_k': get_int_with_fallback('ai_model', 'sampling.top_k', 'rag', 'top_k', 40),
+                'min_p': get_float_with_fallback('ai_model', 'sampling.min_p', 'rag', 'min_p', 0.05),
+                'seed': get_int_with_fallback('ai_model', 'sampling.seed', 'rag', 'seed', -1),
+                'repeat_penalty': get_float_with_fallback('ai_model', 'penalties.repeat_penalty', 'rag', 'repeat_penalty', 1.1),
+                'frequency_penalty': get_float_with_fallback('ai_model', 'penalties.frequency_penalty', 'rag', 'frequency_penalty', 0.0),
+                'presence_penalty': get_float_with_fallback('ai_model', 'penalties.presence_penalty', 'rag', 'presence_penalty', 0.0)
             }
         except Exception as e:
             logger.warning(f"Failed to load sampling params: {e}")
@@ -168,6 +178,8 @@ class RAGPipeline:
             self.model_manager = ModelManager(self.config_loader)
             self._update_model_limits()
 
+            # 重新加载采样参数以应用新配置
+            self.sampling_params = self._load_sampling_params()
             logger.info(f"ModelManager重新初始化完成: mode={self.model_manager.get_mode().value}")
             return True
         except Exception as e:
@@ -180,6 +192,7 @@ class RAGPipeline:
 
         self.max_docs = limits['max_docs']
         self.max_context_chars = limits['chunk_size']
+        self.min_doc_score = limits.get('min_doc_score', 0.3)  # 文档最低分数阈值
 
         # 计算预留空间：系统提示词 + 提示词模板 + 历史记录预算
         system_prompt = self.config_loader.get('ai_model', 'system_prompt', '')
@@ -195,7 +208,8 @@ class RAGPipeline:
 
         logger.info(f"RAG参数已更新为 {self.model_manager.get_mode().value} 模式: "
                    f"max_docs={self.max_docs}, chunk_size={self.max_context_chars}, "
-                   f"max_context={self.max_context_chars_total}, temperature={self.temperature}")
+                   f"max_context={self.max_context_chars_total}, temperature={self.temperature}, "
+                   f"min_doc_score={self.min_doc_score}")
 
     def _adjust_context_for_memory(self, doc_budget: int) -> int:
         """Adjust document budget based on memory constraints"""
@@ -451,8 +465,19 @@ class RAGPipeline:
                 x['original_score'] * 0.2     # 原始搜索得分权重
             ), reverse=True)
 
+            # 根据模型模式应用不同的最低分数阈值
+            min_doc_score = getattr(self, 'min_doc_score', 0.3)
+            filtered_candidates = [
+                c for c in all_candidates
+                if (c['relevance_score'] * 0.5 + c['semantic_score'] * 0.3 + c['original_score'] * 0.2) >= min_doc_score
+            ]
+
+            # 如果没有文档通过阈值，保留前几个以确保有结果
+            if not filtered_candidates and all_candidates:
+                filtered_candidates = all_candidates[:max(3, self.max_docs)]
+
             # 选择最相关的文档，实现信息聚合和冲突检测
-            documents = self._select_optimal_documents(all_candidates)
+            documents = self._select_optimal_documents(filtered_candidates)
             return documents
         except Exception as e:
             logger.error(f"收集文档过程中发生严重错误: {str(e)}")
@@ -1002,16 +1027,14 @@ class RAGPipeline:
             if not prompt:
                 return {"answer": self._render_template(self.fallback_response, query), "sources": []}
 
-            # 改进：使用更高效的生成方式，并添加超时处理
+            # 使用 ThreadPoolExecutor 实现更可靠的超时控制
             chunks: List[str] = []
             try:
-                import threading
-                import time
-
-                # 使用线程实现超时机制
-                result = {'chunks': [], 'completed': False, 'error': None}
+                # 获取配置的超时时间，默认为120秒
+                timeout = self.config_loader.getint('ai_model', 'request_timeout', 120)
 
                 def generate_content():
+                    result_chunks = []
                     try:
                         for piece in self.model_manager.generate(
                             prompt,
@@ -1026,30 +1049,26 @@ class RAGPipeline:
                             presence_penalty=self.sampling_params['presence_penalty']
                         ):
                             if piece:
-                                result['chunks'].append(str(piece))
-                        result['completed'] = True
+                                result_chunks.append(str(piece))
+                        return {'chunks': result_chunks, 'completed': True, 'error': None}
                     except Exception as e:
-                        result['error'] = e
+                        return {'chunks': result_chunks, 'completed': False, 'error': e}
 
-                # 创建并启动生成线程
-                gen_thread = threading.Thread(target=generate_content)
-                gen_thread.daemon = True
-                gen_thread.start()
-
-                # 获取配置的超时时间，默认为120秒
-                timeout = self.config_loader.getint('ai_model', 'request_timeout', 120)
-                
-                # 等待生成完成
-                gen_thread.join(timeout=float(timeout))
+                # 使用 ThreadPoolExecutor 执行生成任务
+                with ThreadPoolExecutor(max_workers=1) as executor:
+                    future = executor.submit(generate_content)
+                    try:
+                        result = future.result(timeout=float(timeout))
+                    except FutureTimeoutError:
+                        result = {'chunks': [], 'completed': False, 'error': 'timeout'}
+                        logger.warning(f"生成超时({timeout}s): {query[:50]}...")
 
                 if not result['completed']:
-                    logger.warning(f"生成超时({timeout}s)，使用回退响应: {query[:50]}...")
-                    # 如果有部分结果，尝试使用
                     partial_answer = ''.join(result['chunks']).strip()
                     if partial_answer:
                         answer = partial_answer + "\n\n(注意：回答生成超时，内容可能不完整)"
                     else:
-                        # 如果完全没有结果（例如还在思考中），给出明确提示而不是通用的“未找到”
+                        # 如果完全没有结果（例如还在思考中），给出明确提示而不是通用的"未找到"
                         if documents:
                             answer = "已找到相关文档，但AI模型思考时间过长导致超时。请尝试：\n1. 增加配置文件中的 request_timeout\n2. 简化问题\n3. 直接查看下方列出的参考来源"
                         else:

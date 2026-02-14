@@ -25,7 +25,8 @@
       "Bash(curl:*)",
       "Bash(where:*)",
       "Bash(export:*)",
-      "Bash(powershell -Command:*)"
+      "Bash(powershell -Command:*)",
+      "Bash(git -C D:Python_workFile-tools log --oneline -15)"
     ]
   }
 }
