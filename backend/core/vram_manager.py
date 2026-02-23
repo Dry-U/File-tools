@@ -14,7 +14,7 @@ try:
     gpu_available = True
 except ImportError:
     gpu_available = False
-    logging.warning("GPUtil not found, GPU monitoring will be disabled. Install it with: pip install gputil")
+    logging.warning("未找到GPUtil库，GPU监控已禁用。安装命令: pip install gputil")
 
 logger = logging.getLogger(__name__)
 
@@ -86,14 +86,13 @@ class VRAMManager:
         return []
 
     def get_memory_usage(self):
-        """Get current memory usage"""
+        """获取当前内存使用量(MB)"""
         process = psutil.Process(os.getpid())
-        return process.memory_info().rss / 1024 / 1024  # in MB
+        return process.memory_info().rss / 1024 / 1024
 
     def should_limit_context(self):
-        """Check if context should be limited based on memory usage"""
+        """根据内存使用情况判断是否应限制上下文"""
         current_memory = self.get_memory_usage()
-        # If using more than 70% of memory limit, suggest limiting context (more conservative)
         return current_memory > (self.mem_limit * 0.7)
 
     def adjust_context_size(self, requested_size: int) -> int:
@@ -141,43 +140,38 @@ class VRAMManager:
         return {'available': False, 'gpus': []}
 
     def cache_result(self, key: str, result: Any, size_estimate: int = 1):
-        """Cache a result with size management"""
+        """缓存结果"""
         with self.cache_lock:
-            # Check if cache needs cleanup
             if len(self.cache) >= self.max_cached_results:
                 self._cleanup_cache()
 
-            # Store the result
             self.cache[key] = result
             self.cache_access_times[key] = time.time()
             self.cache_size += size_estimate
 
     def get_cached_result(self, key: str) -> Optional[Any]:
-        """Get a cached result"""
+        """获取缓存结果"""
         with self.cache_lock:
             if key in self.cache:
-                self.cache_access_times[key] = time.time()  # Update access time
+                self.cache_access_times[key] = time.time()
                 return self.cache[key]
             return None
 
     def _cleanup_cache(self):
-        """Clean up the cache using LRU strategy"""
+        """LRU策略清理缓存"""
         if not self.cache:
             return
 
-        # Sort by access time (LRU)
         sorted_items = sorted(self.cache_access_times.items(), key=lambda x: x[1])
-
-        # Remove oldest items until cache is under limit
-        items_to_remove = max(1, len(self.cache) // 4)  # Remove 25% of items
+        items_to_remove = max(1, len(self.cache) // 4)
         for key, _ in sorted_items[:items_to_remove]:
             if key in self.cache:
                 del self.cache[key]
                 del self.cache_access_times[key]
-                self.cache_size -= 1  # Decrement cache size
+                self.cache_size -= 1
 
     def clear_memory(self):
-        """Clear memory cache"""
+        """清空内存缓存"""
         with self.cache_lock:
             self.cache.clear()
             self.cache_access_times.clear()
@@ -195,7 +189,7 @@ class VRAMManager:
         return None
 
     def get_performance_stats(self) -> Dict[str, Any]:
-        """Get performance and memory statistics"""
+        """获取性能和内存统计信息"""
         return {
             'memory_usage_mb': self.get_memory_usage(),
             'memory_limit_mb': self.mem_limit,

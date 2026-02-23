@@ -149,7 +149,7 @@ class RAGPipeline:
                 'presence_penalty': get_float_with_fallback('ai_model', 'penalties.presence_penalty', 'rag', 'presence_penalty', 0.0)
             }
         except Exception as e:
-            logger.warning(f"Failed to load sampling params: {e}")
+            logger.warning(f"加载采样参数失败: {e}")
             return {
                 'temperature': 0.7,
                 'top_p': 0.9,
@@ -212,8 +212,7 @@ class RAGPipeline:
                    f"min_doc_score={self.min_doc_score}")
 
     def _adjust_context_for_memory(self, doc_budget: int) -> int:
-        """Adjust document budget based on memory constraints"""
-        # 使用VRAMManager的新功能来动态调整上下文大小
+        """根据内存限制调整文档预算"""
         adjusted_budget = self.vram_manager.adjust_context_size(doc_budget)
         return adjusted_budget
 
@@ -229,7 +228,7 @@ class RAGPipeline:
 
     @staticmethod
     def _is_noise_query(query: str) -> bool:
-        """Detect inputs that are too short or repetitive to search meaningfully."""
+        """检测输入是否过短或重复，无法进行有意义的搜索"""
         normalized = re.sub(r'\s+', '', query or '')
         if not normalized:
             return True
@@ -875,14 +874,14 @@ class RAGPipeline:
         return ""
 
     def _remove_file_extension(self, filename: str) -> str:
-        """Remove file extension from filename"""
+        """移除文件名扩展名"""
         for ext in ['.pdf', '.docx', '.doc', '.txt', '.md', '.xlsx', '.xls', '.pptx', '.ppt']:
             if filename.lower().endswith(ext):
                 return filename[:-len(ext)]
         return filename
 
     def _parse_entities_from_filename(self, name_only: str) -> List[str]:
-        """Parse entities from filename"""
+        """从文件名解析实体"""
         entities = []
 
         # Strategy 1: Extract after underscore (usually author name)
@@ -898,7 +897,7 @@ class RAGPipeline:
         return entities
 
     def _format_document_section(self, doc: Dict[str, Any]) -> str:
-        """Format a single document section"""
+        """格式化单个文档部分"""
         return (
             f"--- 文件: {doc.get('filename', '未知文件')} ---\n"
             f"路径: {doc.get('path', '未知路径')}\n"
@@ -907,7 +906,7 @@ class RAGPipeline:
         )
 
     def _truncate_content_if_needed(self, section: str, content: str, budget: int, used: int) -> str:
-        """Truncate document content if budget exceeded"""
+        """如果超出预算则截断文档内容"""
         if not content:
             return ''
 
@@ -939,13 +938,13 @@ class RAGPipeline:
         )
 
     def _calculate_context_budget(self, doc_budget: Optional[int]) -> int:
-        """Calculate context budget for documents"""
+        """计算文档上下文预算"""
         if doc_budget is None:
             return max(self.max_context_chars_total, 0)
         return max(doc_budget, 0)
 
     def _format_prompt_with_template(self, context_text: str, query: str) -> str:
-        """Format prompt with template"""
+        """使用模板格式化提示词"""
         template = self.prompt_template or DEFAULT_PROMPT
         try:
             return template.format(context=context_text, question=query).strip()

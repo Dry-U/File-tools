@@ -1,4 +1,4 @@
-"""Chat history database manager using SQLite."""
+"""聊天历史数据库管理器 - 使用SQLite"""
 
 import re
 import sqlite3
@@ -12,17 +12,17 @@ from backend.utils.logger import setup_logger
 logger = setup_logger(__name__)
 
 # Pre-compile session ID validation regex
-SESSION_ID_PATTERN = re.compile(r'^[\w\-.$@:]+$')
+SESSION_ID_PATTERN = re.compile(r'^[\w\-.$@:]+$')  # 会话ID验证正则
 
 
 class ChatHistoryDB:
-    """SQLite-based chat history storage."""
+    """基于SQLite的聊天历史存储"""
 
     def __init__(self, db_path: str = None):
-        """Initialize database connection.
+        """初始化数据库连接
 
         Args:
-            db_path: Path to SQLite database file. Defaults to data/chat_history.db
+            db_path: SQLite数据库文件路径，默认为 data/chat_history.db
         """
         if db_path is None:
             # Default location: data/chat_history.db
@@ -39,14 +39,14 @@ class ChatHistoryDB:
         self._init_db()
 
     def _get_connection(self) -> sqlite3.Connection:
-        """Get thread-local database connection."""
+        """获取线程本地数据库连接"""
         if not hasattr(self._local, 'conn') or self._local.conn is None:
             self._local.conn = sqlite3.connect(str(self.db_path), check_same_thread=False)
             self._local.conn.row_factory = sqlite3.Row
         return self._local.conn
 
     def _init_db(self):
-        """Initialize database tables."""
+        """初始化数据库表"""
         conn = self._get_connection()
         cursor = conn.cursor()
 
@@ -85,13 +85,13 @@ class ChatHistoryDB:
         conn.commit()
 
     def _validate_session_id(self, session_id: str) -> bool:
-        """Validate session_id format.
+        """验证会话ID格式
 
         Args:
-            session_id: Session identifier to validate
+            session_id: 要验证的会话标识符
 
         Returns:
-            True if valid
+            有效返回True
         """
         if not session_id or not isinstance(session_id, str):
             return False
@@ -101,14 +101,14 @@ class ChatHistoryDB:
         return bool(SESSION_ID_PATTERN.match(session_id))
 
     def create_session(self, session_id: str, title: str = None) -> bool:
-        """Create a new session.
+        """创建新会话
 
         Args:
-            session_id: Unique session identifier
-            title: Session title (optional)
+            session_id: 唯一会话标识符
+            title: 会话标题（可选）
 
         Returns:
-            True if created successfully
+            创建成功返回True
         """
         if not self._validate_session_id(session_id):
             return False
@@ -125,19 +125,19 @@ class ChatHistoryDB:
             conn.commit()
             return cursor.rowcount > 0
         except Exception as e:
-            logger.error(f"Error creating session: {e}")
+            logger.error(f"创建会话失败: {e}")
             return False
 
     def add_message(self, session_id: str, role: str, content: str) -> bool:
-        """Add a message to a session.
+        """添加消息到会话
 
         Args:
-            session_id: Session identifier
-            role: 'user' or 'assistant'
-            content: Message content
+            session_id: 会话标识符
+            role: 'user' 或 'assistant'
+            content: 消息内容
 
         Returns:
-            True if added successfully
+            添加成功返回True
         """
         if not self._validate_session_id(session_id):
             return False
@@ -147,33 +147,33 @@ class ChatHistoryDB:
 
         now = time.time()
         try:
-            # Ensure session exists
+            # 确保会话存在
             cursor.execute(
                 "INSERT OR IGNORE INTO sessions (session_id, title, created_at, updated_at) VALUES (?, ?, ?, ?)",
                 (session_id, '新对话', now, now)
             )
 
-            # Add message
+            # 添加消息
             cursor.execute("""
                 INSERT INTO messages (session_id, role, content, timestamp)
                 VALUES (?, ?, ?, ?)
             """, (session_id, role, content, now))
 
-            # Update session
+            # 更新会话
             cursor.execute("""
                 UPDATE sessions
                 SET message_count = message_count + 1, updated_at = ?
                 WHERE session_id = ?
             """, (now, session_id))
 
-            # Update title if this is the first user message
+            # 如果是第一条用户消息，更新标题
             if role == 'user':
                 cursor.execute(
                     "SELECT COUNT(*) FROM messages WHERE session_id = ? AND role = 'user'",
                     (session_id,)
                 )
                 user_count = cursor.fetchone()[0]
-                if user_count == 1:  # First user message
+                if user_count == 1:
                     title = content[:30] + '...' if len(content) > 30 else content
                     cursor.execute(
                         "UPDATE sessions SET title = ? WHERE session_id = ?",
@@ -183,18 +183,18 @@ class ChatHistoryDB:
             conn.commit()
             return True
         except Exception as e:
-            logger.error(f"Error adding message: {e}")
+            logger.error(f"添加消息失败: {e}")
             return False
 
     def get_session_messages(self, session_id: str, limit: int = None) -> List[Dict[str, Any]]:
-        """Get all messages for a session.
+        """获取会话的所有消息
 
         Args:
-            session_id: Session identifier
-            limit: Maximum number of messages to return
+            session_id: 会话标识符
+            limit: 返回消息的最大数量
 
         Returns:
-            List of message dictionaries
+            消息字典列表
         """
         if not self._validate_session_id(session_id):
             return []
@@ -222,14 +222,14 @@ class ChatHistoryDB:
             rows = cursor.fetchall()
             return [dict(row) for row in rows]
         except Exception as e:
-            logger.error(f"Error getting session messages: {e}")
+            logger.error(f"获取会话消息失败: {e}")
             return []
 
     def get_all_sessions(self) -> List[Dict[str, Any]]:
-        """Get all sessions.
+        """获取所有会话
 
         Returns:
-            List of session dictionaries
+            会话字典列表
         """
         conn = self._get_connection()
         cursor = conn.cursor()
@@ -262,17 +262,17 @@ class ChatHistoryDB:
 
             return sessions
         except Exception as e:
-            logger.error(f"Error getting all sessions: {e}")
+            logger.error(f"获取所有会话失败: {e}")
             return []
 
     def delete_session(self, session_id: str) -> bool:
-        """Delete a session and all its messages.
+        """删除会话及其所有消息
 
         Args:
-            session_id: Session identifier
+            session_id: 会话标识符
 
         Returns:
-            True if deleted successfully
+            删除成功返回True
         """
         if not self._validate_session_id(session_id):
             return False
@@ -285,17 +285,17 @@ class ChatHistoryDB:
             conn.commit()
             return cursor.rowcount > 0
         except Exception as e:
-            logger.error(f"Error deleting session: {e}")
+            logger.error(f"删除会话失败: {e}")
             return False
 
     def clear_session_messages(self, session_id: str) -> bool:
-        """Clear all messages from a session but keep the session.
+        """清空会话的所有消息但保留会话
 
         Args:
-            session_id: Session identifier
+            session_id: 会话标识符
 
         Returns:
-            True if cleared successfully
+            清空成功返回True
         """
         if not self._validate_session_id(session_id):
             return False
@@ -312,17 +312,17 @@ class ChatHistoryDB:
             conn.commit()
             return True
         except Exception as e:
-            logger.error(f"Error clearing session messages: {e}")
+            logger.error(f"清空会话消息失败: {e}")
             return False
 
     def session_exists(self, session_id: str) -> bool:
-        """Check if a session exists.
+        """检查会话是否存在
 
         Args:
-            session_id: Session identifier
+            session_id: 会话标识符
 
         Returns:
-            True if session exists
+            会话存在返回True
         """
         if not self._validate_session_id(session_id):
             return False
@@ -337,11 +337,11 @@ class ChatHistoryDB:
             )
             return cursor.fetchone() is not None
         except Exception as e:
-            logger.error(f"Error checking session existence: {e}")
+            logger.error(f"检查会话存在性失败: {e}")
             return False
 
     def close(self):
-        """Close database connection."""
+        """关闭数据库连接"""
         if hasattr(self._local, 'conn') and self._local.conn:
             self._local.conn.close()
             self._local.conn = None

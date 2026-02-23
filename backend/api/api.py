@@ -20,9 +20,15 @@ import time
 # 请求限流器 - 防止接口被滥用
 class RateLimiter:
     """基于内存的请求限流器"""
-    def __init__(self):
+
+    # 默认配置
+    DEFAULT_MAX_ENTRIES = 10000  # 最大条目数，防止内存无限增长
+    DEFAULT_CLEANUP_INTERVAL = 3600  # 1小时清理一次
+
+    def __init__(self, max_entries: int = None):
         self._requests = {}
-        self._cleanup_interval = 3600  # 1小时清理一次
+        self._max_entries = max_entries or self.DEFAULT_MAX_ENTRIES
+        self._cleanup_interval = self.DEFAULT_CLEANUP_INTERVAL
         self._last_cleanup = time.time()
 
     def is_allowed(self, key: str, max_requests: int = 10, window: int = 60) -> bool:
@@ -32,6 +38,11 @@ class RateLimiter:
         # 定期清理过期记录
         if now - self._last_cleanup > self._cleanup_interval:
             self._cleanup_expired(now, window)
+
+        # 限制总条目数，防止内存泄漏
+        if len(self._requests) >= self._max_entries:
+            # 紧急清理：移除最旧的条目
+            self._emergency_cleanup()
 
         if key not in self._requests:
             self._requests[key] = []
@@ -57,9 +68,44 @@ class RateLimiter:
             del self._requests[key]
         self._last_cleanup = now
 
+    def _emergency_cleanup(self):
+        """紧急清理：当条目数超过限制时，移除最旧的50%条目"""
+        if not self._requests:
+            return
 
-# 全局限流器
-rate_limiter = RateLimiter()
+        # 计算每个键的最后访问时间
+        key_last_access = []
+        for key, timestamps in self._requests.items():
+            if timestamps:
+                key_last_access.append((key, max(timestamps)))
+            else:
+                key_last_access.append((key, 0))
+
+        # 按最后访问时间排序
+        key_last_access.sort(key=lambda x: x[1])
+
+        # 移除最旧的50%条目
+        keys_to_remove = len(key_last_access) // 2
+        for i in range(keys_to_remove):
+            del self._requests[key_last_access[i][0]]
+
+
+# 全局限流器实例（将在应用启动时根据配置初始化）
+rate_limiter: Optional[RateLimiter] = None
+
+
+def get_rate_limiter(config_loader=None):
+    """获取或初始化限流器"""
+    global rate_limiter
+    if rate_limiter is None and config_loader:
+        try:
+            max_entries = config_loader.getint('security', 'rate_limiter.max_entries', 10000)
+            rate_limiter = RateLimiter(max_entries=max_entries)
+        except Exception:
+            rate_limiter = RateLimiter()
+    elif rate_limiter is None:
+        rate_limiter = RateLimiter()
+    return rate_limiter
 
 from backend.utils.config_loader import ConfigLoader
 from backend.utils.logger import get_logger
@@ -192,7 +238,7 @@ def is_path_allowed(path: str, config_loader: ConfigLoader) -> bool:
         if file_path_abs.startswith(allowed_path):
             return True
 
-    logger.warning(f"Path not in allowed directories: {normalized_path}")
+    logger.warning(f"路径不在允许范围内: {normalized_path}")
     return False
 
 
@@ -212,6 +258,10 @@ async def lifespan(app: FastAPI):
 
         # 首先初始化配置加载器
         config_loader = get_config_loader()
+
+        # 初始化限流器
+        get_rate_limiter(config_loader)
+        logger.info("限流器初始化完成")
 
         # 使用线程池并行初始化独立组件
         def init_index_manager():
@@ -359,7 +409,7 @@ async def global_exception_handler(request: Request, exc: Exception):
 # ============================================================================
 @app.get("/favicon.ico")
 async def favicon():
-    """Serve favicon.ico"""
+    """提供favicon图标"""
     favicon_path = Path("frontend/static/favicon.ico")
     if favicon_path.exists():
         return HTMLResponse(content=favicon_path.read_bytes(), media_type="image/x-icon")
@@ -368,7 +418,7 @@ async def favicon():
 
 @app.get("/")
 async def read_root():
-    """Serve the main HTML page"""
+    """提供主HTML页面"""
     frontend_path = Path("frontend/index.html")
     if frontend_path.exists():
         return HTMLResponse(content=frontend_path.read_text(encoding='utf-8'))
@@ -383,13 +433,18 @@ api_router = APIRouter()
 @api_router.post("/search")
 async def search(
     request: Request,
-    search_engine = Depends(get_search_engine)
+    search_engine = Depends(get_search_engine),
+    config_loader: ConfigLoader = Depends(get_config_loader)
 ):
     """使用搜索引擎执行搜索"""
-    # 限流检查：每个IP每分钟最多20次搜索
-    client_ip = request.client.host if request.client else "unknown"
-    if not rate_limiter.is_allowed(f"search:{client_ip}", max_requests=20, window=60):
-        raise HTTPException(status_code=429, detail="搜索过于频繁，请稍后再试")
+    # 限流检查
+    limiter = get_rate_limiter()
+    if config_loader.getboolean('security', 'rate_limiter.enabled', True):
+        client_ip = request.client.host if request.client else "unknown"
+        max_req = config_loader.getint('security', 'rate_limiter.search_limit', 20)
+        window = config_loader.getint('security', 'rate_limiter.search_window', 60)
+        if not limiter.is_allowed(f"search:{client_ip}", max_requests=max_req, window=window):
+            raise HTTPException(status_code=429, detail="搜索过于频繁，请稍后再试")
 
     try:
         body = await request.json()
@@ -452,7 +507,7 @@ async def search(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Search error: {str(e)}")
+        logger.error(f"搜索错误: {str(e)}")
         raise HTTPException(status_code=500, detail=f"搜索失败: {str(e)}")
 
 
@@ -531,13 +586,18 @@ async def preview_file(
 async def rebuild_index(
     request: Request,
     index_manager = Depends(get_index_manager),
-    file_scanner = Depends(get_file_scanner)
+    file_scanner = Depends(get_file_scanner),
+    config_loader: ConfigLoader = Depends(get_config_loader)
 ):
     """重建搜索索引"""
-    # 限流检查：每个IP每10分钟最多1次重建
-    client_ip = request.client.host if request.client else "unknown"
-    if not rate_limiter.is_allowed(f"rebuild:{client_ip}", max_requests=1, window=600):
-        raise HTTPException(status_code=429, detail="索引重建过于频繁，请10分钟后再试")
+    # 限流检查
+    limiter = get_rate_limiter()
+    if config_loader.getboolean('security', 'rate_limiter.enabled', True):
+        client_ip = request.client.host if request.client else "unknown"
+        max_req = config_loader.getint('security', 'rate_limiter.rebuild_limit', 1)
+        window = config_loader.getint('security', 'rate_limiter.rebuild_window', 600)
+        if not limiter.is_allowed(f"rebuild:{client_ip}", max_requests=max_req, window=window):
+            raise HTTPException(status_code=429, detail="索引重建过于频繁，请10分钟后再试")
 
     try:
         logger.info("开始重建索引...")
@@ -585,7 +645,7 @@ async def rebuild_index(
             "message": f"索引重建完成: 扫描 {stats.get('total_files_scanned', 0)} 个文件，索引 {stats.get('total_files_indexed', 0)} 个文件"
         }
     except Exception as e:
-        logger.error(f"Index rebuild error: {str(e)}")
+        logger.error(f"索引重建错误: {str(e)}")
         raise HTTPException(status_code=500, detail=f"索引重建失败: {str(e)}")
 
 
@@ -604,10 +664,14 @@ async def chat(
     config_loader: ConfigLoader = Depends(get_config_loader)
 ):
     """与RAG系统进行对话"""
-    # 限流检查：每个IP每分钟最多10次聊天
-    client_ip = request.client.host if request.client else "unknown"
-    if not rate_limiter.is_allowed(f"chat:{client_ip}", max_requests=10, window=60):
-        raise HTTPException(status_code=429, detail="对话过于频繁，请稍后再试")
+    # 限流检查
+    limiter = get_rate_limiter()
+    if config_loader.getboolean('security', 'rate_limiter.enabled', True):
+        client_ip = request.client.host if request.client else "unknown"
+        max_req = config_loader.getint('security', 'rate_limiter.chat_limit', 10)
+        window = config_loader.getint('security', 'rate_limiter.chat_window', 60)
+        if not limiter.is_allowed(f"chat:{client_ip}", max_requests=max_req, window=window):
+            raise HTTPException(status_code=429, detail="对话过于频繁，请稍后再试")
 
     # 检查RAG管道是否就绪，如果正在初始化则等待
     if not rag_pipeline:
@@ -768,7 +832,7 @@ async def update_config(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Update config error: {str(e)}")
+        logger.error(f"更新配置错误: {str(e)}")
         raise HTTPException(status_code=500, detail=f"更新配置失败: {str(e)}")
 
 
@@ -875,7 +939,7 @@ async def get_config(
         }
         return config
     except Exception as e:
-        logger.error(f"Get config error: {str(e)}")
+        logger.error(f"获取配置错误: {str(e)}")
         raise HTTPException(status_code=500, detail=f"获取配置失败: {str(e)}")
 
 
@@ -893,7 +957,7 @@ async def test_model_connection(
 
         return result
     except Exception as e:
-        logger.error(f"Test connection error: {str(e)}")
+        logger.error(f"测试连接错误: {str(e)}")
         return {"status": "error", "error": str(e)}
 
 

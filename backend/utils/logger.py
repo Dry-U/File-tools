@@ -41,27 +41,23 @@ class LoggerConfig:
     """日志配置类"""
 
     def __init__(self, config):
-        # 支持ConfigLoader实例或字典
-        # 检查是否是ConfigLoader实例（有3参数get方法）
         from backend.utils.config_loader import ConfigLoader
         if isinstance(config, ConfigLoader):
-            # ConfigLoader实例
             self.log_level = config.get('system', 'log_level', 'INFO')
             self.log_dir = config.get('system', 'data_dir', './data') + '/logs'
-            self.log_max_size = config.get('system', 'log_max_size', 10)  # MB
+            self.log_max_size = config.get('system', 'log_max_size', 10)
             self.log_backup_count = config.get('system', 'log_backup_count', 5)
-            self.log_rotation = config.get('system', 'log_rotation', 'midnight')  # 或 'size'
-            self.log_format = config.get('system', 'log_format', 'structured')  # 'structured' or 'standard'
-            self.log_json = config.get('system', 'log_json', False)  # Whether to output in JSON
-            self.log_sensitive_data = config.get('system', 'log_sensitive_data', False)  # Whether to log sensitive data
+            self.log_rotation = config.get('system', 'log_rotation', 'midnight')
+            self.log_format = config.get('system', 'log_format', 'structured')
+            self.log_json = config.get('system', 'log_json', False)
+            self.log_sensitive_data = config.get('system', 'log_sensitive_data', False)
         else:
-            # 字典类型或其他对象 (只有2参数get方法)
             system_config = config.get('system', {}) if hasattr(config, 'get') else {}
             self.log_level = system_config.get('log_level', 'INFO')
             self.log_dir = system_config.get('data_dir', './data') + '/logs'
-            self.log_max_size = system_config.get('log_max_size', 10)  # MB
+            self.log_max_size = system_config.get('log_max_size', 10)
             self.log_backup_count = system_config.get('log_backup_count', 5)
-            self.log_rotation = system_config.get('log_rotation', 'midnight')  # 或 'size'
+            self.log_rotation = system_config.get('log_rotation', 'midnight')
             self.log_format = system_config.get('log_format', 'structured')
             self.log_json = system_config.get('log_json', False)
             self.log_sensitive_data = system_config.get('log_sensitive_data', False)
@@ -93,15 +89,13 @@ class StructuredFormatter(logging.Formatter):
 
     def format(self, record: logging.LogRecord) -> str:
         """格式化日志记录"""
-        # 添加额外的上下文信息 (动态添加属性到LogRecord)
-        record.timestamp = datetime.datetime.fromtimestamp(record.created).isoformat()  # type: ignore[attr-defined]
-        record.thread_name = threading.current_thread().name  # type: ignore[attr-defined]
-        record.process_id = os.getpid()  # type: ignore[attr-defined]
+        record.timestamp = datetime.datetime.fromtimestamp(record.created).isoformat()
+        record.thread_name = threading.current_thread().name
+        record.process_id = os.getpid()
 
         if self.log_json:
-            # JSON格式输出
             log_data = {
-                "timestamp": record.timestamp,  # type: ignore[attr-defined]
+                "timestamp": record.timestamp,
                 "level": record.levelname,
                 "logger": record.name,
                 "message": record.getMessage(),
@@ -109,37 +103,33 @@ class StructuredFormatter(logging.Formatter):
                 "function": record.funcName,
                 "line": record.lineno,
                 "thread": record.thread,
-                "thread_name": record.thread_name,  # type: ignore[attr-defined]
+                "thread_name": record.thread_name,
                 "process": record.process,
-                "process_id": record.process_id,  # type: ignore[attr-defined]
+                "process_id": record.process_id,
             }
-            
-            # 添加异常信息（如果存在）
+
             if record.exc_info:
                 log_data["exception"] = self.formatException(record.exc_info)
                 log_data["traceback"] = traceback.format_exception(*record.exc_info)
-            
-            # 添加自定义字段（如果存在）
+
             if hasattr(record, 'context'):
-                log_data["context"] = record.context  # type: ignore[attr-defined]
+                log_data["context"] = record.context
             if hasattr(record, 'custom_fields'):
-                log_data["custom_fields"] = record.custom_fields  # type: ignore[attr-defined]
-                
+                log_data["custom_fields"] = record.custom_fields
+
             return json.dumps(log_data, ensure_ascii=False, default=str)
         else:
-            # 标准格式输出
             return super().format(record)
 
 class CustomFormatter(logging.Formatter):
     """自定义日志格式化器"""
 
-    # 日志级别对应的颜色代码
     COLORS = {
-        logging.DEBUG: '\033[94m',  # 蓝色
-        logging.INFO: '\033[92m',  # 绿色
-        logging.WARNING: '\033[93m',  # 黄色
-        logging.ERROR: '\033[91m',  # 红色
-        logging.CRITICAL: '\033[95m'  # 紫色
+        logging.DEBUG: '\033[94m',
+        logging.INFO: '\033[92m',
+        logging.WARNING: '\033[93m',
+        logging.ERROR: '\033[91m',
+        logging.CRITICAL: '\033[95m'
     }
     RESET = '\033[0m'
 
@@ -151,14 +141,10 @@ class CustomFormatter(logging.Formatter):
         """格式化日志记录"""
         original_fmt = self._style._fmt
 
-        # 如果支持颜色且启用了颜色，则为不同级别的日志添加颜色
         if self.use_color and record.levelno in self.COLORS:
             self._style._fmt = f"{self.COLORS[record.levelno]}{original_fmt}{self.RESET}"
 
-        # 格式化日志
         formatted = super().format(record)
-
-        # 恢复原始格式
         self._style._fmt = original_fmt
 
         return formatted
@@ -212,9 +198,8 @@ class EnterpriseLogger:
         if logger.handlers:
             logger.handlers.clear()
         
-        # Set up a default config if none provided
         if config is None:
-            from backend.utils.config_loader import ConfigLoader  # Use absolute import to avoid relative import issues
+            from backend.utils.config_loader import ConfigLoader
             config = ConfigLoader()
         
         # 设置日志级别

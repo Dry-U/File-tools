@@ -6,14 +6,14 @@ import os
 from pathlib import Path
 from unittest.mock import Mock
 
-# Add project root to python path
+# 添加项目根目录到Python路径
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 from backend.utils.config_loader import ConfigLoader
 
 @pytest.fixture
 def temp_config():
-    """Create a temporary configuration for testing"""
+    """创建临时配置用于测试"""
     with tempfile.TemporaryDirectory() as tmpdir:
         # Create mock config
         config = Mock(spec=ConfigLoader)
@@ -53,7 +53,7 @@ def temp_config():
 
 @pytest.fixture
 def generate_test_data(tmp_path):
-    """Fixture to generate test data files"""
+    """生成测试数据文件"""
     def _generate(count):
         data_dir = tmp_path / "test_data"
         data_dir.mkdir(exist_ok=True)

@@ -29,11 +29,11 @@ try:
     import win32com.client
 except ImportError as e:
     logger = logging.getLogger(__name__)
-    logger.warning(f"Failed to import win32com.client: {e}")
+    logger.warning(f"导入win32com.client失败: {e}")
     win32com = None
 except Exception as e:
     logger = logging.getLogger(__name__)
-    logger.warning(f"Unexpected error importing win32com.client: {e}")
+    logger.warning(f"导入win32com.client时发生未预期错误: {e}")
     win32com = None
 
 class DocumentParser:

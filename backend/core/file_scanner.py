@@ -57,6 +57,13 @@ class FileScanner:
 
         self.batch_size = self.DEFAULT_BATCH_SIZE
 
+        # 缓存配置
+        try:
+            self._cache_max_size = config_loader.getint('file_scanner', 'hash_cache_size', 10000)
+            self._cache_max_size = max(1000, min(self._cache_max_size, 100000))  # 限制在1k-100k之间
+        except Exception:
+            self._cache_max_size = 10000
+
         # 依赖组件
         self.document_parser = document_parser or DocumentParser(config_loader)
         self.index_manager = index_manager
@@ -82,10 +89,10 @@ class FileScanner:
         # 文件哈希缓存（避免重复处理未变更文件）
         self._file_hash_cache: Dict[str, Tuple[str, float]] = {}
         self._cache_lock = threading.Lock()
-        self._cache_max_size = 10000
 
         self.logger.info(f"文件扫描器初始化完成，配置: 扫描路径 {len(self.scan_paths)} 个, "
-                        f"排除模式 {len(self.exclude_patterns)} 个, 并行线程: {self.max_workers}")
+                        f"排除模式 {len(self.exclude_patterns)} 个, 并行线程: {self.max_workers}, "
+                        f"哈希缓存大小: {self._cache_max_size}")
         
     def set_progress_callback(self, callback):
         """设置进度回调函数"""
@@ -113,26 +120,59 @@ class FileScanner:
             return None
 
     def _is_file_changed(self, file_path: str) -> bool:
-        """检查文件是否自上次扫描以来已变更"""
+        """检查文件是否自上次扫描以来已变更（线程安全，使用双检锁模式）"""
+        # 第一重检查：无锁快速路径
+        with self._cache_lock:
+            cached = self._file_hash_cache.get(file_path)
+            if cached:
+                # 先比较时间戳，如果修改时间相同则跳过哈希计算
+                try:
+                    stat = os.stat(file_path)
+                    # 使用文件大小+修改时间作为快速比较键
+                    quick_key = f"{stat.st_size}:{stat.st_mtime}"
+                    if cached[0].endswith(quick_key):
+                        return False  # 文件未变更
+                except Exception:
+                    pass  # 无法获取文件状态，继续计算哈希
+
+        # 计算哈希（在锁外部）
         current_hash = self._get_file_hash(file_path)
         if not current_hash:
             return True  # 无法计算哈希，假设已变更
 
+        # 第二重检查：加锁确认和更新
         with self._cache_lock:
             cached = self._file_hash_cache.get(file_path)
             if cached and cached[0] == current_hash:
-                return False  # 文件未变更
+                return False  # 文件未变更（另一个线程可能已更新）
 
             # 更新缓存
             self._file_hash_cache[file_path] = (current_hash, time.time())
 
             # 限制缓存大小
             if len(self._file_hash_cache) > self._cache_max_size:
-                # 移除最旧的条目
-                oldest = min(self._file_hash_cache.items(), key=lambda x: x[1][1])
-                del self._file_hash_cache[oldest[0]]
+                # 移除最旧的20%条目（批量清理比逐个清理更高效）
+                self._trim_cache()
 
             return True
+
+    def _trim_cache(self):
+        """修剪缓存，移除最旧的20%条目"""
+        if not self._file_hash_cache:
+            return
+
+        # 按访问时间排序
+        sorted_items = sorted(
+            self._file_hash_cache.items(),
+            key=lambda x: x[1][1]
+        )
+
+        # 移除最旧的20%
+        entries_to_remove = max(1, len(sorted_items) // 5)
+        for i in range(entries_to_remove):
+            del self._file_hash_cache[sorted_items[i][0]]
+
+        self.logger.debug(f"缓存修剪：移除了 {entries_to_remove} 个条目，当前大小: {len(self._file_hash_cache)}")
 
     def _process_file_batch(self, file_paths: List[Path]) -> List[Dict]:
         """批量处理文件，返回成功索引的文档列表"""
@@ -318,42 +358,53 @@ class FileScanner:
             self.logger.warning("没有找到需要扫描的文件")
             return self.scan_stats
 
-        # 使用线程池并行处理文件
+        # 使用线程池并行处理文件（批量提交，避免任务堆积）
         processed_count = 0
         last_progress_update = 0
+        batch_size = self.batch_size * self.max_workers  # 动态计算批次大小
 
         with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
-            # 提交所有文件处理任务
-            future_to_file = {
-                executor.submit(self._process_file_worker, file_path): file_path
-                for file_path in all_files
-            }
-
-            # 处理完成的任务
-            for future in as_completed(future_to_file):
+            # 分批处理文件，避免一次性提交所有任务导致内存问题
+            for batch_start in range(0, total_files, batch_size):
                 if self._is_stop_requested():
                     executor.shutdown(wait=False)
                     self.logger.info("扫描已被停止")
                     break
 
-                file_path = future_to_file[future]
-                try:
-                    future.result()
-                    processed_count += 1
+                # 获取当前批次
+                batch_end = min(batch_start + batch_size, total_files)
+                current_batch = all_files[batch_start:batch_end]
 
-                    # 更新进度（每1%或每100个文件更新一次）
-                    progress = int((processed_count / total_files) * 100)
-                    if (progress > last_progress_update or
-                        processed_count - last_progress_update >= 100):
-                        if self.progress_callback:
-                            try:
-                                self.progress_callback(min(99, progress))
-                            except Exception as e:
-                                self.logger.debug(f"更新进度回调失败: {e}")
-                        last_progress_update = processed_count
+                # 提交当前批次任务
+                future_to_file = {
+                    executor.submit(self._process_file_worker, file_path): file_path
+                    for file_path in current_batch
+                }
 
-                except Exception as e:
-                    self.logger.error(f"处理文件失败 {file_path}: {e}")
+                # 处理完成的任务
+                batch_completed = 0
+                for future in as_completed(future_to_file):
+                    file_path = future_to_file[future]
+                    try:
+                        future.result()
+                        processed_count += 1
+                        batch_completed += 1
+
+                        # 更新进度（每1%或每100个文件更新一次）
+                        progress = int((processed_count / total_files) * 100)
+                        if (progress > last_progress_update or
+                            processed_count - last_progress_update >= 100):
+                            if self.progress_callback:
+                                try:
+                                    self.progress_callback(min(99, progress))
+                                except Exception as e:
+                                    self.logger.debug(f"更新进度回调失败: {e}")
+                            last_progress_update = processed_count
+
+                    except Exception as e:
+                        self.logger.error(f"处理文件失败 {file_path}: {e}")
+
+                self.logger.debug(f"批次完成: {batch_start}-{batch_end} ({batch_completed}/{len(current_batch)})")
 
         # 结束索引批量模式（提交所有剩余文档）
         if self.index_manager:

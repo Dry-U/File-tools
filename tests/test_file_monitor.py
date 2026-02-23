@@ -7,7 +7,7 @@ import sys
 from pathlib import Path
 from unittest.mock import Mock, patch
 
-# Add project root to path
+# 添加项目根目录到路径
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from backend.core.file_monitor import FileMonitor, FileChangeHandler

@@ -21,34 +21,28 @@ ai_model:
       chunk_size: 2000
       max_docs: 10
       min_doc_score: 0.4
-  api.api_key: ''
-  api.api_url: https://api.siliconflow.cn/v1/chat/completions
-  api.model_name: deepseek-ai/DeepSeek-V2.5
-  api.provider: siliconflow
   enabled: true
   local:
     api_url: http://localhost:8000/v1/chat/completions
     max_context: 4096
     max_tokens: 512
     model_name: local
-  local.api_url: http://localhost:8000/v1/chat/completions
   mode: local
-  penalties.frequency_penalty: 0
-  penalties.presence_penalty: 0
-  penalties.repeat_penalty: 1.1
-  sampling.max_tokens: 2048
-  sampling.min_p: 0.05
-  sampling.seed: -1
-  sampling.temperature: 0.7
-  sampling.top_k: 40
-  sampling.top_p: 0.9
+  penalties:
+    frequency_penalty: 0
+    presence_penalty: 0
+    repeat_penalty: 1.1
+  sampling:
+    max_tokens: 2048
+    min_p: 0.05
+    seed: -1
+    temperature: 0.7
+    top_k: 40
+    top_p: 0.9
   security:
     retry_count: 2
     timeout: 120
     verify_ssl: true
-  security.retry_count: 2
-  security.timeout: 120
-  security.verify_ssl: true
   system_prompt: '你是一名专业的中文文档助理。请根据下方的【文档集合】回答用户的【问题】。
 
     规则：
@@ -75,6 +69,7 @@ file_scanner:
     archive: .zip,.rar,.7z,.tar,.gz
     code: .py,.js,.java,.cpp,.c,.h,.cs,.go,.rs,.php,.rb,.swift
     document: .txt,.md,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.csv,.json,.xml
+  hash_cache_size: 10000
   max_file_size: 100
   recursive: true
   scan_paths:
@@ -211,6 +206,17 @@ search:
   semantic_score_low_threshold: 30.0
   text_weight: 0.6
   vector_weight: 0.4
+security:
+  rate_limiter:
+    enabled: true
+    max_entries: 10000
+    search_limit: 20
+    search_window: 60
+    chat_limit: 10
+    chat_window: 60
+    rebuild_limit: 1
+    rebuild_window: 600
+
 system:
   app_name: 智能文件检索与问答系统
   cache_dir: ./data/cache
