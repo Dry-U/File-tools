@@ -11,6 +11,11 @@ import requests
 import time
 import socket
 import threading
+import atexit
+import signal
+
+# 修复 pythonnet 退出报错：禁用 clr 的 atexit 回调
+os.environ['PYTHONNET_SHUTDOWN_MODE'] = 'Soft'
 
 # 修复 torch DLL 加载问题：将 torch lib 目录添加到 PATH
 try:
@@ -115,6 +120,32 @@ def run_desktop_app():
     logger = setup_logger()
     logger.info("应用启动中...")
 
+    # 设置退出标志
+    exit_event = threading.Event()
+
+    # 信号处理函数
+    def signal_handler(signum, frame):
+        logger.info(f"收到信号 {signum}，准备退出...")
+        exit_event.set()
+
+    # 注册信号处理器
+    signal.signal(signal.SIGINT, signal_handler)
+    signal.signal(signal.SIGTERM, signal_handler)
+
+    # 注册 atexit 处理程序，确保优雅退出
+    def cleanup():
+        try:
+            logger.info("执行清理操作...")
+            # 禁用 pythonnet 的默认清理，避免 KeyboardInterrupt 报错
+            if 'clr' in sys.modules:
+                import clr
+                clr.System.GC.Collect()
+                clr.System.GC.WaitForPendingFinalizers()
+        except Exception as e:
+            pass
+
+    atexit.register(cleanup)
+
     port = find_available_port(8000, 8010)
     url = f"http://127.0.0.1:{port}"
     logger.info(f"服务端口: {port}")
@@ -141,7 +172,39 @@ def run_desktop_app():
         text_select=True,
     )
 
-    webview.start()
+    # 注册窗口关闭事件
+    def on_closing():
+        logger.info("窗口关闭事件触发")
+        exit_event.set()
+        return True
+
+    window.events.closing += on_closing
+
+    # 在后台线程中检查退出信号
+    def check_exit():
+        while not exit_event.is_set():
+            exit_event.wait(0.5)
+        logger.info("退出信号已设置，关闭窗口...")
+        window.destroy()
+
+    exit_thread = threading.Thread(target=check_exit, daemon=True)
+    exit_thread.start()
+
+    # 尝试使用 Edge Chromium 引擎（如果可用）
+    # GUI 参数: 'qt' 或 'gtk' 或 'cef' 或 'edgechromium' 或 'edgehtml' 或 'mshtml'
+    try:
+        # Windows 优先使用 edgechromium（Edge WebView2）
+        import platform
+        if platform.system() == 'Windows':
+            webview.start(gui='edgechromium', debug=False)
+        else:
+            webview.start()
+    except Exception as e:
+        logger.warning(f"Edge Chromium 启动失败，尝试默认引擎: {e}")
+        webview.start()
+
+    # 标记退出事件，确保后台线程退出
+    exit_event.set()
     logger.info("应用已退出")
 
 

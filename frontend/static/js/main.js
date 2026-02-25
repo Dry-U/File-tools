@@ -1,15 +1,17 @@
 // 监听模式切换，显示/隐藏对应设置面板
-document.querySelectorAll('input[name="aiMode"]').forEach(radio => {
-    radio.addEventListener('change', function() {
-        const localSettings = document.getElementById('localSettings');
-        const apiSettings = document.getElementById('apiSettings');
-        if (document.getElementById('modeAPI').checked) {
-            localSettings.style.display = 'none';
-            apiSettings.style.display = 'block';
-        } else {
-            localSettings.style.display = 'block';
-            apiSettings.style.display = 'none';
-        }
+document.addEventListener('DOMContentLoaded', function() {
+    document.querySelectorAll('input[name="aiMode"]').forEach(function(radio) {
+        radio.addEventListener('change', function() {
+            const localSettings = document.getElementById('localSettings');
+            const apiSettings = document.getElementById('apiSettings');
+            if (document.getElementById('modeAPI').checked) {
+                localSettings.style.display = 'none';
+                apiSettings.style.display = 'block';
+            } else {
+                localSettings.style.display = 'block';
+                apiSettings.style.display = 'none';
+            }
+        });
     });
 });
 
@@ -64,15 +66,31 @@ async function testAPIConnection() {
     }
 }
 
+// 打开设置模态框
+function openSettingsModal() {
+    console.log('openSettingsModal called');
+    const modalEl = document.getElementById('settingsModal');
+    if (modalEl) {
+        console.log('Settings modal element found, loading settings...');
+        // 先加载设置
+        loadSettings().then(function() {
+            initialSettings = getCurrentSettings();
+            console.log('Settings loaded, showing modal...');
+            showModal(modalEl);
+        }).catch(function(err) {
+            console.error('Failed to load settings:', err);
+            // 即使加载失败也显示模态框
+            showModal(modalEl);
+        });
+    } else {
+        console.error('Settings modal element not found!');
+    }
+}
+
 // 恢复默认设置 (显示弹窗)
 function resetSettings() {
     const resetModalEl = document.getElementById('resetConfirmModal');
-    const resetModal = new bootstrap.Modal(resetModalEl);
-    resetModalEl.addEventListener('hidden.bs.modal', function disposeModal() {
-        resetModal.dispose();
-        resetModalEl.removeEventListener('hidden.bs.modal', disposeModal);
-    });
-    resetModal.show();
+    showModal(resetModalEl);
 }
 
 // 显示重建索引确认弹窗
@@ -89,12 +107,71 @@ function showRebuildModal() {
     `;
     document.getElementById('rebuildCloseBtn').style.display = 'block';
 
-    const rebuildModal = new bootstrap.Modal(rebuildModalEl);
-    rebuildModalEl.addEventListener('hidden.bs.modal', function disposeModal() {
-        rebuildModal.dispose();
-        rebuildModalEl.removeEventListener('hidden.bs.modal', disposeModal);
-    });
-    rebuildModal.show();
+    showModal(rebuildModalEl);
+}
+
+// 通用显示模态框函数（带后备方案）
+function showModal(modalEl) {
+    if (!modalEl) {
+        console.error('showModal: modal element is null');
+        return;
+    }
+
+    console.log('showModal called for:', modalEl.id);
+
+    try {
+        // 先尝试使用 Bootstrap Modal（如果可用）
+        if (typeof bootstrap !== 'undefined' && bootstrap.Modal) {
+            console.log('Bootstrap is available, using Bootstrap Modal');
+            let modal = bootstrap.Modal.getInstance(modalEl);
+            if (!modal) {
+                modal = new bootstrap.Modal(modalEl);
+            }
+            modal.show();
+        } else {
+            throw new Error('Bootstrap not available');
+        }
+    } catch (err) {
+        console.log('Using fallback modal display:', err.message);
+        console.log('Bootstrap modal failed, using fallback:', err);
+        // 手动显示
+        modalEl.style.display = 'block';
+        modalEl.classList.add('show');
+        modalEl.setAttribute('aria-hidden', 'false');
+        document.body.classList.add('modal-open');
+
+        // 添加遮罩层
+        let backdrop = document.querySelector('.modal-backdrop');
+        if (!backdrop) {
+            backdrop = document.createElement('div');
+            backdrop.className = 'modal-backdrop fade show';
+            document.body.appendChild(backdrop);
+        }
+    }
+}
+
+// 通用隐藏模态框函数（带后备方案）
+function hideModal(modalEl) {
+    if (!modalEl) return;
+
+    try {
+        if (typeof bootstrap !== 'undefined' && bootstrap.Modal) {
+            const modal = bootstrap.Modal.getInstance(modalEl);
+            if (modal) {
+                modal.hide();
+                return;
+            }
+        }
+        throw new Error('Bootstrap not available or no instance');
+    } catch (err) {
+        // 手动隐藏
+        modalEl.style.display = 'none';
+        modalEl.classList.remove('show');
+        modalEl.setAttribute('aria-hidden', 'true');
+        document.body.classList.remove('modal-open');
+        const backdrop = document.querySelector('.modal-backdrop');
+        if (backdrop) backdrop.remove();
+    }
 }
 
 // 确认重建索引 (执行逻辑)
@@ -175,8 +252,7 @@ function confirmReset() {
 
     // 关闭确认弹窗
     const resetModalEl = document.getElementById('resetConfirmModal');
-    const modal = bootstrap.Modal.getInstance(resetModalEl);
-    modal.hide();
+    hideModal(resetModalEl);
 }
 
 // Settings State Management
@@ -186,9 +262,16 @@ let initialSettings = {};
 async function loadSettings() {
     try {
         const response = await fetch('/api/config');
-        if (response.ok) {
-            const config = await response.json();
-            if (config.ai_model) {
+        if (!response.ok) {
+            console.warn('Failed to load settings, HTTP status:', response.status);
+            return;
+        }
+        const config = await response.json();
+        if (!config || !config.ai_model) {
+            console.log('No ai_model config found, using defaults');
+            return;
+        }
+        if (config.ai_model) {
                 // 设置模式
                 const isApiMode = config.ai_model.mode === 'api';
                 document.getElementById('modeAPI').checked = isApiMode;
@@ -198,46 +281,45 @@ async function loadSettings() {
 
                 // 本地模式配置
                 if (config.ai_model.local) {
-                    document.getElementById('localUrlInput').value = config.ai_model.local.api_url ?? 'http://localhost:8000/v1/chat/completions';
+                    document.getElementById('localUrlInput').value = config.ai_model.local.api_url != null ? config.ai_model.local.api_url : 'http://localhost:8000/v1/chat/completions';
                 }
 
                 // API模式配置
                 if (config.ai_model.api) {
-                    document.getElementById('apiProviderSelect').value = config.ai_model.api.provider ?? 'siliconflow';
-                    document.getElementById('apiUrlInput').value = config.ai_model.api.api_url ?? '';
-                    document.getElementById('apiKeyInput').value = config.ai_model.api.api_key ?? '';
-                    document.getElementById('modelNameInput').value = config.ai_model.api.model_name ?? '';
+                    document.getElementById('apiProviderSelect').value = config.ai_model.api.provider != null ? config.ai_model.api.provider : 'siliconflow';
+                    document.getElementById('apiUrlInput').value = config.ai_model.api.api_url != null ? config.ai_model.api.api_url : '';
+                    document.getElementById('apiKeyInput').value = config.ai_model.api.api_key != null ? config.ai_model.api.api_key : '';
+                    document.getElementById('modelNameInput').value = config.ai_model.api.model_name != null ? config.ai_model.api.model_name : '';
                 }
 
                 // 安全配置
                 if (config.ai_model.security) {
-                    document.getElementById('verifySslCheck').checked = config.ai_model.security.verify_ssl ?? true;
+                    document.getElementById('verifySslCheck').checked = config.ai_model.security.verify_ssl != null ? config.ai_model.security.verify_ssl : true;
                 }
 
                 // 采样参数
                 if (config.ai_model.sampling) {
-                    document.getElementById('tempRange').value = config.ai_model.sampling.temperature ?? 0.7;
-                    document.getElementById('tempValue').innerText = config.ai_model.sampling.temperature ?? 0.7;
-                    document.getElementById('topPRange').value = config.ai_model.sampling.top_p ?? 0.9;
-                    document.getElementById('topPValue').innerText = config.ai_model.sampling.top_p ?? 0.9;
-                    document.getElementById('topKInput').value = config.ai_model.sampling.top_k ?? 40;
-                    document.getElementById('minPRange').value = config.ai_model.sampling.min_p ?? 0.05;
-                    document.getElementById('minPValue').innerText = config.ai_model.sampling.min_p ?? 0.05;
-                    document.getElementById('maxTokensInput').value = config.ai_model.sampling.max_tokens ?? 2048;
-                    document.getElementById('seedInput').value = config.ai_model.sampling.seed ?? -1;
+                    document.getElementById('tempRange').value = config.ai_model.sampling.temperature != null ? config.ai_model.sampling.temperature : 0.7;
+                    document.getElementById('tempValue').innerText = config.ai_model.sampling.temperature != null ? config.ai_model.sampling.temperature : 0.7;
+                    document.getElementById('topPRange').value = config.ai_model.sampling.top_p != null ? config.ai_model.sampling.top_p : 0.9;
+                    document.getElementById('topPValue').innerText = config.ai_model.sampling.top_p != null ? config.ai_model.sampling.top_p : 0.9;
+                    document.getElementById('topKInput').value = config.ai_model.sampling.top_k != null ? config.ai_model.sampling.top_k : 40;
+                    document.getElementById('minPRange').value = config.ai_model.sampling.min_p != null ? config.ai_model.sampling.min_p : 0.05;
+                    document.getElementById('minPValue').innerText = config.ai_model.sampling.min_p != null ? config.ai_model.sampling.min_p : 0.05;
+                    document.getElementById('maxTokensInput').value = config.ai_model.sampling.max_tokens != null ? config.ai_model.sampling.max_tokens : 2048;
+                    document.getElementById('seedInput').value = config.ai_model.sampling.seed != null ? config.ai_model.sampling.seed : -1;
                 }
 
                 // 惩罚参数
                 if (config.ai_model.penalties) {
-                    document.getElementById('repeatPenaltyRange').value = config.ai_model.penalties.repeat_penalty ?? 1.1;
-                    document.getElementById('repeatPenaltyValue').innerText = config.ai_model.penalties.repeat_penalty ?? 1.1;
-                    document.getElementById('freqPenaltyRange').value = config.ai_model.penalties.frequency_penalty ?? 0.0;
-                    document.getElementById('freqPenaltyValue').innerText = config.ai_model.penalties.frequency_penalty ?? 0.0;
-                    document.getElementById('presencePenaltyRange').value = config.ai_model.penalties.presence_penalty ?? 0.0;
-                    document.getElementById('presencePenaltyValue').innerText = config.ai_model.penalties.presence_penalty ?? 0.0;
+                    document.getElementById('repeatPenaltyRange').value = config.ai_model.penalties.repeat_penalty != null ? config.ai_model.penalties.repeat_penalty : 1.1;
+                    document.getElementById('repeatPenaltyValue').innerText = config.ai_model.penalties.repeat_penalty != null ? config.ai_model.penalties.repeat_penalty : 1.1;
+                    document.getElementById('freqPenaltyRange').value = config.ai_model.penalties.frequency_penalty != null ? config.ai_model.penalties.frequency_penalty : 0.0;
+                    document.getElementById('freqPenaltyValue').innerText = config.ai_model.penalties.frequency_penalty != null ? config.ai_model.penalties.frequency_penalty : 0.0;
+                    document.getElementById('presencePenaltyRange').value = config.ai_model.penalties.presence_penalty != null ? config.ai_model.penalties.presence_penalty : 0.0;
+                    document.getElementById('presencePenaltyValue').innerText = config.ai_model.penalties.presence_penalty != null ? config.ai_model.penalties.presence_penalty : 0.0;
                 }
             }
-        }
     } catch (error) {
         console.error('Load settings error:', error);
     }
@@ -274,24 +356,12 @@ function getCurrentSettings() {
     };
 }
 
-// Capture settings when modal opens
-const settingsModalEl = document.getElementById('settingsModal');
-settingsModalEl.addEventListener('show.bs.modal', async event => {
-    await loadSettings();
-    initialSettings = getCurrentSettings();
-});
-
 async function saveSettings() {
     const currentSettings = getCurrentSettings();
     if (JSON.stringify(initialSettings) === JSON.stringify(currentSettings)) {
         // Show reminder
         const noChangeModalEl = document.getElementById('noChangesModal');
-        const noChangeModal = new bootstrap.Modal(noChangeModalEl);
-        noChangeModalEl.addEventListener('hidden.bs.modal', function disposeModal() {
-            noChangeModal.dispose();
-            noChangeModalEl.removeEventListener('hidden.bs.modal', disposeModal);
-        });
-        noChangeModal.show();
+        showModal(noChangeModalEl);
         return;
     }
 
@@ -338,8 +408,7 @@ async function saveSettings() {
             // Update initial settings to current after successful save
             initialSettings = currentSettings;
             // Close modal
-            const modal = bootstrap.Modal.getInstance(settingsModalEl);
-            modal.hide();
+            hideModal(document.getElementById('settingsModal'));
             // Show success message (optional)
             showToast('设置已保存');
         } else {
@@ -352,7 +421,8 @@ async function saveSettings() {
 }
 
 // Toast notification helper
-function showToast(message, type = 'success') {
+function showToast(message, type) {
+    if (type === undefined) type = 'success';
     const iconMap = {
         'success': 'bi-check-circle-fill',
         'error': 'bi-x-circle-fill',
@@ -404,7 +474,7 @@ function showToast(message, type = 'success') {
     toast.show();
 
     // Remove from DOM after hidden
-    toastEl.addEventListener('hidden.bs.toast', () => {
+    toastEl.addEventListener('hidden.bs.toast', function() {
         toastEl.remove();
     });
 }
@@ -448,7 +518,7 @@ function switchMode(mode) {
     currentMode = mode;
     
     // 1. 更新 Tab 样式
-    document.querySelectorAll('.nav-tab-btn').forEach(btn => btn.classList.remove('active'));
+    document.querySelectorAll('.nav-tab-btn').forEach(function(btn) { btn.classList.remove('active'); });
     document.getElementById(`tab-${mode}`).classList.add('active');
 
     // 2. 切换侧边栏内容
@@ -536,7 +606,7 @@ function resetChat() {
 
     // Clear messages
     const messages = document.querySelectorAll('.message-row');
-    messages.forEach(msg => msg.remove());
+    messages.forEach(function(msg) { msg.remove(); });
 
     // Generate new session ID
     currentSessionId = generateSessionId();
@@ -571,7 +641,7 @@ function renderHistoryList(sessions) {
         return;
     }
 
-    historyList.innerHTML = sessions.map(session => {
+    historyList.innerHTML = sessions.map(function(session) {
         const sessionIdAttr = escapeHtml(session.session_id);
         const sessionIdJs = JSON.stringify(session.session_id).slice(1, -1);
         const isActive = session.session_id === currentSessionId ? 'active' : '';
@@ -644,7 +714,7 @@ async function loadSessionMessages(sessionId) {
         inputArea.style.background = 'linear-gradient(to top, var(--llama-bg) 60%, transparent)';
 
         // Render messages if any
-        messages.forEach(msg => {
+        messages.forEach(function(msg) {
             if (msg.role === 'user') {
                 addMessage(msg.content, 'user');
             } else if (msg.role === 'assistant') {
@@ -675,12 +745,7 @@ function deleteSession(sessionId, event) {
     // 显示Bootstrap模态框
     const modalEl = document.getElementById('deleteSessionModal');
     if (modalEl) {
-        const modal = new bootstrap.Modal(modalEl);
-        modalEl.addEventListener('hidden.bs.modal', function disposeModal() {
-            modal.dispose();
-            modalEl.removeEventListener('hidden.bs.modal', disposeModal);
-        });
-        modal.show();
+        showModal(modalEl);
     } else {
         // Fallback to confirm if modal not found
         if (confirm('确定要删除这个会话吗？')) {
@@ -728,12 +793,21 @@ document.addEventListener('DOMContentLoaded', function() {
                 // 关闭模态框
                 const modalEl = document.getElementById('deleteSessionModal');
                 if (modalEl) {
-                    const modal = bootstrap.Modal.getInstance(modalEl);
-                    if (modal) modal.hide();
+                    hideModal(modalEl);
                 }
             }
         });
     }
+
+    // 为所有关闭按钮添加事件
+    document.querySelectorAll('[data-bs-dismiss="modal"]').forEach(function(btn) {
+        btn.addEventListener('click', function() {
+            const modalEl = this.closest('.modal');
+            if (modalEl) {
+                hideModal(modalEl);
+            }
+        });
+    });
 });
 
 // 重置聊天UI（不清除会话ID）
@@ -748,7 +822,7 @@ function resetChatUI() {
 
     // Clear messages
     const messages = document.querySelectorAll('.message-row');
-    messages.forEach(msg => msg.remove());
+    messages.forEach(function(msg) { msg.remove(); });
 }
 
 // HTML转义
@@ -759,7 +833,7 @@ function escapeHtml(text) {
 }
 
 // 页面加载时获取历史记录
-document.addEventListener('DOMContentLoaded', async () => {
+document.addEventListener('DOMContentLoaded', async function() {
     await loadChatHistory();
     await checkSystemHealth();
     initDatePickers();
@@ -797,26 +871,29 @@ function initDatePickers() {
             wrapperFrom.addEventListener('click', function(e) {
                 e.preventDefault();
                 e.stopPropagation();
+                // 启用指针事件以允许点击
+                dateFrom.style.pointerEvents = 'auto';
                 try {
-                    dateFrom.showPicker();
-                    console.log('DateFrom picker opened');
+                    if (typeof dateFrom.showPicker === 'function') {
+                        dateFrom.showPicker();
+                    } else {
+                        dateFrom.click();
+                    }
                 } catch(err) {
-                    console.log('showPicker failed, trying click');
-                    dateFrom.click();
+                    console.log('showPicker failed, falling back to focus');
+                    dateFrom.focus();
                 }
+                // 恢复指针事件
+                setTimeout(function() {
+                    dateFrom.style.pointerEvents = 'none';
+                }, 100);
             });
         }
 
         // 日期改变时更新显示
         dateFrom.addEventListener('change', function() {
             console.log('DateFrom changed:', this.value);
-            formatAndDisplayDate(dateFrom, dateFromDisplay, '开始日期');
-        });
-
-        // 也监听input事件
-        dateFrom.addEventListener('input', function() {
-            console.log('DateFrom input:', this.value);
-            formatAndDisplayDate(dateFrom, dateFromDisplay, '开始日期');
+            formatAndDisplayDate(dateFrom, dateFromDisplay, '开始');
         });
     }
 
@@ -827,26 +904,29 @@ function initDatePickers() {
             wrapperTo.addEventListener('click', function(e) {
                 e.preventDefault();
                 e.stopPropagation();
+                // 启用指针事件以允许点击
+                dateTo.style.pointerEvents = 'auto';
                 try {
-                    dateTo.showPicker();
-                    console.log('DateTo picker opened');
+                    if (typeof dateTo.showPicker === 'function') {
+                        dateTo.showPicker();
+                    } else {
+                        dateTo.click();
+                    }
                 } catch(err) {
-                    console.log('showPicker failed, trying click');
-                    dateTo.click();
+                    console.log('showPicker failed, falling back to focus');
+                    dateTo.focus();
                 }
+                // 恢复指针事件
+                setTimeout(function() {
+                    dateTo.style.pointerEvents = 'none';
+                }, 100);
             });
         }
 
         // 日期改变时更新显示
         dateTo.addEventListener('change', function() {
             console.log('DateTo changed:', this.value);
-            formatAndDisplayDate(dateTo, dateToDisplay, '结束日期');
-        });
-
-        // 也监听input事件
-        dateTo.addEventListener('input', function() {
-            console.log('DateTo input:', this.value);
-            formatAndDisplayDate(dateTo, dateToDisplay, '结束日期');
+            formatAndDisplayDate(dateTo, dateToDisplay, '结束');
         });
     }
 }
@@ -879,7 +959,7 @@ async function performSearch() {
     // 1. File Types
     const activeTypeBtns = document.querySelectorAll('.file-type-btn.active');
     if (activeTypeBtns.length > 0) {
-        filters.file_types = Array.from(activeTypeBtns).map(btn => '.' + btn.dataset.type);
+        filters.file_types = Array.from(activeTypeBtns).map(function(btn) { return '.' + btn.dataset.type; });
     }
 
     // 2. File Size (MB -> Bytes)
@@ -952,10 +1032,10 @@ async function performSearch() {
         }
 
         // 按匹配度降序排序
-        results.sort((a, b) => b.score - a.score);
+        results.sort(function(a, b) { return b.score - a.score; });
 
         let html = '<div class="d-flex flex-column gap-3">';
-        results.forEach((result, index) => {
+        results.forEach(function(result, index) {
             const iconClass = getFileIcon(result.file_name);
             // 使用 escapeHtml 转义所有动态内容，防止 XSS
             const safeFileName = escapeHtml(result.file_name);
@@ -988,7 +1068,7 @@ async function performSearch() {
         resultsContainer.innerHTML = html;
 
         // 使用事件委托绑定点击事件，避免 XSS 风险
-        resultsContainer.querySelectorAll('.search-result-card').forEach(card => {
+        resultsContainer.querySelectorAll('.search-result-card').forEach(function(card) {
             card.addEventListener('click', function() {
                 const path = this.getAttribute('data-path');
                 if (path) {
@@ -1030,18 +1110,9 @@ async function previewFile(path) {
     const modalTitle = document.getElementById('previewModalTitle');
     const modalContent = document.getElementById('previewModalContent');
 
-    // Show modal first with loading state
-    const modal = new bootstrap.Modal(modalEl);
-
-    // 添加隐藏事件监听器以释放资源
-    modalEl.addEventListener('hidden.bs.modal', function disposeModal() {
-        modal.dispose();
-        modalEl.removeEventListener('hidden.bs.modal', disposeModal);
-    });
-
     modalTitle.innerText = escapeHtml(path.split(/[\\/]/).pop()); // Show filename
     modalContent.innerText = '正在加载文件内容...';
-    modal.show();
+    showModal(modalEl);
 
     try {
         const response = await fetch('/api/preview', {
@@ -1119,22 +1190,25 @@ async function sendMessage() {
 let loadingMessages = {};
 let messageIdCounter = 0;
 
-function generateMessageId(prefix = 'msg') {
-    return `${prefix}-${Date.now()}-${++messageIdCounter}-${Math.random().toString(36).substr(2, 5)}`;
+function generateMessageId(prefix) {
+    if (prefix === undefined) prefix = 'msg';
+    return prefix + '-' + Date.now() + '-' + (++messageIdCounter) + '-' + Math.random().toString(36).substr(2, 5);
 }
 
 // 防抖函数 - 用于优化频繁触发的事件
-function debounce(func, wait, immediate = false) {
+function debounce(func, wait, immediate) {
+    if (immediate === undefined) immediate = false;
     let timeout;
-    const executedFunction = function(...args) {
-        const later = () => {
+    const executedFunction = function() {
+        var args = Array.prototype.slice.call(arguments);
+        const later = function() {
             timeout = null;
-            if (!immediate) func(...args);
+            if (!immediate) func.apply(null, args);
         };
         const callNow = immediate && !timeout;
         clearTimeout(timeout);
         timeout = setTimeout(later, wait);
-        if (callNow) func(...args);
+        if (callNow) func.apply(null, args);
     };
     executedFunction.cancel = function() {
         if (timeout) {
@@ -1148,16 +1222,18 @@ function debounce(func, wait, immediate = false) {
 // 节流函数 - 用于限制函数执行频率
 function throttle(func, limit) {
     let inThrottle;
-    return function executedFunction(...args) {
+    return function executedFunction() {
+        var args = Array.prototype.slice.call(arguments);
         if (!inThrottle) {
-            func(...args);
+            func.apply(null, args);
             inThrottle = true;
-            setTimeout(() => inThrottle = false, limit);
+            setTimeout(function() { inThrottle = false; }, limit);
         }
     };
 }
 
-function addMessage(text, type, isLoading = false) {
+function addMessage(text, type, isLoading) {
+    if (isLoading === undefined) isLoading = false;
     const container = document.getElementById('chatContainer');
     const div = document.createElement('div');
     div.className = 'message-row ' + type;
@@ -1172,9 +1248,13 @@ function addMessage(text, type, isLoading = false) {
     // 处理换行符
     const formattedText = escapeHtml(text).replace(/\n/g, '<br>');
 
+    // 检测是否多行（包含 <br>）
+    const isMultiline = text.includes('\n');
+    const multilineClass = isMultiline ? 'multiline' : '';
+
     div.innerHTML = `
         <div class="message-avatar ${avatarClass}">${avatarIcon}</div>
-        <div class="message-content">
+        <div class="message-content ${multilineClass}">
             <p>${formattedText}</p>
         </div>
     `;
@@ -1243,7 +1323,9 @@ document.addEventListener('DOMContentLoaded', function() {
             if (e.key === 'Enter') {
                 e.preventDefault();
                 // 取消防抖搜索，立即执行
-                debouncedSearch.cancel?.();
+                if (debouncedSearch.cancel) {
+                    debouncedSearch.cancel();
+                }
                 performSearch();
             }
         });
