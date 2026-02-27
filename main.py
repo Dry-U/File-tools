@@ -122,11 +122,19 @@ def run_desktop_app():
 
     # 设置退出标志
     exit_event = threading.Event()
+    window_ref = {'window': None, 'closed': False}
 
     # 信号处理函数
     def signal_handler(signum, frame):
         logger.info(f"收到信号 {signum}，准备退出...")
         exit_event.set()
+        # 直接关闭窗口，避免重复调用
+        if window_ref['window'] and not window_ref['closed']:
+            window_ref['closed'] = True
+            try:
+                window_ref['window'].destroy()
+            except:
+                pass
 
     # 注册信号处理器
     signal.signal(signal.SIGINT, signal_handler)
@@ -171,10 +179,14 @@ def run_desktop_app():
         min_size=(900, 600),
         text_select=True,
     )
+    window_ref['window'] = window
 
     # 注册窗口关闭事件
     def on_closing():
+        if window_ref['closed']:
+            return True
         logger.info("窗口关闭事件触发")
+        window_ref['closed'] = True
         exit_event.set()
         return True
 
@@ -184,8 +196,13 @@ def run_desktop_app():
     def check_exit():
         while not exit_event.is_set():
             exit_event.wait(0.5)
-        logger.info("退出信号已设置，关闭窗口...")
-        window.destroy()
+        if not window_ref['closed']:
+            logger.info("退出信号已设置，关闭窗口...")
+            window_ref['closed'] = True
+            try:
+                window.destroy()
+            except:
+                pass
 
     exit_thread = threading.Thread(target=check_exit, daemon=True)
     exit_thread.start()
@@ -204,6 +221,7 @@ def run_desktop_app():
         webview.start()
 
     # 标记退出事件，确保后台线程退出
+    window_ref['closed'] = True
     exit_event.set()
     logger.info("应用已退出")
 

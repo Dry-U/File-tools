@@ -15,6 +15,7 @@ import asyncio
 from pathlib import Path
 from functools import wraps
 import time
+from pydantic import BaseModel
 
 
 # 请求限流器 - 防止接口被滥用
@@ -959,6 +960,250 @@ async def test_model_connection(
     except Exception as e:
         logger.error(f"测试连接错误: {str(e)}")
         return {"status": "error", "error": str(e)}
+
+
+# ============================================================================
+# DIRECTORY MANAGEMENT API
+# ============================================================================
+
+class DirectoryPath(BaseModel):
+    """目录路径请求模型"""
+    path: str
+
+
+class DirectoryResponse(BaseModel):
+    """目录响应模型"""
+    status: str
+    message: str
+    path: Optional[str] = None
+    needs_rebuild: bool = False
+
+
+class BrowseResponse(BaseModel):
+    """浏览目录响应模型"""
+    status: str
+    path: Optional[str] = None
+    canceled: bool = False
+
+
+class DirectoryInfo(BaseModel):
+    """目录信息模型"""
+    path: str
+    exists: bool
+    is_scanning: bool
+    is_monitoring: bool
+    file_count: int
+
+
+class DirectoriesListResponse(BaseModel):
+    """目录列表响应模型"""
+    directories: list
+
+
+def _estimate_file_count(path: str, max_count: int = 9999) -> int:
+    """估算目录中的文件数量"""
+    try:
+        path_obj = Path(path)
+        if not path_obj.exists() or not path_obj.is_dir():
+            return 0
+
+        count = 0
+        for item in path_obj.rglob('*'):
+            if item.is_file():
+                count += 1
+                if count >= max_count:
+                    return max_count
+        return count
+    except Exception:
+        return 0
+
+
+@api_router.get("/directories")
+async def get_directories(
+    config_loader: ConfigLoader = Depends(get_config_loader),
+    file_monitor = Depends(get_file_monitor)
+) -> DirectoriesListResponse:
+    """获取当前管理的目录列表"""
+    try:
+        # 获取扫描路径
+        scan_paths = config_loader.get('file_scanner', 'scan_paths', [])
+        if isinstance(scan_paths, str):
+            scan_paths = [p.strip() for p in scan_paths.split(';') if p.strip()]
+
+        # 获取监控目录
+        monitored_dirs = file_monitor.get_monitored_directories() if file_monitor else []
+
+        # 合并所有目录（去重）
+        all_paths = set()
+        for path in scan_paths:
+            all_paths.add(os.path.abspath(str(path)))
+        for path in monitored_dirs:
+            all_paths.add(os.path.abspath(str(path)))
+
+        # 构建目录信息列表
+        directories = []
+        for path in sorted(all_paths):
+            exists = os.path.exists(path) and os.path.isdir(path)
+            is_scanning = path in [os.path.abspath(str(p)) for p in scan_paths]
+            is_monitoring = path in [os.path.abspath(str(p)) for p in monitored_dirs]
+            file_count = _estimate_file_count(path) if exists else 0
+
+            directories.append({
+                "path": path,
+                "exists": exists,
+                "is_scanning": is_scanning,
+                "is_monitoring": is_monitoring,
+                "file_count": file_count
+            })
+
+        return {"directories": directories}
+    except Exception as e:
+        logger.error(f"获取目录列表错误: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"获取目录列表失败: {str(e)}")
+
+
+@api_router.post("/directories")
+async def add_directory(
+    request: DirectoryPath,
+    config_loader: ConfigLoader = Depends(get_config_loader),
+    file_monitor = Depends(get_file_monitor),
+    file_scanner = Depends(get_file_scanner)
+) -> DirectoryResponse:
+    """添加新目录（同时添加为扫描路径和监控目录）"""
+    try:
+        path = request.path.strip('"').strip("'")
+        expanded_path = os.path.abspath(os.path.expanduser(path))
+
+        # 验证路径
+        if not os.path.exists(expanded_path):
+            raise HTTPException(status_code=400, detail=f"路径不存在: {expanded_path}")
+        if not os.path.isdir(expanded_path):
+            raise HTTPException(status_code=400, detail=f"路径不是目录: {expanded_path}")
+
+        # 检查是否已存在
+        scan_paths = config_loader.get('file_scanner', 'scan_paths', [])
+        if isinstance(scan_paths, str):
+            scan_paths = [p.strip() for p in scan_paths.split(';') if p.strip()]
+
+        existing_paths = [os.path.abspath(str(p)) for p in scan_paths]
+        if expanded_path in existing_paths:
+            return {
+                "status": "success",
+                "message": "目录已在列表中",
+                "path": expanded_path,
+                "needs_rebuild": False
+            }
+
+        # 添加到扫描路径
+        config_loader.add_scan_path(expanded_path)
+
+        # 更新 file_scanner 的扫描路径
+        if file_scanner:
+            if hasattr(file_scanner, 'scan_paths'):
+                if expanded_path not in file_scanner.scan_paths:
+                    file_scanner.scan_paths.append(expanded_path)
+
+        # 添加到监控目录
+        if file_monitor:
+            file_monitor.add_monitored_directory(expanded_path)
+
+        # 更新配置中的监控目录
+        monitor_dirs = config_loader.get('monitor', 'directories', [])
+        if isinstance(monitor_dirs, str):
+            monitor_dirs = [d.strip() for d in monitor_dirs.split(';') if d.strip()]
+
+        if expanded_path not in [os.path.abspath(str(d)) for d in monitor_dirs]:
+            monitor_dirs.append(expanded_path)
+            config_loader.set('monitor', 'directories', monitor_dirs)
+
+        # 保存配置
+        config_loader.save()
+
+        return {
+            "status": "success",
+            "message": "目录已添加",
+            "path": expanded_path,
+            "needs_rebuild": True
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"添加目录错误: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"添加目录失败: {str(e)}")
+
+
+@api_router.delete("/directories")
+async def remove_directory(
+    request: DirectoryPath,
+    config_loader: ConfigLoader = Depends(get_config_loader),
+    file_monitor = Depends(get_file_monitor)
+) -> DirectoryResponse:
+    """删除目录（同时从扫描路径和监控目录中移除）"""
+    try:
+        path = request.path.strip('"').strip("'")
+        expanded_path = os.path.abspath(os.path.expanduser(path))
+
+        # 从扫描路径中移除
+        config_loader.remove_scan_path(expanded_path)
+
+        # 从监控目录中移除
+        if file_monitor:
+            file_monitor.remove_monitored_directory(expanded_path)
+
+        # 更新配置中的监控目录
+        monitor_dirs = config_loader.get('monitor', 'directories', [])
+        if isinstance(monitor_dirs, str):
+            monitor_dirs = [d.strip() for d in monitor_dirs.split(';') if d.strip()]
+
+        monitor_dirs = [d for d in monitor_dirs if os.path.abspath(str(d)) != expanded_path]
+        config_loader.set('monitor', 'directories', monitor_dirs)
+
+        # 保存配置
+        config_loader.save()
+
+        return {
+            "status": "success",
+            "message": "目录已删除",
+            "path": expanded_path,
+            "needs_rebuild": False
+        }
+    except Exception as e:
+        logger.error(f"删除目录错误: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"删除目录失败: {str(e)}")
+
+
+@api_router.post("/directories/browse")
+async def browse_directory() -> BrowseResponse:
+    """打开系统文件对话框选择目录"""
+    try:
+        import tkinter as tk
+        from tkinter import filedialog
+
+        # 创建隐藏的Tk窗口
+        root = tk.Tk()
+        root.withdraw()
+        root.attributes('-topmost', True)
+
+        # 打开目录选择对话框
+        selected_path = filedialog.askdirectory(parent=root, title="选择要添加的目录")
+
+        # 销毁Tk窗口
+        root.destroy()
+
+        if selected_path:
+            return {
+                "status": "success",
+                "path": os.path.abspath(selected_path),
+                "canceled": False
+            }
+        else:
+            return {
+                "status": "success",
+                "canceled": True
+            }
+    except Exception as e:
+        logger.error(f"打开目录选择对话框错误: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"打开目录选择对话框失败: {str(e)}")
 
 
 # 使用/api前缀包含API路由
