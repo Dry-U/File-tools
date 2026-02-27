@@ -15,6 +15,173 @@ document.addEventListener('DOMContentLoaded', function() {
     });
 });
 
+// ============================================================================
+// UTILITY FUNCTIONS
+// ============================================================================
+
+// 打开外部链接（在浏览器中打开）
+function openExternalLink(url) {
+    // 在桌面应用中，使用 window.open 或 pywebview 的 API
+    if (window.pywebview && window.pywebview.api) {
+        // 如果 pywebview API 可用，使用它打开链接
+        window.pywebview.api.open_external_link(url);
+    } else {
+        // 否则使用普通 window.open
+        window.open(url, '_blank');
+    }
+}
+
+// 显示测试结果弹窗
+function showTestResultModal(title, message, isSuccess) {
+    const modalEl = document.getElementById('testResultModal');
+    const titleEl = document.getElementById('testResultTitle');
+    const bodyEl = document.getElementById('testResultBody');
+
+    if (!modalEl || !titleEl || !bodyEl) return;
+
+    const iconClass = isSuccess ? 'bi-check-circle-fill text-success' : 'bi-x-circle-fill text-danger';
+    titleEl.innerHTML = `<i class="bi ${isSuccess ? 'bi-check-circle' : 'bi-x-circle'} me-2"></i>${title}`;
+    bodyEl.innerHTML = `
+        <div class="mb-3">
+            <i class="bi ${iconClass}" style="font-size: 48px;"></i>
+        </div>
+        <p class="mb-0 small">${message}</p>
+    `;
+
+    showModal(modalEl);
+}
+
+// ============================================================================
+// DIRECTORY MANAGEMENT
+// ============================================================================
+
+// 目录数据
+let directoriesData = { directories: [] };
+
+// 加载目录列表
+async function loadDirectories() {
+    try {
+        const response = await fetch('/api/directories');
+        if (!response.ok) {
+            console.warn('Failed to load directories, HTTP status:', response.status);
+            return;
+        }
+        directoriesData = await response.json();
+        renderDirectories();
+    } catch (error) {
+        console.error('Load directories error:', error);
+    }
+}
+
+// 渲染目录列表
+function renderDirectories() {
+    const container = document.getElementById('directoriesList');
+    if (!container) return;
+
+    if (!directoriesData.directories || directoriesData.directories.length === 0) {
+        container.innerHTML = `
+            <div class="directory-empty">
+                <i class="bi bi-folder2-open mb-2" style="font-size: 24px; display: block;"></i>
+                暂无管理的目录
+            </div>
+        `;
+        return;
+    }
+
+    container.innerHTML = directoriesData.directories.map(function(item) {
+        const existsClass = item.exists ? '' : 'exists-false';
+        const iconClass = item.exists ? 'bi-folder-fill' : 'bi-folder-x';
+        const fileCountText = item.exists ? `约 ${item.file_count} 个文件` : '路径不存在';
+        const pathAttr = escapeHtml(item.path).replace(/"/g, '&quot;');
+        const pathJs = JSON.stringify(item.path).slice(1, -1);
+
+        return `
+            <div class="directory-item ${existsClass}">
+                <i class="bi ${iconClass} directory-icon"></i>
+                <div class="directory-info">
+                    <div class="directory-path" title="${pathAttr}">${escapeHtml(item.path)}</div>
+                    <div class="directory-meta">${escapeHtml(fileCountText)}</div>
+                </div>
+                <button class="directory-delete" onclick="removeDirectory('${pathJs}')" title="删除目录">
+                    <i class="bi bi-trash"></i>
+                </button>
+            </div>
+        `;
+    }).join('');
+}
+
+// 浏览并添加目录
+async function browseAndAddDirectory() {
+    try {
+        // 打开系统对话框
+        const result = await fetch('/api/directories/browse', { method: 'POST' });
+        const data = await result.json();
+
+        if (data.canceled) return;
+        if (!data.path) {
+            showToast('未选择目录', 'warning');
+            return;
+        }
+
+        // 添加目录
+        const response = await fetch('/api/directories', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ path: data.path })
+        });
+
+        const resultData = await response.json();
+
+        if (response.ok && resultData.status === 'success') {
+            showToast('目录已添加', 'success');
+
+            // 询问是否立即重建索引
+            if (resultData.needs_rebuild) {
+                if (confirm('目录已添加，是否立即重建索引？\n这将扫描新添加目录中的文件。')) {
+                    showRebuildModal();
+                }
+            }
+
+            // 刷新列表
+            await loadDirectories();
+        } else {
+            throw new Error(resultData.detail || '添加失败');
+        }
+    } catch (error) {
+        console.error('Browse and add directory error:', error);
+        showToast('添加目录失败: ' + error.message, 'error');
+    }
+}
+
+// 删除目录
+async function removeDirectory(path) {
+    if (!path) return;
+
+    if (!confirm('确定要删除这个目录吗？\n该目录将不再被扫描和监控。')) {
+        return;
+    }
+
+    try {
+        const response = await fetch('/api/directories', {
+            method: 'DELETE',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ path: path })
+        });
+
+        const result = await response.json();
+
+        if (response.ok && result.status === 'success') {
+            showToast('目录已删除', 'success');
+            await loadDirectories();
+        } else {
+            throw new Error(result.detail || '删除失败');
+        }
+    } catch (error) {
+        console.error('Remove directory error:', error);
+        showToast('删除目录失败: ' + error.message, 'error');
+    }
+}
+
 // API提供商变更时自动填充默认URL
 function onProviderChange() {
     const provider = document.getElementById('apiProviderSelect').value;
@@ -54,16 +221,61 @@ async function testAPIConnection() {
         const result = await response.json();
 
         if (result.status === 'ok') {
-            alert(`连接成功！\n模式: ${result.mode}\n模型: ${result.model}`);
+            showTestResultModal('连接成功', `模式: ${result.mode}<br>模型: ${result.model}`, true);
         } else {
-            alert(`连接失败: ${result.error || '未知错误'}`);
+            showTestResultModal('连接失败', result.error || '未知错误', false);
         }
     } catch (error) {
-        alert(`测试出错: ${error.message}`);
+        showTestResultModal('测试出错', error.message, false);
     } finally {
         btn.innerHTML = originalText;
         btn.disabled = false;
     }
+}
+
+// 初始化设置面板 Tab 切换（WebView2 兼容性）
+function initSettingsTabs() {
+    console.log('Initializing settings tabs...');
+    const tabButtons = document.querySelectorAll('#v-pills-tab .nav-link');
+    const tabPanes = document.querySelectorAll('#v-pills-tabContent .tab-pane');
+
+    tabButtons.forEach(function(button) {
+        // 移除旧的事件监听器（如果有）
+        const newButton = button.cloneNode(true);
+        button.parentNode.replaceChild(newButton, button);
+
+        newButton.addEventListener('click', function(e) {
+            e.preventDefault();
+            e.stopPropagation();
+
+            const targetId = this.getAttribute('data-bs-target');
+            if (!targetId) return;
+
+            console.log('Tab clicked:', targetId);
+
+            // 移除所有 active 类
+            tabButtons.forEach(function(btn) {
+                btn.classList.remove('active');
+            });
+            tabPanes.forEach(function(pane) {
+                pane.classList.remove('show', 'active');
+            });
+
+            // 添加 active 类到当前按钮
+            this.classList.add('active');
+
+            // 显示对应的 pane
+            const targetPane = document.querySelector(targetId);
+            if (targetPane) {
+                targetPane.classList.add('show', 'active');
+                console.log('Activated pane:', targetId);
+            } else {
+                console.error('Target pane not found:', targetId);
+            }
+        });
+    });
+
+    console.log('Settings tabs initialized, found', tabButtons.length, 'tabs');
 }
 
 // 打开设置模态框
@@ -76,10 +288,16 @@ function openSettingsModal() {
         loadSettings().then(function() {
             initialSettings = getCurrentSettings();
             console.log('Settings loaded, showing modal...');
+            // 同时加载目录列表
+            loadDirectories();
+            // 初始化 Tab 切换（WebView2 兼容）
+            initSettingsTabs();
             showModal(modalEl);
         }).catch(function(err) {
             console.error('Failed to load settings:', err);
             // 即使加载失败也显示模态框
+            loadDirectories();
+            initSettingsTabs();
             showModal(modalEl);
         });
     } else {
@@ -357,7 +575,12 @@ function getCurrentSettings() {
 }
 
 async function saveSettings() {
+    console.log('saveSettings called');
     const currentSettings = getCurrentSettings();
+    console.log('Current settings:', currentSettings);
+    console.log('Initial settings:', initialSettings);
+    console.log('Comparison:', JSON.stringify(initialSettings) === JSON.stringify(currentSettings));
+
     if (JSON.stringify(initialSettings) === JSON.stringify(currentSettings)) {
         // Show reminder
         const noChangeModalEl = document.getElementById('noChangesModal');
@@ -420,7 +643,7 @@ async function saveSettings() {
     }
 }
 
-// Toast notification helper
+// Toast notification helper - WebView2 compatible
 function showToast(message, type) {
     if (type === undefined) type = 'success';
     const iconMap = {
@@ -430,54 +653,88 @@ function showToast(message, type) {
         'info': 'bi-info-circle-fill'
     };
 
-    const bgMap = {
-        'success': 'bg-success',
-        'error': 'bg-danger',
-        'warning': 'bg-warning text-dark',
-        'info': 'bg-info text-dark'
+    const colorMap = {
+        'success': '#198754',
+        'error': '#dc3545',
+        'warning': '#ffc107',
+        'info': '#0dcaf0'
     };
-    // Create toast element
-    const toastEl = document.createElement('div');
-    const bgClass = bgMap[type] || 'bg-success';
-    const iconClass = iconMap[type] || 'bi-check-circle-fill';
-    const isDark = type === 'success' || type === 'error';
-    const btnCloseClass = isDark ? 'btn-close-white' : '';
 
-    toastEl.className = `toast align-items-center text-white ${bgClass} border-0`;
-    toastEl.setAttribute('role', 'alert');
-    toastEl.setAttribute('aria-live', 'assertive');
-    toastEl.setAttribute('aria-atomic', 'true');
-    toastEl.innerHTML = `
-        <div class="d-flex">
-            <div class="toast-body d-flex align-items-center">
-                <i class="bi ${iconClass} me-2"></i>
-                ${message}
-            </div>
-            <button type="button" class="btn-close ${btnCloseClass} me-2 m-auto" data-bs-dismiss="toast" aria-label="Close"></button>
-        </div>
-    `;
-
-    // Add to container
+    // Create toast container if not exists
     let toastContainer = document.getElementById('toastContainer');
     if (!toastContainer) {
         toastContainer = document.createElement('div');
         toastContainer.id = 'toastContainer';
-        toastContainer.className = 'toast-container position-fixed top-0 end-0 p-3';
-        toastContainer.style.zIndex = '9999';
+        toastContainer.style.cssText = `
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            z-index: 9999;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        `;
         document.body.appendChild(toastContainer);
     }
 
+    // Create toast element
+    const toastEl = document.createElement('div');
+    const iconClass = iconMap[type] || 'bi-check-circle-fill';
+    const borderColor = colorMap[type] || '#198754';
+
+    toastEl.style.cssText = `
+        background-color: var(--llama-input-bg);
+        border: 1px solid var(--llama-border);
+        border-left: 4px solid ${borderColor};
+        border-radius: 8px;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+        min-width: 280px;
+        padding: 12px 16px;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        color: var(--llama-text-main);
+        font-size: 14px;
+        animation: slideIn 0.3s ease;
+    `;
+
+    toastEl.innerHTML = `
+        <i class="bi ${iconClass}" style="color: ${borderColor}; font-size: 18px;"></i>
+        <span style="flex: 1;">${message}</span>
+        <button type="button" style="
+            background: transparent;
+            border: none;
+            color: var(--llama-text-sub);
+            cursor: pointer;
+            padding: 4px;
+            font-size: 16px;
+        " onclick="this.parentElement.remove()">&times;</button>
+    `;
+
     toastContainer.appendChild(toastEl);
 
-    // Initialize and show toast
-    const toast = new bootstrap.Toast(toastEl, { delay: 3000 });
-    toast.show();
-
-    // Remove from DOM after hidden
-    toastEl.addEventListener('hidden.bs.toast', function() {
-        toastEl.remove();
-    });
+    // Auto remove after 3 seconds
+    setTimeout(() => {
+        if (toastEl.parentElement) {
+            toastEl.style.animation = 'slideOut 0.3s ease';
+            setTimeout(() => toastEl.remove(), 300);
+        }
+    }, 3000);
 }
+
+// Add CSS animations for toast
+const toastStyle = document.createElement('style');
+toastStyle.textContent = `
+    @keyframes slideIn {
+        from { transform: translateX(100%); opacity: 0; }
+        to { transform: translateX(0); opacity: 1; }
+    }
+    @keyframes slideOut {
+        from { transform: translateX(0); opacity: 1; }
+        to { transform: translateX(100%); opacity: 0; }
+    }
+`;
+document.head.appendChild(toastStyle);
 
 // 状态管理
 let currentMode = 'search'; // 'search' or 'chat'

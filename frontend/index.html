@@ -209,9 +209,9 @@
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 
 <!-- 设置模态框 (Settings Modal) -->
-<div class="modal fade" id="settingsModal" tabindex="-1" aria-hidden="true">
-    <div class="modal-dialog modal-lg modal-dialog-centered">
-        <div class="modal-content" style="background-color: var(--llama-bg); border: 1px solid var(--llama-border); color: var(--llama-text-main);">
+<div class="modal fade" id="settingsModal" tabindex="-1" aria-hidden="true" data-bs-backdrop="false">
+    <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
+        <div class="modal-content" style="background-color: var(--llama-bg); border: 1px solid var(--llama-border); color: var(--llama-text-main); max-height: 80vh;">
             <div class="modal-header border-secondary">
                 <h5 class="modal-title">设置</h5>
                 <button type="button" class="btn btn-llama p-1" data-bs-dismiss="modal" aria-label="Close">
@@ -227,16 +227,17 @@
                         <button class="nav-link active text-start mb-2" id="v-pills-sampling-tab" data-bs-toggle="pill" data-bs-target="#v-pills-sampling" type="button" role="tab">采样参数</button>
                         <button class="nav-link text-start mb-2" id="v-pills-penalty-tab" data-bs-toggle="pill" data-bs-target="#v-pills-penalty" type="button" role="tab">惩罚参数</button>
                         <button class="nav-link text-start mb-2" id="v-pills-mode-tab" data-bs-toggle="pill" data-bs-target="#v-pills-mode" type="button" role="tab">接入模式</button>
+                        <button class="nav-link text-start mb-2" id="v-pills-directories-tab" data-bs-toggle="pill" data-bs-target="#v-pills-directories" type="button" role="tab">目录管理</button>
                         <button class="nav-link text-start" id="v-pills-about-tab" data-bs-toggle="pill" data-bs-target="#v-pills-about" type="button" role="tab">关于</button>
                     </div>
                     
                     <!-- 内容区域 -->
-                    <div class="tab-content flex-grow-1 border-start border-secondary" id="v-pills-tabContent">
+                    <div class="tab-content flex-grow-1 border-start border-secondary" id="v-pills-tabContent" style="overflow-y: auto; max-height: 50vh; padding-right: 10px;">
                         
                         <!-- 1. 采样参数 -->
                         <div class="tab-pane fade show active ps-4" id="v-pills-sampling" role="tabpanel">
                             <h6 class="mb-3 text-light">采样设置 (Sampling)</h6>
-                            
+
                             <div class="mb-3">
                                 <label for="tempRange" class="form-label small text-muted d-flex justify-content-between">
                                     <span>Temperature (温度)</span>
@@ -313,37 +314,42 @@
                         <div class="tab-pane fade ps-4" id="v-pills-mode" role="tabpanel">
                             <h6 class="mb-3 text-light">AI 接入模式</h6>
 
-                            <div class="list-group mb-3">
-                                <label class="list-group-item d-flex gap-3 bg-transparent border-secondary text-light">
-                                    <input class="form-check-input flex-shrink-0" type="radio" name="aiMode" id="modeLocal" checked>
-                                    <span>
-                                        <strong class="d-block">本地模式</strong>
-                                        <small class="text-muted">使用本地运行的模型 (llama.cpp/Ollama)</small>
-                                    </span>
+                            <!-- 模式选择卡片 -->
+                            <div class="mode-cards mb-3">
+                                <label class="mode-card" data-mode="local">
+                                    <input type="radio" name="aiMode" id="modeLocal" value="local" checked hidden>
+                                    <div class="mode-card-content">
+                                        <div class="mode-radio"></div>
+                                        <div class="mode-info">
+                                            <strong>本地模式</strong>
+                                            <small>使用本地运行的模型 (llama.cpp/Ollama)</small>
+                                        </div>
+                                    </div>
                                 </label>
-                                <label class="list-group-item d-flex gap-3 bg-transparent border-secondary text-light">
-                                    <input class="form-check-input flex-shrink-0" type="radio" name="aiMode" id="modeAPI">
-                                    <span>
-                                        <strong class="d-block">API 模式</strong>
-                                        <small class="text-muted">连接到云端 API (硅基流动/DeepSeek等)</small>
-                                    </span>
+                                <label class="mode-card" data-mode="api">
+                                    <input type="radio" name="aiMode" id="modeAPI" value="api" hidden>
+                                    <div class="mode-card-content">
+                                        <div class="mode-radio"></div>
+                                        <div class="mode-info">
+                                            <strong>API 模式</strong>
+                                            <small>连接到云端 API (硅基流动/DeepSeek等)</small>
+                                        </div>
+                                    </div>
                                 </label>
                             </div>
 
                             <!-- 本地模式配置 -->
-                            <div id="localSettings" class="mt-3 p-3 border border-secondary rounded bg-dark">
-                                <div class="mb-2">
-                                    <label class="form-label small text-muted">本地 API URL</label>
-                                    <input type="text" class="form-control form-control-sm bg-dark text-light border-secondary" id="localUrlInput" placeholder="http://localhost:8000/v1/chat/completions" value="http://localhost:8000/v1/chat/completions">
-                                    <div class="form-text text-muted small">本地模型服务端点</div>
-                                </div>
+                            <div id="localSettings" class="config-card">
+                                <label class="form-label small text-muted">本地 API URL</label>
+                                <input type="text" class="form-control form-control-sm" id="localUrlInput" placeholder="http://localhost:8000/v1/chat/completions" value="http://localhost:8000/v1/chat/completions">
+                                <div class="form-text small">本地模型服务端点</div>
                             </div>
 
                             <!-- API模式配置 -->
-                            <div id="apiSettings" class="mt-3 p-3 border border-secondary rounded bg-dark" style="display: none;">
+                            <div id="apiSettings" class="config-card" style="display: none;">
                                 <div class="mb-2">
                                     <label class="form-label small text-muted">API 提供商</label>
-                                    <select class="form-select form-select-sm bg-dark text-light border-secondary" id="apiProviderSelect" onchange="onProviderChange()">
+                                    <select class="form-select form-select-sm" id="apiProviderSelect" onchange="onProviderChange()">
                                         <option value="siliconflow">硅基流动 (SiliconFlow)</option>
                                         <option value="deepseek">DeepSeek 官方</option>
                                         <option value="custom">自定义</option>
@@ -351,16 +357,16 @@
                                 </div>
                                 <div class="mb-2">
                                     <label class="form-label small text-muted">API URL</label>
-                                    <input type="text" class="form-control form-control-sm bg-dark text-light border-secondary" id="apiUrlInput" placeholder="https://api.siliconflow.cn/v1/chat/completions">
+                                    <input type="text" class="form-control form-control-sm" id="apiUrlInput" placeholder="https://api.siliconflow.cn/v1/chat/completions">
                                 </div>
                                 <div class="mb-2">
                                     <label class="form-label small text-muted">API Key</label>
-                                    <input type="password" class="form-control form-control-sm bg-dark text-light border-secondary" id="apiKeyInput" placeholder="sk-...">
-                                    <div class="form-text text-muted small">密钥仅存储在本地，不会上传</div>
+                                    <input type="password" class="form-control form-control-sm" id="apiKeyInput" placeholder="sk-...">
+                                    <div class="form-text small">密钥仅存储在本地，不会上传</div>
                                 </div>
                                 <div class="mb-2">
                                     <label class="form-label small text-muted">模型名称</label>
-                                    <input type="text" class="form-control form-control-sm bg-dark text-light border-secondary" id="modelNameInput" placeholder="deepseek-ai/DeepSeek-V2.5">
+                                    <input type="text" class="form-control form-control-sm" id="modelNameInput" placeholder="deepseek-ai/DeepSeek-V2.5">
                                 </div>
                                 <div class="mt-3 pt-2 border-top border-secondary">
                                     <button type="button" class="btn btn-sm btn-outline-secondary w-100" onclick="testAPIConnection()">
@@ -370,27 +376,50 @@
                             </div>
 
                             <!-- 安全配置 -->
-                            <div class="mt-3 p-3 border border-secondary rounded bg-dark">
+                            <div class="security-card">
                                 <h6 class="small text-light mb-2">安全与隐私</h6>
                                 <div class="form-check form-switch mb-2">
                                     <input class="form-check-input" type="checkbox" id="verifySslCheck" checked>
                                     <label class="form-check-label small text-light" for="verifySslCheck">验证 SSL 证书</label>
                                 </div>
-                                <div class="form-text text-muted small">
+                                <div class="form-text small">
                                     <i class="bi bi-shield-check me-1"></i>隐私保护始终启用：自动检测并脱敏手机号、身份证、邮箱
                                 </div>
                             </div>
                         </div>
 
-                        <!-- 4. 关于 -->
+                        <!-- 4. 目录管理 -->
+                        <div class="tab-pane fade ps-4" id="v-pills-directories" role="tabpanel">
+                            <h6 class="mb-3 text-light">管理目录</h6>
+                            <p class="small text-muted mb-3">这些目录将被扫描建立索引并实时监控文件变化</p>
+
+                            <!-- 目录列表 -->
+                            <div class="directory-list mb-3" id="directoriesList">
+                                <div class="directory-empty">
+                                    <i class="bi bi-folder2-open mb-2" style="font-size: 24px; display: block;"></i>
+                                    暂无管理的目录
+                                </div>
+                            </div>
+
+                            <!-- 添加目录按钮 -->
+                            <button type="button" class="btn btn-sm btn-outline-secondary w-100" onclick="browseAndAddDirectory()">
+                                <i class="bi bi-plus-lg me-1"></i>添加目录
+                            </button>
+                        </div>
+
+                        <!-- 5. 关于 -->
                         <div class="tab-pane fade ps-4" id="v-pills-about" role="tabpanel">
                             <div class="text-center py-4">
                                 <h4 class="fw-bold mb-3">File Tools</h4>
                                 <p class="text-muted mb-4">智能文件检索与问答系统 v1.0.0</p>
                                 
                                 <div class="d-grid gap-2 col-8 mx-auto">
-                                    <a href="#" class="btn btn-outline-secondary btn-sm"><i class="bi bi-github me-2"></i>GitHub Repository</a>
-                                    <a href="#" class="btn btn-outline-secondary btn-sm"><i class="bi bi-bug me-2"></i>Report Issue</a>
+                                    <button type="button" class="btn btn-outline-secondary btn-sm" onclick="openExternalLink('https://github.com/yourusername/file-tools')">
+                                        <i class="bi bi-github me-2"></i>GitHub Repository
+                                    </button>
+                                    <button type="button" class="btn btn-outline-secondary btn-sm" onclick="openExternalLink('https://github.com/yourusername/file-tools/issues')">
+                                        <i class="bi bi-bug me-2"></i>Report Issue
+                                    </button>
                                 </div>
 
                                 <div class="mt-4 pt-3 border-top border-secondary">
@@ -408,7 +437,9 @@
                     <i class="bi bi-arrow-counterclockwise me-1"></i>恢复默认
                 </button>
                 <div>
-                    <button type="button" class="btn btn-primary" onclick="saveSettings()">保存更改</button>
+                    <button type="button" class="btn btn-primary" onclick="saveSettings()">
+                        <i class="bi bi-check-lg me-1"></i>保存更改
+                    </button>
                 </div>
             </div>
         </div>
@@ -416,7 +447,7 @@
 </div>
 
 <!-- 确认重建索引模态框 (Rebuild Index Confirmation Modal) -->
-<div class="modal fade" id="rebuildIndexModal" tabindex="-1" aria-hidden="true" data-bs-backdrop="static" data-bs-keyboard="false">
+<div class="modal fade" id="rebuildIndexModal" tabindex="-1" aria-hidden="true" data-bs-backdrop="false" data-bs-keyboard="false">
     <div class="modal-dialog modal-dialog-centered modal-sm">
         <div class="modal-content" style="background-color: var(--llama-bg); border: 1px solid var(--llama-border); color: var(--llama-text-main);">
             <div class="modal-header border-secondary py-2">
@@ -443,7 +474,7 @@
 </div>
 
 <!-- 文件预览模态框 (File Preview Modal) -->
-<div class="modal fade" id="previewModal" tabindex="-1" aria-hidden="true">
+<div class="modal fade" id="previewModal" tabindex="-1" aria-hidden="true" data-bs-backdrop="false">
     <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
         <div class="modal-content" style="background-color: var(--llama-bg); border: 1px solid var(--llama-border); color: var(--llama-text-main); height: 80vh;">
             <div class="modal-header border-secondary py-2">
@@ -465,7 +496,7 @@
 </div>
 
 <!-- 确认重置模态框 (Reset Confirmation Modal) -->
-<div class="modal fade" id="resetConfirmModal" tabindex="-1" aria-hidden="true">
+<div class="modal fade" id="resetConfirmModal" tabindex="-1" aria-hidden="true" data-bs-backdrop="false">
     <div class="modal-dialog modal-dialog-centered modal-sm">
         <div class="modal-content" style="background-color: var(--llama-bg); border: 1px solid var(--llama-border); color: var(--llama-text-main);">
             <div class="modal-header border-secondary py-2">
@@ -488,7 +519,7 @@
 </div>
 
 <!-- 未检测到更改提示模态框 (No Changes Modal) -->
-<div class="modal fade" id="noChangesModal" tabindex="-1" aria-hidden="true">
+<div class="modal fade" id="noChangesModal" tabindex="-1" aria-hidden="true" data-bs-backdrop="false">
     <div class="modal-dialog modal-dialog-centered modal-sm">
         <div class="modal-content" style="background-color: var(--llama-bg); border: 1px solid var(--llama-border); color: var(--llama-text-main);">
             <div class="modal-header border-secondary py-2">
@@ -510,7 +541,7 @@
 </div>
 
 <!-- 删除会话确认模态框 (Delete Session Confirmation Modal) -->
-<div class="modal fade" id="deleteSessionModal" tabindex="-1" aria-hidden="true">
+<div class="modal fade" id="deleteSessionModal" tabindex="-1" aria-hidden="true" data-bs-backdrop="false">
     <div class="modal-dialog modal-dialog-centered modal-sm">
         <div class="modal-content" style="background-color: var(--llama-bg); border: 1px solid var(--llama-border); color: var(--llama-text-main);">
             <div class="modal-header border-secondary py-2">
@@ -527,6 +558,28 @@
             <div class="modal-footer border-secondary justify-content-center p-2">
                 <button type="button" class="btn btn-sm btn-outline-secondary border-0" data-bs-dismiss="modal">取消</button>
                 <button type="button" class="btn btn-sm btn-danger px-3" id="confirmDeleteBtn">删除</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 测试结果弹窗 (Test Connection Result Modal) -->
+<div class="modal fade" id="testResultModal" tabindex="-1" aria-hidden="true" data-bs-backdrop="false">
+    <div class="modal-dialog modal-dialog-centered modal-sm">
+        <div class="modal-content" style="background-color: var(--llama-bg); border: 1px solid var(--llama-border); color: var(--llama-text-main);">
+            <div class="modal-header border-secondary py-2">
+                <h6 class="modal-title" id="testResultTitle"><i class="bi bi-lightning me-2"></i>测试结果</h6>
+                <button type="button" class="btn btn-llama p-1" data-bs-dismiss="modal" aria-label="Close">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" style="width: 20px; height: 20px;">
+                      <path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" />
+                    </svg>
+                </button>
+            </div>
+            <div class="modal-body text-center py-4" id="testResultBody">
+                <!-- 动态内容 -->
+            </div>
+            <div class="modal-footer border-secondary justify-content-center p-2">
+                <button type="button" class="btn btn-sm btn-primary px-3" data-bs-dismiss="modal">确定</button>
             </div>
         </div>
     </div>

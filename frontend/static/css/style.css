@@ -966,20 +966,778 @@ input[type="date"]::-webkit-calendar-picker-indicator {
 /* Settings Modal - Wider */
 #settingsModal .modal-dialog {
     max-width: 800px;
+    display: flex !important;
+    align-items: center !important;
+}
+
+/* Settings Modal Content - Ensure proper sizing */
+#settingsModal .modal-content {
+    width: 100% !important;
+    position: relative !important;
+}
+
+/* Settings Modal Header - Fixed layout */
+#settingsModal .modal-header {
+    display: flex !important;
+    flex-direction: row !important;
+    justify-content: space-between !important;
+    align-items: center !important;
+    padding: 16px 20px !important;
+    border-bottom: 1px solid var(--llama-border) !important;
+}
+
+#settingsModal .modal-header .modal-title {
+    margin: 0 !important;
+    font-size: 18px !important;
+    font-weight: 600 !important;
+}
+
+#settingsModal .modal-header button[data-bs-dismiss="modal"] {
+    padding: 4px !important;
+    margin: 0 !important;
+    background: transparent !important;
+    border: none !important;
+    cursor: pointer !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+}
+
+/* Settings Modal Input Styles - Override Bootstrap defaults */
+#settingsModal .form-control {
+    background-color: var(--llama-input-bg) !important;
+    color: var(--llama-text-main) !important;
+    border-color: var(--llama-border) !important;
+}
+
+#settingsModal .form-control:focus {
+    background-color: var(--llama-input-bg) !important;
+    color: var(--llama-text-main) !important;
+    border-color: var(--llama-accent) !important;
+    box-shadow: none !important;
+}
+
+#settingsModal .form-select {
+    background-color: var(--llama-input-bg) !important;
+    color: var(--llama-text-main) !important;
+    border-color: var(--llama-border) !important;
+}
+
+#settingsModal .list-group-item {
+    background-color: var(--llama-input-bg) !important;
+    border-color: var(--llama-border) !important;
+    color: var(--llama-text-main) !important;
+}
+
+/* Settings Modal Footer - Fixed layout */
+#settingsModal .modal-footer {
+    display: flex !important;
+    flex-direction: row !important;
+    justify-content: space-between !important;
+    align-items: center !important;
+    background-color: transparent !important;
+    border-top: 1px solid var(--llama-border) !important;
+    padding: 16px 20px !important;
+    gap: 16px !important;
+}
+
+/* 恢复默认按钮 - 左侧透明背景无边框 */
+#settingsModal .modal-footer .btn-outline-secondary {
+    background-color: transparent !important;
+    color: var(--llama-text-sub) !important;
+    border: none !important;
+    padding: 8px 0 !important;
+    margin: 0 !important;
+    margin-right: auto !important;
+    display: flex !important;
+    align-items: center !important;
+    gap: 6px !important;
+    font-size: 14px !important;
+    cursor: pointer !important;
+    transition: color 0.2s ease !important;
+}
+
+#settingsModal .modal-footer .btn-outline-secondary:hover {
+    color: var(--llama-text-main) !important;
+}
+
+/* 保存更改按钮 - 右侧灰色背景 */
+#settingsModal .modal-footer .btn-primary {
+    background-color: var(--llama-accent) !important;
+    color: #ffffff !important;
+    border: none !important;
+    border-radius: 8px !important;
+    padding: 8px 20px !important;
+    margin: 0 !important;
+    margin-left: auto !important;
+    display: flex !important;
+    align-items: center !important;
+    gap: 6px !important;
+    font-size: 14px !important;
+    cursor: pointer !important;
+    transition: background-color 0.2s ease !important;
+}
+
+#settingsModal .modal-footer .btn-primary:hover {
+    background-color: #5c636a !important;
+}
+
+#settingsModal .modal-footer .btn-primary:active {
+    background-color: #565e64 !important;
+}
+
+/* Settings Modal Input Styles - Clean for WebView2 */
+#settingsModal .form-control,
+#settingsModal input[type="number"],
+#settingsModal input[type="text"] {
+    background-color: var(--llama-input-bg) !important;
+    color: var(--llama-text-main) !important;
+    border: 1px solid var(--llama-border) !important;
+    border-radius: 8px !important;
+    padding: 10px 14px !important;
+}
+
+/* Range slider - Clean for WebView2 */
+#settingsModal .form-range,
+#settingsModal input[type="range"] {
+    width: 100% !important;
+    height: 6px !important;
+    background: var(--llama-border) !important;
+    border-radius: 3px !important;
+    border: none !important;
+    -webkit-appearance: none !important;
+    appearance: none !important;
+    outline: none !important;
+}
+
+/* WebKit browsers slider track */
+#settingsModal .form-range::-webkit-slider-runnable-track,
+#settingsModal input[type="range"]::-webkit-slider-runnable-track {
+    width: 100% !important;
+    height: 6px !important;
+    background: var(--llama-border) !important;
+    border-radius: 3px !important;
+    border: none !important;
+}
+
+/* WebKit browsers slider thumb */
+#settingsModal .form-range::-webkit-slider-thumb,
+#settingsModal input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none !important;
+    appearance: none !important;
+    width: 16px !important;
+    height: 16px !important;
+    background: var(--llama-text-main) !important;
+    border-radius: 50% !important;
+    cursor: pointer !important;
+    margin-top: -5px !important;
+    border: none !important;
+    box-shadow: none !important;
+}
+
+/* Firefox slider track */
+#settingsModal .form-range::-moz-range-track,
+#settingsModal input[type="range"]::-moz-range-track {
+    width: 100% !important;
+    height: 6px !important;
+    background: var(--llama-border) !important;
+    border-radius: 3px !important;
+    border: none !important;
+}
+
+/* Firefox slider thumb */
+#settingsModal .form-range::-moz-range-thumb,
+#settingsModal input[type="range"]::-moz-range-thumb {
+    width: 16px !important;
+    height: 16px !important;
+    background: var(--llama-text-main) !important;
+    border-radius: 50% !important;
+    cursor: pointer !important;
+    border: none !important;
+    box-shadow: none !important;
+}
+
+/* Settings Modal Layout - Clean for WebView2 */
+#settingsModal .modal-body {
+    padding: 16px !important;
+}
+
+#settingsModal .modal-body > .d-flex {
+    display: flex !important;
+    flex-direction: row !important;
+    align-items: flex-start !important;
+}
+
+#settingsModal .nav-pills {
+    width: 130px !important;
+    min-width: 130px !important;
+    margin-right: 20px !important;
+}
+
+#settingsModal .tab-content {
+    flex: 1 !important;
+    padding-left: 20px !important;
+    border-left: 1px solid var(--llama-border) !important;
+}
+
+#settingsModal .tab-content h6 {
+    color: var(--llama-text-main) !important;
+    margin-bottom: 20px !important;
+    font-weight: 600 !important;
+}
+
+#settingsModal .form-label {
+    color: var(--llama-text-sub) !important;
+    margin-bottom: 8px !important;
+    display: flex !important;
+    display: -webkit-flex !important;
+    flex-direction: row !important;
+    -webkit-flex-direction: row !important;
+    justify-content: space-between !important;
+    -webkit-justify-content: space-between !important;
+    align-items: center !important;
+    -webkit-align-items: center !important;
+    width: 100% !important;
+    box-sizing: border-box !important;
+}
+
+#settingsModal .form-label span {
+    display: inline-block !important;
+    flex-shrink: 0 !important;
+    -webkit-flex-shrink: 0 !important;
+}
+
+#settingsModal .form-label span:first-child {
+    flex-grow: 1 !important;
+    -webkit-flex-grow: 1 !important;
+}
+
+#settingsModal .form-label span:last-child {
+    margin-left: auto !important;
+    text-align: right !important;
+    min-width: 40px !important;
+}
+
+#settingsModal .form-text {
+    color: var(--llama-text-sub) !important;
+    font-size: 13px !important;
+}
+
+/* Fix spacing between form elements */
+#settingsModal .mb-3 {
+    margin-bottom: 24px !important;
+}
+
+#settingsModal .form-range,
+#settingsModal input[type="range"] {
+    margin-top: 8px !important;
+    margin-bottom: 8px !important;
+    display: block !important;
+    width: 100% !important;
+}
+
+#settingsModal .form-control {
+    margin-top: 8px !important;
+    display: block !important;
+}
+
+/* List group styles for WebView2 */
+#settingsModal .list-group {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+#settingsModal .list-group-item {
+    background-color: var(--llama-input-bg) !important;
+    border: 1px solid var(--llama-border) !important;
+    border-radius: 8px !important;
+    padding: 12px 16px !important;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    cursor: pointer;
+}
+
+#settingsModal .list-group-item span {
+    color: var(--llama-text-main) !important;
+}
+
+#settingsModal .list-group-item strong {
+    color: var(--llama-text-main) !important;
+    font-weight: 600;
+}
+
+#settingsModal .list-group-item small {
+    color: var(--llama-text-sub) !important;
+}
+
+/* Radio and checkbox styles */
+#settingsModal .form-check-input {
+    width: 16px;
+    height: 16px;
+    margin: 0;
+    flex-shrink: 0;
+}
+
+#settingsModal .form-check-input[type="radio"] {
+    border-radius: 50%;
+}
+
+#settingsModal .form-check-label {
+    color: var(--llama-text-main) !important;
+    margin: 0;
+}
+
+/* Switch toggle styles */
+#settingsModal .form-switch {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+#settingsModal .form-switch .form-check-input {
+    width: 40px;
+    height: 22px;
+    border-radius: 11px;
+    background-color: var(--llama-border);
+    border: none;
+    position: relative;
+}
+
+#settingsModal .form-switch .form-check-input:checked {
+    background-color: var(--llama-accent);
+}
+
+/* Rounded boxes for settings sections */
+#settingsModal .rounded {
+    border-radius: 8px !important;
+}
+
+#settingsModal .border {
+    border: 1px solid var(--llama-border) !important;
+}
+
+#settingsModal .bg-dark {
+    background-color: var(--llama-input-bg) !important;
+}
+
+/* Settings Modal Tab Navigation - Clean for WebView2 */
+#v-pills-tab {
+    display: flex !important;
+    flex-direction: column !important;
+    gap: 8px !important;
+}
+
+/* Override Bootstrap nav-pills default for WebView2 */
+#v-pills-tab.nav-pills .nav-link {
+    display: block !important;
+    width: 100% !important;
+    text-align: center !important;
+    padding: 10px 8px !important;
+    background-color: transparent !important;
+    background: transparent !important;
+    color: var(--llama-text-sub) !important;
+    border: none !important;
+    border-radius: 8px !important;
+    font-size: 14px !important;
+    cursor: pointer !important;
+    box-shadow: none !important;
+    transition: all 0.2s ease !important;
+}
+
+/* Hover state - subtle background change */
+#v-pills-tab.nav-pills .nav-link:hover {
+    background-color: rgba(255, 255, 255, 0.05) !important;
+    background: rgba(255, 255, 255, 0.05) !important;
+    color: var(--llama-text-main) !important;
+}
+
+/* Active state - darker background like input fields */
+#v-pills-tab.nav-pills .nav-link.active {
+    background-color: var(--llama-input-bg) !important;
+    background: var(--llama-input-bg) !important;
+    color: var(--llama-text-main) !important;
+    box-shadow: none !important;
+}
+
+/* Active tab hover - keep the same color */
+#v-pills-tab.nav-pills .nav-link.active:hover {
+    background-color: var(--llama-input-bg) !important;
+    background: var(--llama-input-bg) !important;
+    color: var(--llama-text-main) !important;
+}
+
+/* Focus state */
+#v-pills-tab.nav-pills .nav-link:focus {
+    background-color: transparent !important;
+    background: transparent !important;
+    box-shadow: none !important;
+    outline: none !important;
+}
+
+#v-pills-tab.nav-pills .nav-link.active:focus {
+    background-color: var(--llama-input-bg) !important;
+    background: var(--llama-input-bg) !important;
+    color: var(--llama-text-main) !important;
+}
+
+/* Ensure tab content is properly hidden/shown */
+#v-pills-tabContent .tab-pane {
+    display: none !important;
+}
+
+#v-pills-tabContent .tab-pane.active {
+    display: block !important;
 }
 
 /* Settings Modal Tab Panes - Fixed Height with Scroll */
 #v-pills-tabContent {
-    height: 380px;
-    overflow-x: hidden;
-    overflow-y: auto;
-    padding-right: 0;
-    margin-right: -8px;
+    height: 380px !important;
+    max-height: 380px !important;
+    overflow-x: hidden !important;
+    overflow-y: auto !important;
+    padding-right: 10px !important;
+    margin-right: 0 !important;
+    display: block !important;
+    width: auto !important;
+    box-sizing: border-box !important;
 }
 
 /* Settings Modal Custom Scrollbar - Positioned at far right */
 #v-pills-tabContent::-webkit-scrollbar {
     width: 6px;
+}
+
+/* ============================================================================
+   MODE SELECTION CARDS (接入模式)
+   ============================================================================ */
+
+.mode-cards {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.mode-card {
+    display: block;
+    cursor: pointer;
+    margin: 0;
+}
+
+.mode-card input[type="radio"] {
+    display: none;
+}
+
+.mode-card-content {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    padding: 16px;
+    background-color: var(--llama-input-bg);
+    border: 1px solid var(--llama-border);
+    border-radius: 12px;
+    transition: all 0.2s ease;
+}
+
+.mode-card:hover .mode-card-content {
+    border-color: var(--llama-accent);
+    background-color: var(--llama-hover);
+}
+
+.mode-card input[type="radio"]:checked + .mode-card-content {
+    border-color: var(--llama-accent);
+    background-color: rgba(108, 117, 125, 0.15);
+}
+
+.mode-radio {
+    width: 18px;
+    height: 18px;
+    border: 2px solid var(--llama-text-sub);
+    border-radius: 50%;
+    flex-shrink: 0;
+    margin-top: 2px;
+    position: relative;
+    transition: all 0.2s ease;
+}
+
+.mode-card input[type="radio"]:checked + .mode-card-content .mode-radio {
+    border-color: var(--llama-accent);
+    background-color: var(--llama-accent);
+}
+
+.mode-radio::after {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%) scale(0);
+    width: 6px;
+    height: 6px;
+    background-color: white;
+    border-radius: 50%;
+    transition: transform 0.2s ease;
+}
+
+.mode-card input[type="radio"]:checked + .mode-card-content .mode-radio::after {
+    transform: translate(-50%, -50%) scale(1);
+}
+
+.mode-info {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.mode-info strong {
+    color: var(--llama-text-main);
+    font-size: 15px;
+    font-weight: 600;
+}
+
+.mode-info small {
+    color: var(--llama-text-sub);
+    font-size: 13px;
+}
+
+/* Config Card (本地/API 配置区域) */
+.config-card {
+    background-color: var(--llama-input-bg);
+    border: 1px solid var(--llama-border);
+    border-radius: 12px;
+    padding: 16px;
+    margin-top: 16px;
+}
+
+.config-card .form-label {
+    color: var(--llama-text-sub) !important;
+    font-size: 12px !important;
+    margin-bottom: 8px !important;
+    display: block !important;
+}
+
+.config-card .form-control,
+.config-card .form-select {
+    background-color: var(--llama-bg) !important;
+    border: 1px solid var(--llama-border) !important;
+    color: var(--llama-text-main) !important;
+    border-radius: 8px !important;
+    padding: 10px 12px !important;
+    font-size: 14px !important;
+}
+
+.config-card .form-control:focus,
+.config-card .form-select:focus {
+    border-color: var(--llama-accent) !important;
+    box-shadow: none !important;
+}
+
+.config-card .form-text {
+    color: var(--llama-text-sub) !important;
+    font-size: 12px !important;
+    margin-top: 6px !important;
+}
+
+/* Security Card */
+.security-card {
+    background-color: var(--llama-input-bg);
+    border: 1px solid var(--llama-border);
+    border-radius: 12px;
+    padding: 16px;
+    margin-top: 16px;
+}
+
+.security-card h6 {
+    color: var(--llama-text-main) !important;
+    font-weight: 600 !important;
+    margin-bottom: 12px !important;
+}
+
+.security-card .form-check-input {
+    background-color: var(--llama-border) !important;
+    border-color: var(--llama-border) !important;
+}
+
+.security-card .form-check-input:checked {
+    background-color: var(--llama-accent) !important;
+    border-color: var(--llama-accent) !important;
+}
+
+.security-card .form-check-label {
+    color: var(--llama-text-main) !important;
+}
+
+.security-card .form-text {
+    color: var(--llama-text-sub) !important;
+    font-size: 12px !important;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+/* ============================================================================
+   ABOUT PAGE BUTTONS
+   ============================================================================ */
+
+#v-pills-about .btn-outline-secondary {
+    background-color: transparent !important;
+    border: 1px solid var(--llama-border) !important;
+    color: var(--llama-text-main) !important;
+    border-radius: 8px !important;
+    padding: 10px 16px !important;
+    font-size: 14px !important;
+    transition: all 0.2s ease !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    gap: 8px !important;
+}
+
+#v-pills-about .btn-outline-secondary:hover {
+    background-color: var(--llama-hover) !important;
+    border-color: var(--llama-accent) !important;
+    color: var(--llama-text-main) !important;
+}
+
+#v-pills-about .btn-outline-secondary:active {
+    background-color: var(--llama-accent) !important;
+    border-color: var(--llama-accent) !important;
+    color: #ffffff !important;
+}
+
+/* Ensure Bootstrap Icons display in WebView2 */
+.bi {
+    display: inline-block;
+    font-family: "bootstrap-icons" !important;
+    font-style: normal;
+    font-weight: normal;
+    font-variant: normal;
+    text-transform: none;
+    line-height: 1;
+    vertical-align: -0.125em;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+}
+
+/* Directory Management Buttons */
+#v-pills-directories .btn-outline-secondary {
+    background-color: transparent !important;
+    border: 1px solid var(--llama-border) !important;
+    color: var(--llama-text-sub) !important;
+    border-radius: 8px !important;
+    padding: 10px 16px !important;
+    font-size: 14px !important;
+    transition: all 0.2s ease !important;
+}
+
+#v-pills-directories .btn-outline-secondary:hover {
+    background-color: var(--llama-hover) !important;
+    border-color: var(--llama-accent) !important;
+    color: var(--llama-text-main) !important;
+}
+
+/* ============================================================================
+   MODAL STYLES - Fix close button position
+   ============================================================================ */
+
+.modal-header {
+    display: flex !important;
+    align-items: center !important;
+    justify-content: space-between !important;
+    padding: 16px 20px !important;
+    border-bottom: 1px solid var(--llama-border) !important;
+}
+
+.modal-header .modal-title {
+    margin: 0 !important;
+    font-size: 16px !important;
+    font-weight: 600 !important;
+}
+
+.modal-header .btn-close,
+.modal-header button[data-bs-dismiss="modal"] {
+    padding: 8px !important;
+    margin: 0 !important;
+    background: transparent !important;
+    border: none !important;
+    cursor: pointer !important;
+    color: var(--llama-text-sub) !important;
+    opacity: 1 !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+}
+
+.modal-header .btn-close:hover,
+.modal-header button[data-bs-dismiss="modal"]:hover {
+    color: var(--llama-text-main) !important;
+}
+
+/* Small modal buttons */
+.modal-sm .modal-footer {
+    display: flex !important;
+    justify-content: center !important;
+    gap: 12px !important;
+    padding: 12px 16px !important;
+}
+
+.modal-sm .modal-footer .btn {
+    min-width: 80px !important;
+}
+
+.modal-sm .modal-footer .btn-outline-secondary {
+    background-color: transparent !important;
+    border: none !important;
+    color: var(--llama-text-sub) !important;
+}
+
+.modal-sm .modal-footer .btn-outline-secondary:hover {
+    background-color: var(--llama-hover) !important;
+    color: var(--llama-text-main) !important;
+}
+
+.modal-sm .modal-footer .btn-primary {
+    background-color: var(--llama-accent) !important;
+    border: none !important;
+    color: #ffffff !important;
+}
+
+/* ============================================================================
+   TOAST NOTIFICATIONS (Top-right)
+   ============================================================================ */
+
+.toast-container {
+    position: fixed !important;
+    top: 20px !important;
+    right: 20px !important;
+    z-index: 9999 !important;
+    display: flex !important;
+    flex-direction: column !important;
+    gap: 10px !important;
+}
+
+.toast {
+    background-color: var(--llama-input-bg) !important;
+    border: 1px solid var(--llama-border) !important;
+    border-radius: 8px !important;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3) !important;
+    min-width: 280px !important;
+}
+
+.toast.bg-success {
+    background-color: var(--llama-input-bg) !important;
+    border-left: 4px solid #198754 !important;
+}
+
+.toast.bg-danger {
+    background-color: var(--llama-input-bg) !important;
+    border-left: 4px solid #dc3545 !important;
+}
+
+.toast-body {
+    color: var(--llama-text-main) !important;
+    padding: 12px 16px !important;
+    font-size: 14px !important;
 }
 
 #v-pills-tabContent::-webkit-scrollbar-track {
@@ -1057,6 +1815,38 @@ input[type="date"]::-webkit-calendar-picker-indicator {
     display: block;
 }
 
+/* PyWebView fix: Ensure modals are clickable and have proper background */
+.modal.show {
+    background-color: rgba(0, 0, 0, 0.7);
+    pointer-events: auto;
+}
+
+.modal[data-bs-backdrop="false"].show {
+    background-color: rgba(0, 0, 0, 0.7);
+    pointer-events: auto;
+}
+
+.modal[data-bs-backdrop="false"] .modal-dialog {
+    pointer-events: auto;
+    z-index: 1060;
+}
+
+.modal[data-bs-backdrop="false"] .modal-content {
+    pointer-events: auto;
+    z-index: 1061;
+}
+
+/* Ensure all interactive elements in modal are clickable */
+.modal button,
+.modal input,
+.modal select,
+.modal textarea,
+.modal .nav-link,
+.modal .form-range,
+.modal .form-check-input {
+    pointer-events: auto !important;
+}
+
 /* 模态框手动显示的后备样式 */
 .modal[aria-hidden="false"] {
     display: block !important;
@@ -1079,6 +1869,77 @@ input[type="date"]::-webkit-calendar-picker-indicator {
     display: flex;
     align-items: center;
     min-height: calc(100% - 3.5rem);
+}
+
+/* Small modal - fixed max-width for WebView2 */
+.modal-dialog.modal-sm {
+    max-width: 320px !important;
+    width: auto !important;
+    margin: 1.75rem auto !important;
+}
+
+/* Modal content for small modals */
+.modal-sm .modal-content {
+    border-radius: 12px !important;
+    overflow: hidden !important;
+}
+
+/* Modal header for small modals */
+.modal-sm .modal-header {
+    padding: 16px 20px !important;
+    border-bottom: 1px solid var(--llama-border) !important;
+}
+
+.modal-sm .modal-header .modal-title {
+    font-size: 16px !important;
+    font-weight: 600 !important;
+}
+
+/* Modal body for small modals */
+.modal-sm .modal-body {
+    padding: 24px 20px !important;
+}
+
+.modal-sm .modal-body p {
+    font-size: 14px !important;
+    color: var(--llama-text-main) !important;
+    margin: 0 !important;
+}
+
+/* Modal footer for small modals */
+.modal-sm .modal-footer {
+    display: flex !important;
+    justify-content: center !important;
+    align-items: center !important;
+    gap: 12px !important;
+    padding: 16px 20px !important;
+    border-top: 1px solid var(--llama-border) !important;
+}
+
+/* Cancel button in small modals - transparent */
+.modal-sm .modal-footer .btn-outline-secondary {
+    background-color: transparent !important;
+    border: none !important;
+    color: var(--llama-text-sub) !important;
+    padding: 8px 16px !important;
+    font-size: 14px !important;
+    cursor: pointer !important;
+}
+
+.modal-sm .modal-footer .btn-outline-secondary:hover {
+    background-color: var(--llama-hover) !important;
+    color: var(--llama-text-main) !important;
+}
+
+/* Confirm button in small modals - gray background */
+.modal-sm .modal-footer .btn-primary {
+    background-color: var(--llama-accent) !important;
+    border: none !important;
+    color: #ffffff !important;
+    padding: 8px 20px !important;
+    font-size: 14px !important;
+    border-radius: 6px !important;
+    cursor: pointer !important;
 }
 
 .modal-content {
@@ -1221,4 +2082,165 @@ input[type="date"]::-webkit-calendar-picker-indicator {
 .new-chat-btn:hover {
     background-color: var(--llama-hover);
     color: var(--llama-text-main);
+}
+
+/* 目录列表样式 - WebView2兼容 */
+.directory-list {
+    display: flex !important;
+    flex-direction: column !important;
+    gap: 8px !important;
+    max-height: 300px !important;
+    overflow-y: auto !important;
+    padding-right: 4px !important;
+}
+
+/* 目录项样式 */
+.directory-item {
+    display: flex !important;
+    align-items: center !important;
+    gap: 10px !important;
+    padding: 10px 12px !important;
+    background-color: var(--llama-input-bg) !important;
+    border: 1px solid var(--llama-border) !important;
+    border-radius: 8px !important;
+}
+
+.directory-item:hover {
+    border-color: var(--llama-accent) !important;
+}
+
+.directory-item.exists-false {
+    opacity: 0.6 !important;
+    border-color: #dc3545 !important;
+}
+
+/* 目录图标 */
+.directory-icon {
+    font-size: 18px !important;
+    color: var(--llama-accent) !important;
+    flex-shrink: 0 !important;
+}
+
+.directory-item.exists-false .directory-icon {
+    color: #dc3545 !important;
+}
+
+/* 目录信息 */
+.directory-info {
+    flex: 1 !important;
+    min-width: 0 !important;
+    display: flex !important;
+    flex-direction: column !important;
+    gap: 2px !important;
+}
+
+.directory-path {
+    font-size: 13px !important;
+    color: var(--llama-text-main) !important;
+    white-space: nowrap !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+}
+
+.directory-meta {
+    font-size: 11px !important;
+    color: var(--llama-text-sub) !important;
+}
+
+/* 删除按钮 */
+.directory-delete {
+    width: 28px !important;
+    height: 28px !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    background: transparent !important;
+    border: none !important;
+    border-radius: 6px !important;
+    color: var(--llama-text-sub) !important;
+    cursor: pointer !important;
+    flex-shrink: 0 !important;
+}
+
+.directory-delete:hover {
+    background-color: rgba(220, 53, 69, 0.2) !important;
+    color: #dc3545 !important;
+}
+
+/* 空状态 */
+.directory-empty {
+    text-align: center !important;
+    padding: 20px !important;
+    color: var(--llama-text-sub) !important;
+    font-size: 13px !important;
+    background-color: var(--llama-input-bg) !important;
+    border: 1px dashed var(--llama-border) !important;
+    border-radius: 8px !important;
+}
+
+/* 添加目录按钮 */
+#settingsModal .btn-outline-secondary.w-100 {
+    width: 100% !important;
+    background-color: transparent !important;
+    color: var(--llama-text-sub) !important;
+    border: 1px solid var(--llama-border) !important;
+    border-radius: 8px !important;
+    padding: 10px !important;
+    font-size: 14px !important;
+    cursor: pointer !important;
+}
+
+#settingsModal .btn-outline-secondary.w-100:hover {
+    background-color: var(--llama-hover) !important;
+    color: var(--llama-text-main) !important;
+}
+
+/* About page styles for WebView2 */
+#v-pills-about .text-center {
+    text-align: center !important;
+    padding: 24px 0 !important;
+}
+
+#v-pills-about h4 {
+    color: var(--llama-text-main) !important;
+    font-weight: 700 !important;
+    margin-bottom: 12px !important;
+    font-size: 20px !important;
+}
+
+#v-pills-about .text-muted {
+    color: var(--llama-text-sub) !important;
+}
+
+#v-pills-about .d-grid {
+    display: flex !important;
+    flex-direction: column !important;
+    gap: 8px !important;
+    width: 66.666% !important;
+    margin: 0 auto 24px !important;
+}
+
+#v-pills-about .btn-outline-secondary {
+    display: block !important;
+    width: 100% !important;
+    padding: 8px 16px !important;
+    background-color: transparent !important;
+    color: var(--llama-text-sub) !important;
+    border: 1px solid var(--llama-border) !important;
+    border-radius: 6px !important;
+    font-size: 14px !important;
+    text-decoration: none !important;
+}
+
+#v-pills-about .border-top {
+    border-top: 1px solid var(--llama-border) !important;
+    margin-top: 24px !important;
+    padding-top: 16px !important;
+}
+
+#v-pills-about small {
+    display: block !important;
+    color: var(--llama-text-sub) !important;
+    font-size: 12px !important;
+    margin-bottom: 4px !important;
 }
