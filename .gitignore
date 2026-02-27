@@ -166,4 +166,7 @@ data/models/*
 !data/tantivy_index/.gitkeep
 !data/hnsw_index/.gitkeep
 !data/metadata/.gitkeep
-!data/models/.gitkeep.claude/settings.local.json
+!data/models/.gitkeep
+
+# Claude settings
+.claude/settings.local.json
