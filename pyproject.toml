@@ -73,6 +73,11 @@ dev = [
     "pytest-cov>=4.1.0",
 ]
 
+[dependency-groups]
+dev = [
+    "pytest-playwright>=0.7.1",
+]
+
 [tool.setuptools.packages.find]
 where = ["backend"]
 exclude = ["tests", "tests.*", "test_*", "__pycache__"]
@@ -84,10 +89,21 @@ reportMissingTypeStubs = false
 reportMissingModuleSource = false
 
 [tool.pytest.ini_options]
-addopts = "-p no:langsmith --html=reports/test_report.html --self-contained-html"
+addopts = [
+    "-p no:langsmith",
+    "--html=reports/test_report.html",
+    "--self-contained-html",
+    "--cov=backend",
+    "--cov-report=html:reports/coverage",
+    "--cov-report=term-missing",
+    "--tb=short"
+]
 markers = [
     "performance: mark test as performance test",
     "unit: mark test as unit test",
     "integration: mark test as integration test",
+    "e2e: mark test as end-to-end test",
+    "slow: mark test as slow running"
 ]
 testpaths = ["tests"]
+asyncio_mode = "auto"

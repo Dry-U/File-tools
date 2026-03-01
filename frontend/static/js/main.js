@@ -840,6 +840,33 @@ function toggleSidebar() {
     }
 }
 
+// 初始化侧边栏按钮图标（根据初始状态）
+function initSidebarToggleBtn() {
+    const sidebar = document.getElementById('sidebar');
+    const btn = document.getElementById('sidebarToggleBtn');
+    if (!sidebar || !btn) return;
+
+    const isMobile = window.innerWidth <= 768;
+    const isCollapsed = isMobile ? !sidebar.classList.contains('show') : sidebar.classList.contains('collapsed');
+
+    // 根据初始状态设置按钮图标
+    if (isCollapsed) {
+        // 侧边栏收起，显示展开图标
+        btn.innerHTML = `
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="size-6" style="width: 24px; height: 24px;">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M8.25 9V5.25A2.25 2.25 0 0 1 10.5 3h6a2.25 2.25 0 0 1 2.25 2.25v13.5A2.25 2.25 0 0 1 16.5 21h-6a2.25 2.25 0 0 1-2.25-2.25V15M12 9l3 3m0 0-3 3m3-3H2.25" />
+            </svg>
+        `;
+    } else {
+        // 侧边栏展开，显示收起图标
+        btn.innerHTML = `
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="size-6" style="width: 24px; height: 24px;">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 9V5.25A2.25 2.25 0 0 0 13.5 3h-6a2.25 2.25 0 0 0-2.25 2.25v13.5A2.25 2.25 0 0 0 7.5 21h6a2.25 2.25 0 0 0 2.25-2.25V15M12 9l-3 3m0 0 3 3m-3-3h12.75" />
+            </svg>
+        `;
+    }
+}
+
 function autoResize(textarea) {
     textarea.style.height = 'auto';
     textarea.style.height = textarea.scrollHeight + 'px';
@@ -1094,6 +1121,7 @@ document.addEventListener('DOMContentLoaded', async function() {
     await loadChatHistory();
     await checkSystemHealth();
     initDatePickers();
+    initSidebarToggleBtn();
 });
 
 // 初始化日期选择器
