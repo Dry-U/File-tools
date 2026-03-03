@@ -2,6 +2,7 @@
 import os
 import re
 import secrets
+import time
 from typing import Dict, List, Any, Optional, Callable
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeoutError
 
@@ -96,6 +97,12 @@ class RAGPipeline:
         # Use SQLite for chat history persistence
         self.chat_db = ChatHistoryDB()
 
+        # 会话清理配置
+        self._max_session_age_days = int(rag_config.get('max_session_age_days', 30))
+        self._max_sessions = int(rag_config.get('max_sessions', 1000))
+        self._last_cleanup_time = 0
+        self._cleanup_interval = 3600  # 每小时检查一次
+
         # 初始化查询处理器
         try:
             self.query_processor = QueryProcessor(config_loader)
@@ -103,6 +110,23 @@ class RAGPipeline:
         except Exception as e:
             logger.warning(f"查询处理器初始化失败: {e}")
             self.query_processor = None
+
+    def _cleanup_old_sessions_if_needed(self) -> None:
+        """定期清理旧会话"""
+        current_time = time.time()
+        if current_time - self._last_cleanup_time < self._cleanup_interval:
+            return
+
+        try:
+            deleted = self.chat_db.cleanup_old_sessions(
+                max_age_days=self._max_session_age_days,
+                max_sessions=self._max_sessions
+            )
+            if deleted > 0:
+                logger.info(f"清理了 {deleted} 个旧会话")
+            self._last_cleanup_time = current_time
+        except Exception as e:
+            logger.warning(f"清理旧会话失败: {e}")
 
     def _load_sampling_params(self) -> Dict[str, Any]:
         """加载采样参数从配置
@@ -315,11 +339,11 @@ class RAGPipeline:
         return "\n".join(parts), used
 
     def _remember_turn(self, session_id: str, query: str, answer: str) -> None:
-        # 确保会话存在
-        if not self.chat_db.session_exists(session_id):
-            self.chat_db.create_session(session_id)
+        """保存对话轮次到数据库
 
-        # 保存用户消息
+        优化：add_message 已自动处理会话创建，无需先检查 session_exists
+        """
+        # 保存用户消息（自动创建会话如果不存在）
         self.chat_db.add_message(session_id, 'user', query)
         # 保存助手消息
         self.chat_db.add_message(session_id, 'assistant', answer)
@@ -984,6 +1008,9 @@ class RAGPipeline:
 
     def query(self, query: str, session_id: Optional[str] = None) -> Dict[str, Any]:
         """执行检索增强生成流程，支持简单会话记忆与重置"""
+        # 定期清理旧会话
+        self._cleanup_old_sessions_if_needed()
+
         session_key = (session_id or '').strip()
         if not session_key:
             # 没有提供 session_id 时，为避免不同用户共享"default"历史，生成一次性会话键
@@ -1196,3 +1223,16 @@ class RAGPipeline:
             'greeting_keywords': self.greeting_keywords,
             'reset_commands': self.reset_commands
         }
+
+    def cleanup(self) -> None:
+        """清理资源，关闭数据库连接等"""
+        try:
+            if hasattr(self, 'chat_db') and self.chat_db:
+                self.chat_db.close()
+                logger.info("RAGPipeline 资源已清理")
+        except Exception as e:
+            logger.warning(f"清理 RAGPipeline 资源时出错: {e}")
+
+    def __del__(self):
+        """析构时清理资源"""
+        self.cleanup()

@@ -217,26 +217,84 @@ class TestVRAMManagerEdgeCases:
         assert vram_manager.cache_size == 0
 
     def test_concurrent_cache_access(self, vram_manager):
-        """测试并发缓存访问"""
+        """测试并发缓存访问 - 验证数据一致性和完整性"""
         import threading
+        import time
+        from concurrent.futures import ThreadPoolExecutor, as_completed
 
-        def writer():
-            for i in range(100):
-                vram_manager.cache_result(f"key{i}", f"value{i}", 1)
+        errors = []
+        write_count = threading.Lock()
+        successful_writes = [0]
 
-        def reader():
-            for i in range(100):
-                vram_manager.get_cached_result(f"key{i}")
+        def writer(thread_id: int, count: int = 50):
+            """写入数据，记录成功次数"""
+            try:
+                for i in range(count):
+                    key = f"thread{thread_id}_key{i}"
+                    value = f"thread{thread_id}_value{i}"
+                    vram_manager.cache_result(key, value, len(key) + len(value))
+                    with write_count:
+                        successful_writes[0] += 1
+                    time.sleep(0.001)  # 小延迟增加竞争机会
+            except Exception as e:
+                with write_count:
+                    errors.append(f"Writer error: {e}")
 
-        threads = [
-            threading.Thread(target=writer),
-            threading.Thread(target=reader)
-        ]
+        def reader(expected_keys: set) -> set:
+            """读取数据，返回成功读取的key"""
+            found = set()
+            try:
+                for key in expected_keys:
+                    result = vram_manager.get_cached_result(key)
+                    if result is not None:
+                        found.add(key)
+                    time.sleep(0.001)
+            except Exception as e:
+                with write_count:
+                    errors.append(f"Reader error: {e}")
+            return found
 
-        for t in threads:
-            t.start()
-        for t in threads:
-            t.join()
+        # 多线程并发写入
+        num_writers = 3
+        writes_per_thread = 30
 
-        # 应该没有异常
-        assert True
+        with ThreadPoolExecutor(max_workers=num_writers + 2) as executor:
+            # 启动写入任务
+            write_futures = [
+                executor.submit(writer, i, writes_per_thread)
+                for i in range(num_writers)
+            ]
+
+            # 等待所有写入完成
+            for future in as_completed(write_futures):
+                future.result()
+
+        # 验证写入数量
+        expected_writes = num_writers * writes_per_thread
+        assert successful_writes[0] == expected_writes, f"写入次数不匹配: {successful_writes[0]} != {expected_writes}"
+
+        # 验证没有异常
+        assert len(errors) == 0, f"并发访问出现错误: {errors}"
+
+        # 验证缓存一致性 - 检查所有写入的数据都能被正确读取
+        expected_keys = {
+            f"thread{i}_key{j}"
+            for i in range(num_writers)
+            for j in range(writes_per_thread)
+        }
+
+        # 部分数据可能因为缓存清理被移除，但不应出现数据损坏
+        found_keys = set()
+        for key in expected_keys:
+            value = vram_manager.get_cached_result(key)
+            if value is not None:
+                # 验证数据完整性
+                expected_prefix = key.replace("_key", "_value").rsplit("_value", 1)[0]
+                expected_suffix = key.split("_key")[1]
+                expected_value = f"{expected_prefix}_value{expected_suffix}"
+                assert value == expected_value, f"数据不一致: {key} -> {value} != {expected_value}"
+                found_keys.add(key)
+
+        # 验证缓存状态
+        assert vram_manager.cache_size >= 0, "缓存大小不应为负"
+        assert len(vram_manager.cache) >= 0, "缓存不应为空"

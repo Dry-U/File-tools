@@ -68,7 +68,7 @@ def find_existing_instance():
                                 f"http://127.0.0.1:{port}/api/health", timeout=1)
                             if response.status_code == 200:
                                 return port
-                        except:
+                        except requests.RequestException:
                             pass
         except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
             pass
@@ -88,7 +88,7 @@ def wait_for_server_ready(url, max_wait=60):
                         app_response = requests.get(url, timeout=1)
                         if app_response.status_code == 200:
                             return True
-                    except:
+                    except requests.RequestException:
                         pass
         except requests.RequestException:
             pass
@@ -133,7 +133,7 @@ def run_desktop_app():
             window_ref['closed'] = True
             try:
                 window_ref['window'].destroy()
-            except:
+            except (RuntimeError, AttributeError):
                 pass
 
     # 注册信号处理器
@@ -201,7 +201,7 @@ def run_desktop_app():
             window_ref['closed'] = True
             try:
                 window.destroy()
-            except:
+            except (RuntimeError, AttributeError):
                 pass
 
     exit_thread = threading.Thread(target=check_exit, daemon=True)

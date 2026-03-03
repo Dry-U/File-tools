@@ -61,12 +61,15 @@ class SearchEngine:
         if self.enable_cache:
             from collections import OrderedDict
             import time
+            import threading
             self.cache = OrderedDict()
             self.cache_timestamps = {}
+            self._cache_lock = threading.RLock()  # 线程安全的缓存锁
             self.logger.info(f"搜索引擎初始化完成，文本权重: {self.text_weight}, 向量权重: {self.vector_weight}, 缓存已启用")
         else:
             self.cache = None
             self.cache_timestamps = None
+            self._cache_lock = None
             self.logger.info(f"搜索引擎初始化完成，文本权重: {self.text_weight}, 向量权重: {self.vector_weight}, 缓存已禁用")
 
     def _get_cache_key(self, query, filters=None):
@@ -98,11 +101,12 @@ class SearchEngine:
             return False
         # 检查是否过期
         if time.time() - self.cache_timestamps[key] > self.cache_ttl:
-            # 删除过期缓存
-            if key in self.cache:
-                del self.cache[key]
-            if key in self.cache_timestamps:
-                del self.cache_timestamps[key]
+            # 删除过期缓存（使用锁确保线程安全）
+            with self._cache_lock:
+                if key in self.cache:
+                    del self.cache[key]
+                if key in self.cache_timestamps:
+                    del self.cache_timestamps[key]
             return False
         return True
 
@@ -111,9 +115,10 @@ class SearchEngine:
         if not self.enable_cache:
             return None
         if self._is_cache_valid(key):
-            # 将访问的项移到末尾（LRU）
-            result = self.cache.pop(key)
-            self.cache[key] = result
+            # 将访问的项移到末尾（LRU）- 使用锁确保线程安全
+            with self._cache_lock:
+                result = self.cache.pop(key)
+                self.cache[key] = result
             return result
         return None
 
@@ -121,17 +126,18 @@ class SearchEngine:
         """将结果放入缓存"""
         if not self.enable_cache:
             return
-        # 检查缓存大小，如果超过限制则删除最久未使用的项
-        if len(self.cache) >= self.cache_size:
-            # 删除第一个项（最久未使用的）
-            oldest_key = next(iter(self.cache))
-            del self.cache[oldest_key]
-            if oldest_key in self.cache_timestamps:
-                del self.cache_timestamps[oldest_key]
-        
-        # 添加新项
-        self.cache[key] = result
-        self.cache_timestamps[key] = time.time()
+        with self._cache_lock:
+            # 检查缓存大小，如果超过限制则删除最久未使用的项
+            if len(self.cache) >= self.cache_size:
+                # 删除第一个项（最久未使用的）
+                oldest_key = next(iter(self.cache))
+                del self.cache[oldest_key]
+                if oldest_key in self.cache_timestamps:
+                    del self.cache_timestamps[oldest_key]
+
+            # 添加新项
+            self.cache[key] = result
+            self.cache_timestamps[key] = time.time()
     
     def search(self, query, filters=None):
         """执行搜索，整合文本搜索和向量搜索结果"""

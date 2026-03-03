@@ -46,7 +46,8 @@ class FileScanner:
         self.max_file_size: int = max_file_size_mb * 1024 * 1024  # MB to bytes
 
         self.target_extensions: Dict[str, List[str]] = self._get_target_extensions()
-        self.all_extensions: List[str] = [ext for exts in self.target_extensions.values() for ext in exts]
+        # 使用 set 进行 O(1) 查找，提高性能
+        self.all_extensions: set[str] = {ext for exts in self.target_extensions.values() for ext in exts}
 
         # 并行处理配置
         try:
@@ -629,8 +630,9 @@ class FileScanner:
              self.logger.info(f"强制跳过媒体文件: {path}")
              return False
 
-        self.logger.info(f"检查文件扩展名: {path}, 扩展名: {file_ext}, 支持的扩展名: {self.all_extensions}")
-        if not any(file_ext == ext for ext in self.all_extensions):
+        self.logger.info(f"检查文件扩展名: {path}, 扩展名: {file_ext}")
+        # 使用 set 进行 O(1) 查找
+        if file_ext not in self.all_extensions:
             self.logger.info(f"跳过不支持的文件类型: {path}")
             return False
         self.logger.info(f"文件扩展名检查通过: {path}")

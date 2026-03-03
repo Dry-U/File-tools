@@ -10,7 +10,8 @@ from fastapi.responses import HTMLResponse
 from contextlib import asynccontextmanager
 import uvicorn
 import os
-from typing import Optional
+import sys
+from typing import Optional, List, Dict, Any
 import asyncio
 from pathlib import Path
 from functools import wraps
@@ -200,17 +201,35 @@ def get_file_monitor(
 # ============================================================================
 
 def is_path_allowed(path: str, config_loader: ConfigLoader) -> bool:
-    """检查路径是否在允许范围内，防止路径遍历攻击"""
-    if not path:
+    """
+    检查路径是否在允许范围内，防止路径遍历攻击
+
+    安全特性：
+    1. 使用 Path.resolve() 解析符号链接和相对路径
+    2. 使用 Path.relative_to() 确保路径在允许目录内
+    3. 检查非法字符和路径遍历模式
+    """
+    if not path or not isinstance(path, str):
         return False
 
-    # 标准化路径
+    # 标准化路径 - 去除引号
     path = path.strip('"').strip("'")
-    normalized_path = os.path.normpath(path)
 
-    # 检查非法字符
-    if ".." in normalized_path or normalized_path.startswith("//"):
-        logger.warning(f"路径包含非法字符: {normalized_path}")
+    # 检查明显的路径遍历模式
+    if ".." in path or path.startswith("//"):
+        logger.warning(f"路径包含遍历模式: {path}")
+        return False
+
+    try:
+        # 使用 resolve() 解析符号链接和相对路径，获取真实绝对路径
+        file_path = Path(path).resolve()
+
+        # 确保路径存在且是文件或目录
+        if not file_path.exists():
+            logger.warning(f"路径不存在，拒绝访问: {file_path}")
+            return False
+    except (OSError, ValueError) as e:
+        logger.warning(f"路径解析失败: {path} - {e}")
         return False
 
     # 获取允许的扫描路径
@@ -230,16 +249,30 @@ def is_path_allowed(path: str, config_loader: ConfigLoader) -> bool:
 
     for sp in path_list:
         sp = str(sp).strip()
-        if sp and os.path.isdir(sp):
-            allowed_paths.append(os.path.abspath(sp))
+        if sp:
+            try:
+                allowed_path = Path(sp).resolve()
+                if allowed_path.exists() and allowed_path.is_dir():
+                    allowed_paths.append(allowed_path)
+            except (OSError, ValueError):
+                logger.debug(f"无效的允许路径: {sp}")
+                continue
 
-    # 检查路径是否在允许范围内
-    file_path_abs = os.path.abspath(normalized_path)
+    if not allowed_paths:
+        logger.warning("没有有效的允许路径")
+        return False
+
+    # 使用 relative_to 检查路径是否在允许范围内
+    # 这比 startswith 更安全，因为 "C:\allowed\file.txt" 不会匹配 "C:\allowed_malicious\file.txt"
     for allowed_path in allowed_paths:
-        if file_path_abs.startswith(allowed_path):
+        try:
+            file_path.relative_to(allowed_path)
             return True
+        except ValueError:
+            # 路径不在此允许目录内，继续检查下一个
+            continue
 
-    logger.warning(f"路径不在允许范围内: {normalized_path}")
+    logger.warning(f"路径不在允许范围内: {file_path}")
     return False
 
 
@@ -431,36 +464,141 @@ from fastapi import APIRouter
 api_router = APIRouter()
 
 
-@api_router.post("/search")
+# ============================================================================
+# API REQUEST/RESPONSE MODELS
+# ============================================================================
+
+class SearchRequest(BaseModel):
+    """搜索请求模型"""
+    query: str
+    filters: Optional[Dict[str, Any]] = None
+
+
+class SearchResult(BaseModel):
+    """搜索结果模型"""
+    file_name: str
+    path: str
+    score: float
+    snippet: str
+
+
+class ChatRequest(BaseModel):
+    """对话请求模型"""
+    query: str
+    session_id: Optional[str] = None
+
+
+class ChatResponse(BaseModel):
+    """对话响应模型"""
+    answer: str
+    sources: List[Dict[str, Any]]
+
+
+class PreviewRequest(BaseModel):
+    """文件预览请求模型"""
+    path: str
+
+
+class PreviewResponse(BaseModel):
+    """文件预览响应模型"""
+    content: str
+
+
+class ConfigUpdateRequest(BaseModel):
+    """配置更新请求模型"""
+    ai_model: Optional[Dict[str, Any]] = None
+    rag: Optional[Dict[str, Any]] = None
+
+
+class HealthCheckResponse(BaseModel):
+    """健康检查响应模型"""
+    status: str
+    initialized: bool
+    timestamp: float
+    components: Dict[str, Any]
+
+
+class DirectoryPath(BaseModel):
+    """目录路径请求模型"""
+    path: str
+
+
+class DirectoryResponse(BaseModel):
+    """目录响应模型"""
+    status: str
+    message: str
+    path: Optional[str] = None
+    needs_rebuild: bool = False
+
+
+class BrowseResponse(BaseModel):
+    """浏览目录响应模型"""
+    status: str
+    path: Optional[str] = None
+    canceled: bool = False
+
+
+class DirectoryInfo(BaseModel):
+    """目录信息模型"""
+    path: str
+    exists: bool
+    is_scanning: bool
+    is_monitoring: bool
+    file_count: int
+
+
+class DirectoriesListResponse(BaseModel):
+    """目录列表响应模型"""
+    directories: list
+
+
+@api_router.post("/search", response_model=List[SearchResult])
 async def search(
-    request: Request,
+    request: SearchRequest,
+    http_request: Request,
     search_engine = Depends(get_search_engine),
     config_loader: ConfigLoader = Depends(get_config_loader)
 ):
-    """使用搜索引擎执行搜索"""
+    """使用搜索引擎执行搜索
+
+    Args:
+        request: 搜索请求，包含查询字符串和可选过滤器
+
+    Returns:
+        搜索结果列表
+
+    Raises:
+        HTTPException: 当搜索失败或限流触发时
+    """
     # 限流检查
     limiter = get_rate_limiter()
     if config_loader.getboolean('security', 'rate_limiter.enabled', True):
-        client_ip = request.client.host if request.client else "unknown"
+        # 获取客户端IP
+        client_ip = http_request.client.host if http_request.client else "unknown"
         max_req = config_loader.getint('security', 'rate_limiter.search_limit', 20)
         window = config_loader.getint('security', 'rate_limiter.search_window', 60)
         if not limiter.is_allowed(f"search:{client_ip}", max_requests=max_req, window=window):
             raise HTTPException(status_code=429, detail="搜索过于频繁，请稍后再试")
 
     try:
-        body = await request.json()
-        query = body.get("query", "")
-        filters = body.get("filters", {})
+        query = request.query
+        filters = request.filters or {}
 
         if not query:
-            raise HTTPException(status_code=400, detail="查询关键词不能为空")
+            raise HTTPException(status_code=400, detail="查询不能为空")
 
-        # 使用过滤器执行搜索
         results = search_engine.search(query, filters)
 
-        # 格式化结果以进行Web响应 - 将numpy类型转换为原生Python类型
+        # 转换结果为JSON可序列化的格式
         def convert_types(obj):
-            """将numpy类型转换为原生Python类型以便JSON序列化"""
+            if isinstance(obj, float):
+                return obj
+            if isinstance(obj, int):
+                return obj
+            if isinstance(obj, str):
+                return obj
+            if obj is None:
+                return None
             import numpy as np
             if isinstance(obj, np.floating):
                 return float(obj)
@@ -491,17 +629,8 @@ async def search(
                 formatted_results.append({
                     "file_name": os.path.basename(str(converted_result.get("path", ""))),
                     "path": str(converted_result.get("path", "")),
-                    "score": float(converted_result.get("score", 0.0)),
-                    "modified_time": converted_result.get("modified_time") or converted_result.get("modified"),
+                    "score": converted_result.get("score", 0.0),
                     "snippet": converted_result.get("snippet", "")
-                })
-            else:
-                formatted_results.append({
-                    "file_name": "",
-                    "path": "",
-                    "score": 0.0,
-                    "modified_time": None,
-                    "snippet": ""
                 })
 
         return formatted_results
@@ -509,7 +638,7 @@ async def search(
         raise
     except Exception as e:
         logger.error(f"搜索错误: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"搜索失败: {str(e)}")
+        raise HTTPException(status_code=500, detail="搜索处理失败，请稍后重试") from e
 
 
 @api_router.post("/preview")
@@ -543,7 +672,8 @@ async def preview_file(
             return {"content": f"错误：文件不存在 ({normalized_path})"}
 
         # 检查文件大小以防止加载过大文件
-        if os.path.getsize(normalized_path) > 5 * 1024 * 1024:  # 5MB限制
+        max_preview_size = config_loader.getint('interface', 'max_preview_size', 5242880)  # 默认5MB
+        if os.path.getsize(normalized_path) > max_preview_size:
             return {"content": "文件过大（超过5MB），无法预览"}
 
         # 首先尝试从索引管理器获取内容（支持PDF/DOCX等）
@@ -558,7 +688,7 @@ async def preview_file(
             content = parser.extract_text(normalized_path)
             if content and not content.startswith("错误"):
                 return {"content": content}
-        except Exception as e:
+        except (ImportError, ValueError, OSError) as e:
             logger.warning(f"直接解析失败: {str(e)}")
 
         # 最终备选：读取文本文件
@@ -578,9 +708,9 @@ async def preview_file(
     except PermissionError:
         logger.error("预览错误: 权限被拒绝")
         return {"content": "预览失败: 没有权限访问文件"}
-    except Exception as e:
+    except (OSError, ValueError) as e:
         logger.error(f"预览错误: {str(e)}")
-        return {"content": f"预览失败: {str(e)}"}
+        return {"content": "预览失败: 无法读取文件"}
 
 
 @api_router.post("/rebuild-index")
@@ -646,29 +776,125 @@ async def rebuild_index(
             "message": f"索引重建完成: 扫描 {stats.get('total_files_scanned', 0)} 个文件，索引 {stats.get('total_files_indexed', 0)} 个文件"
         }
     except Exception as e:
-        logger.error(f"索引重建错误: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"索引重建失败: {str(e)}")
+        logger.error(f"索引重建错误: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail="索引重建失败，请稍后重试")
 
 
 @api_router.get("/health")
-async def health_check():
-    """健康检查端点"""
-    if hasattr(app.state, 'initialized') and app.state.initialized:
-        return {"status": "healthy", "message": "Web API正在运行且已完全初始化"}
-    return {"status": "starting", "message": "Web API正在启动中"}
+async def health_check(
+    index_manager = Depends(get_index_manager),
+    config_loader: ConfigLoader = Depends(get_config_loader)
+):
+    """健康检查端点 - 检查系统各组件状态"""
+    health_status = {
+        "status": "healthy",
+        "initialized": getattr(app.state, 'initialized', False),
+        "timestamp": time.time(),
+        "components": {}
+    }
+
+    # 1. 检查数据库连接
+    try:
+        from backend.core.chat_history_db import ChatHistoryDB
+        db = ChatHistoryDB()
+        # 尝试执行简单查询
+        db.get_all_sessions()
+        health_status["components"]["database"] = {"status": "healthy"}
+    except Exception as e:
+        health_status["components"]["database"] = {"status": "unhealthy", "error": str(e)}
+        health_status["status"] = "degraded"
+
+    # 2. 检查索引状态
+    try:
+        if index_manager:
+            index_stats = index_manager.get_index_stats()
+            health_status["components"]["index"] = {
+                "status": "healthy",
+                "tantivy_docs": index_stats.get('tantivy_doc_count', 0),
+                "vector_docs": index_stats.get('vector_doc_count', 0)
+            }
+        else:
+            health_status["components"]["index"] = {"status": "unavailable"}
+    except Exception as e:
+        health_status["components"]["index"] = {"status": "unhealthy", "error": str(e)}
+        health_status["status"] = "degraded"
+
+    # 3. 检查磁盘空间
+    try:
+        data_dir = config_loader.get('system', 'data_dir', './data')
+        import shutil
+        disk_usage = shutil.disk_usage(data_dir)
+        free_gb = disk_usage.free / (1024**3)
+        total_gb = disk_usage.total / (1024**3)
+        used_percent = (disk_usage.used / disk_usage.total) * 100
+
+        health_status["components"]["disk"] = {
+            "status": "healthy" if free_gb > 1.0 else "warning",  # 少于1GB警告
+            "free_gb": round(free_gb, 2),
+            "total_gb": round(total_gb, 2),
+            "used_percent": round(used_percent, 1)
+        }
+
+        if free_gb < 0.5:  # 少于500MB认为不健康
+            health_status["status"] = "degraded"
+    except Exception as e:
+        health_status["components"]["disk"] = {"status": "unknown", "error": str(e)}
+
+    # 4. 检查内存使用
+    try:
+        import psutil
+        memory = psutil.virtual_memory()
+        health_status["components"]["memory"] = {
+            "status": "healthy" if memory.percent < 90 else "warning",
+            "used_percent": memory.percent,
+            "available_gb": round(memory.available / (1024**3), 2)
+        }
+
+        if memory.percent > 95:  # 内存使用超过95%
+            health_status["status"] = "degraded"
+    except ImportError:
+        health_status["components"]["memory"] = {"status": "unknown", "reason": "psutil not installed"}
+    except Exception as e:
+        health_status["components"]["memory"] = {"status": "unknown", "error": str(e)}
+
+    # 5. 检查RAG管道状态
+    if hasattr(app.state, 'rag_pipeline') and app.state.rag_pipeline:
+        health_status["components"]["rag_pipeline"] = {"status": "healthy"}
+    else:
+        health_status["components"]["rag_pipeline"] = {"status": "unavailable"}
+
+    # 根据状态设置HTTP状态码
+    if health_status["status"] == "healthy":
+        return health_status
+    elif health_status["status"] == "degraded":
+        return health_status  # 仍然返回200，但状态为degraded
+    else:
+        raise HTTPException(status_code=503, detail=health_status)
 
 
-@api_router.post("/chat")
+@api_router.post("/chat", response_model=ChatResponse)
 async def chat(
-    request: Request,
+    request: ChatRequest,
+    http_request: Request,
     rag_pipeline = Depends(get_rag_pipeline),
     config_loader: ConfigLoader = Depends(get_config_loader)
 ):
-    """与RAG系统进行对话"""
+    """与RAG系统进行对话
+
+    Args:
+        request: 对话请求，包含查询字符串和可选的会话ID
+
+    Returns:
+        对话响应，包含AI回答和相关文档来源
+
+    Raises:
+        HTTPException: 当对话失败或限流触发时
+    """
     # 限流检查
     limiter = get_rate_limiter()
     if config_loader.getboolean('security', 'rate_limiter.enabled', True):
-        client_ip = request.client.host if request.client else "unknown"
+        # 获取客户端IP
+        client_ip = http_request.client.host if http_request.client else "unknown"
         max_req = config_loader.getint('security', 'rate_limiter.chat_limit', 10)
         window = config_loader.getint('security', 'rate_limiter.chat_window', 60)
         if not limiter.is_allowed(f"chat:{client_ip}", max_requests=max_req, window=window):
@@ -694,18 +920,19 @@ async def chat(
             raise HTTPException(status_code=500, detail="RAG管道未初始化")
 
     try:
-        body = await request.json()
-        query = body.get("query", "")
-        session_id = body.get("session_id")
+        query = request.query
+        session_id = request.session_id
 
         if not query:
             raise HTTPException(status_code=400, detail="查询不能为空")
 
         result = rag_pipeline.query(query, session_id=session_id)
-        return result
+        return ChatResponse(**result)
+    except HTTPException:
+        raise  # 重新抛出 HTTPException，保持原始状态码
     except Exception as e:
         logger.error(f"对话错误: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"对话失败: {str(e)}")
+        raise HTTPException(status_code=500, detail="对话处理失败，请稍后重试") from e
 
 
 @api_router.get("/sessions")
@@ -962,42 +1189,55 @@ async def test_model_connection(
         return {"status": "error", "error": str(e)}
 
 
-# ============================================================================
-# DIRECTORY MANAGEMENT API
-# ============================================================================
+def _normalize_path_list(paths: list) -> list:
+    """
+    规范化路径列表，处理字符串配置和绝对路径转换
 
-class DirectoryPath(BaseModel):
-    """目录路径请求模型"""
-    path: str
+    Args:
+        paths: 路径列表或分号分隔的字符串
 
-
-class DirectoryResponse(BaseModel):
-    """目录响应模型"""
-    status: str
-    message: str
-    path: Optional[str] = None
-    needs_rebuild: bool = False
+    Returns:
+        规范化后的绝对路径列表
+    """
+    if isinstance(paths, str):
+        paths = [p.strip() for p in paths.split(';') if p.strip()]
+    return [os.path.abspath(str(p)) for p in paths]
 
 
-class BrowseResponse(BaseModel):
-    """浏览目录响应模型"""
-    status: str
-    path: Optional[str] = None
-    canceled: bool = False
+def _validate_directory_path(path: str) -> tuple[bool, str]:
+    """
+    验证目录路径是否安全
 
+    Args:
+        path: 要验证的路径
 
-class DirectoryInfo(BaseModel):
-    """目录信息模型"""
-    path: str
-    exists: bool
-    is_scanning: bool
-    is_monitoring: bool
-    file_count: int
+    Returns:
+        (是否有效, 错误信息)
+    """
+    if not path:
+        return False, "路径不能为空"
 
+    # 检查路径遍历攻击
+    normalized = os.path.abspath(os.path.expanduser(path))
 
-class DirectoriesListResponse(BaseModel):
-    """目录列表响应模型"""
-    directories: list
+    # 检查是否是有效的文件系统路径格式
+    try:
+        Path(normalized).resolve()
+    except (OSError, ValueError):
+        return False, f"无效的路径格式: {path}"
+
+    # Windows 特殊检查
+    if sys.platform == 'win32':
+        # 禁止UNC路径（网络共享）除非明确允许
+        if normalized.startswith('\\\\'):
+            return False, "不支持网络共享路径"
+        # 检查驱动器格式
+        if len(normalized) >= 2 and normalized[1] == ':':
+            drive = normalized[0].upper()
+            if not drive.isalpha():
+                return False, f"无效的驱动器号: {drive}"
+
+    return True, normalized
 
 
 def _estimate_file_count(path: str, max_count: int = 9999) -> int:
@@ -1025,27 +1265,19 @@ async def get_directories(
 ) -> DirectoriesListResponse:
     """获取当前管理的目录列表"""
     try:
-        # 获取扫描路径
-        scan_paths = config_loader.get('file_scanner', 'scan_paths', [])
-        if isinstance(scan_paths, str):
-            scan_paths = [p.strip() for p in scan_paths.split(';') if p.strip()]
-
-        # 获取监控目录
-        monitored_dirs = file_monitor.get_monitored_directories() if file_monitor else []
+        # 获取扫描路径和监控目录
+        scan_paths = _normalize_path_list(config_loader.get('file_scanner', 'scan_paths', []))
+        monitored_dirs = _normalize_path_list(file_monitor.get_monitored_directories() if file_monitor else [])
 
         # 合并所有目录（去重）
-        all_paths = set()
-        for path in scan_paths:
-            all_paths.add(os.path.abspath(str(path)))
-        for path in monitored_dirs:
-            all_paths.add(os.path.abspath(str(path)))
+        all_paths = set(scan_paths + monitored_dirs)
 
         # 构建目录信息列表
         directories = []
         for path in sorted(all_paths):
             exists = os.path.exists(path) and os.path.isdir(path)
-            is_scanning = path in [os.path.abspath(str(p)) for p in scan_paths]
-            is_monitoring = path in [os.path.abspath(str(p)) for p in monitored_dirs]
+            is_scanning = path in scan_paths
+            is_monitoring = path in monitored_dirs
             file_count = _estimate_file_count(path) if exists else 0
 
             directories.append({
@@ -1057,9 +1289,11 @@ async def get_directories(
             })
 
         return {"directories": directories}
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"获取目录列表错误: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"获取目录列表失败: {str(e)}")
+        raise HTTPException(status_code=500, detail="获取目录列表失败，请稍后重试") from e
 
 
 @api_router.post("/directories")
@@ -1072,20 +1306,22 @@ async def add_directory(
     """添加新目录（同时添加为扫描路径和监控目录）"""
     try:
         path = request.path.strip('"').strip("'")
-        expanded_path = os.path.abspath(os.path.expanduser(path))
 
-        # 验证路径
+        # 验证路径安全性
+        is_valid, result = _validate_directory_path(path)
+        if not is_valid:
+            raise HTTPException(status_code=400, detail=result)
+        expanded_path = result
+
+        # 验证路径存在性和类型
         if not os.path.exists(expanded_path):
             raise HTTPException(status_code=400, detail=f"路径不存在: {expanded_path}")
         if not os.path.isdir(expanded_path):
             raise HTTPException(status_code=400, detail=f"路径不是目录: {expanded_path}")
 
         # 检查是否已存在
-        scan_paths = config_loader.get('file_scanner', 'scan_paths', [])
-        if isinstance(scan_paths, str):
-            scan_paths = [p.strip() for p in scan_paths.split(';') if p.strip()]
-
-        existing_paths = [os.path.abspath(str(p)) for p in scan_paths]
+        scan_paths = _normalize_path_list(config_loader.get('file_scanner', 'scan_paths', []))
+        existing_paths = scan_paths
         if expanded_path in existing_paths:
             return {
                 "status": "success",
@@ -1108,11 +1344,9 @@ async def add_directory(
             file_monitor.add_monitored_directory(expanded_path)
 
         # 更新配置中的监控目录
-        monitor_dirs = config_loader.get('monitor', 'directories', [])
-        if isinstance(monitor_dirs, str):
-            monitor_dirs = [d.strip() for d in monitor_dirs.split(';') if d.strip()]
+        monitor_dirs = _normalize_path_list(config_loader.get('monitor', 'directories', []))
 
-        if expanded_path not in [os.path.abspath(str(d)) for d in monitor_dirs]:
+        if expanded_path not in monitor_dirs:
             monitor_dirs.append(expanded_path)
             config_loader.set('monitor', 'directories', monitor_dirs)
 
@@ -1141,7 +1375,12 @@ async def remove_directory(
     """删除目录（同时从扫描路径和监控目录中移除）"""
     try:
         path = request.path.strip('"').strip("'")
-        expanded_path = os.path.abspath(os.path.expanduser(path))
+
+        # 验证路径安全性
+        is_valid, result = _validate_directory_path(path)
+        if not is_valid:
+            raise HTTPException(status_code=400, detail=result)
+        expanded_path = result
 
         # 从扫描路径中移除
         config_loader.remove_scan_path(expanded_path)
@@ -1151,11 +1390,8 @@ async def remove_directory(
             file_monitor.remove_monitored_directory(expanded_path)
 
         # 更新配置中的监控目录
-        monitor_dirs = config_loader.get('monitor', 'directories', [])
-        if isinstance(monitor_dirs, str):
-            monitor_dirs = [d.strip() for d in monitor_dirs.split(';') if d.strip()]
-
-        monitor_dirs = [d for d in monitor_dirs if os.path.abspath(str(d)) != expanded_path]
+        monitor_dirs = _normalize_path_list(config_loader.get('monitor', 'directories', []))
+        monitor_dirs = [d for d in monitor_dirs if d != expanded_path]
         config_loader.set('monitor', 'directories', monitor_dirs)
 
         # 保存配置
@@ -1167,28 +1403,44 @@ async def remove_directory(
             "path": expanded_path,
             "needs_rebuild": False
         }
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"删除目录错误: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"删除目录失败: {str(e)}")
+        raise HTTPException(status_code=500, detail="删除目录失败，请稍后重试") from e
+
+
+def _show_directory_dialog() -> str | None:
+    """
+    在线程中显示目录选择对话框
+
+    Returns:
+        选中的路径或 None（如果取消）
+    """
+    import tkinter as tk
+    from tkinter import filedialog
+
+    # 创建隐藏的Tk窗口
+    root = tk.Tk()
+    root.withdraw()
+    root.attributes('-topmost', True)
+
+    try:
+        # 打开目录选择对话框
+        selected_path = filedialog.askdirectory(parent=root, title="选择要添加的目录")
+        return selected_path if selected_path else None
+    finally:
+        # 确保销毁Tk窗口
+        root.destroy()
 
 
 @api_router.post("/directories/browse")
 async def browse_directory() -> BrowseResponse:
     """打开系统文件对话框选择目录"""
     try:
-        import tkinter as tk
-        from tkinter import filedialog
-
-        # 创建隐藏的Tk窗口
-        root = tk.Tk()
-        root.withdraw()
-        root.attributes('-topmost', True)
-
-        # 打开目录选择对话框
-        selected_path = filedialog.askdirectory(parent=root, title="选择要添加的目录")
-
-        # 销毁Tk窗口
-        root.destroy()
+        # 在线程池中运行阻塞的Tkinter操作
+        loop = asyncio.get_event_loop()
+        selected_path = await loop.run_in_executor(None, _show_directory_dialog)
 
         if selected_path:
             return {
@@ -1203,7 +1455,7 @@ async def browse_directory() -> BrowseResponse:
             }
     except Exception as e:
         logger.error(f"打开目录选择对话框错误: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"打开目录选择对话框失败: {str(e)}")
+        raise HTTPException(status_code=500, detail="打开目录选择对话框失败，请稍后重试") from e
 
 
 # 使用/api前缀包含API路由

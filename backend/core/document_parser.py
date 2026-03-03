@@ -4,6 +4,29 @@
 import os
 import time
 import logging
+import signal
+from functools import wraps
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeoutError
+
+
+def timeout(seconds=30):
+    """超时装饰器 - 限制函数执行时间
+
+    Args:
+        seconds: 超时时间（秒），默认30秒
+    """
+    def decorator(func):
+        @wraps(func)
+        def wrapper(*args, **kwargs):
+            # 使用线程池实现超时控制
+            with ThreadPoolExecutor(max_workers=1) as executor:
+                future = executor.submit(func, *args, **kwargs)
+                try:
+                    return future.result(timeout=seconds)
+                except FutureTimeoutError:
+                    raise TimeoutError(f"文档解析超时（{seconds}秒）")
+        return wrapper
+    return decorator
 import pypdf
 import pdfminer.high_level
 import pdfminer.layout
@@ -48,8 +71,9 @@ class DocumentParser:
     MAX_OUTPUT_SIZE_DOC_MB = 10     # Word输出文本最大大小
     MAX_OUTPUT_SIZE_TEXT_MB = 10    # 文本文件输出最大大小
 
+    @timeout(30)
     def _parse_pptx(self, file_path):
-        """解析PPTX文件"""
+        """解析PPTX文件（30秒超时）"""
         try:
             # 延迟导入以避免启动时依赖检查失败
             import pptx
@@ -231,8 +255,9 @@ class DocumentParser:
         
         return metadata
     
+    @timeout(30)
     def _parse_pdf(self, file_path):
-        """解析PDF文件"""
+        """解析PDF文件（30秒超时）"""
 
         # 检查文件大小，避免加载过大PDF导致内存问题
         file_size = os.path.getsize(file_path)
@@ -247,6 +272,7 @@ class DocumentParser:
         # 1. 优先使用PyMuPDF (fitz)
         # PyMuPDF非常健壮，能处理许多pdfminer无法处理的损坏PDF，且对中文支持较好
         if fitz:
+            doc = None
             try:
                 doc = fitz.open(file_path)
                 for page in doc:
@@ -255,9 +281,15 @@ class DocumentParser:
                         break
                     # sort=True 尝试按阅读顺序排序文本块，对多栏布局有帮助
                     text += page.get_text("text", sort=True) + "\n"
-                doc.close()
             except Exception as e:
                 self.logger.warning(f"PyMuPDF解析PDF失败 {file_path}: {str(e)}")
+            finally:
+                # 确保文档句柄被关闭
+                if doc is not None:
+                    try:
+                        doc.close()
+                    except Exception:
+                        pass
 
         # 2. 如果PyMuPDF失败或结果为空，尝试pdfplumber (基于pdfminer.six)
         if (not text or not text.strip()) and pdfplumber:
@@ -323,6 +355,7 @@ class DocumentParser:
 
         return text
     
+    @timeout(30)
     def _parse_docx(self, file_path):
         """解析Word文档"""
         try:
@@ -373,7 +406,7 @@ class DocumentParser:
                         return f"错误: Word文档过大 ({file_size} bytes)，已跳过解析"
 
                     content = textract.process(file_path).decode('utf-8', errors='ignore')
-                    max_content_size = 10 * 1024 * 1024  # 10MB限制内容
+                    max_content_size = self.MAX_OUTPUT_SIZE_DOC_MB * 1024 * 1024
                     if len(content) > max_content_size:
                         content = content[:max_content_size] + "\n... (内容已截断)"
                     return content
@@ -387,40 +420,58 @@ class DocumentParser:
         if not win32com:
             return None
             
+        word = None
+        doc = None
+        temp_docx = None
         try:
             import pythoncom
             pythoncom.CoInitialize()
-            
+
             word = win32com.client.Dispatch("Word.Application")
             word.Visible = False
-            
+
             abs_path = os.path.abspath(file_path)
             doc = word.Documents.Open(abs_path)
-            
-            # Create temp docx path
+
+            # Create temp docx path - 使用安全的临时文件创建
             import tempfile
-            temp_dir = tempfile.gettempdir()
-            # Handle filename with special chars by using hash or simple name
-            temp_docx = os.path.join(temp_dir, f"converted_{int(time.time())}_{os.path.basename(file_path)}.docx")
-            
+            temp_fd, temp_docx = tempfile.mkstemp(suffix='.docx', prefix='converted_')
+            os.close(temp_fd)  # 关闭文件描述符，只保留路径
+
             # Save as DOCX (wdFormatXMLDocument = 12)
             doc.SaveAs2(temp_docx, FileFormat=12)
-            doc.Close()
-            
+
             # Parse the converted docx
             content = self._parse_docx(temp_docx)
-            
-            # Cleanup
-            try:
-                os.remove(temp_docx)
-            except:
-                pass
-                
+
             return content
         except Exception as e:
             self.logger.error(f"Doc转Docx失败 {file_path}: {str(e)}")
             return None
+        finally:
+            # Cleanup
+            if doc is not None:
+                try:
+                    doc.Close(SaveChanges=False)
+                except Exception:
+                    pass
+            if word is not None:
+                try:
+                    word.Quit()
+                except Exception:
+                    pass
+            if temp_docx and os.path.exists(temp_docx):
+                try:
+                    os.remove(temp_docx)
+                except Exception:
+                    pass
+            try:
+                import pythoncom
+                pythoncom.CoUninitialize()
+            except Exception:
+                pass
 
+    @timeout(30)
     def _parse_doc_win32(self, file_path):
         """使用win32com解析.doc文件 (仅Windows)"""
         if not win32com:
@@ -436,18 +487,18 @@ class DocumentParser:
                     self.logger.warning(f"无法使用textract解析.doc文件 {file_path}: {str(te)}")
             return "错误: 无法解析.doc内容 (缺少 pywin32 依赖或非Windows环境)"
         
+        word = None
+        doc = None
         try:
             import pythoncom
             pythoncom.CoInitialize()
-            
+
             # Win32 COM 作为首选
             word = win32com.client.Dispatch("Word.Application")
             word.Visible = False
             abs_path = os.path.abspath(file_path)
             doc = word.Documents.Open(abs_path)
             text = doc.Content.Text
-            doc.Close()
-            # word.Quit() # 不要退出Word，可能影响其他进程，或者保持Word后台运行
             return text
         except Exception as e:
             self.logger.warning(f"Win32直接解析.doc失败 {file_path}: {str(e)}，尝试转换格式...")
@@ -471,6 +522,23 @@ class DocumentParser:
                     self.logger.warning(f"无法使用textract解析.doc文件 {file_path}: {str(te)}")
             
             return f"错误: 无法解析.doc内容\n{str(e)}"
+        finally:
+            # 确保 COM 资源被正确释放
+            if doc is not None:
+                try:
+                    doc.Close(SaveChanges=False)
+                except Exception:
+                    pass
+            if word is not None:
+                try:
+                    word.Quit()
+                except Exception:
+                    pass
+            try:
+                import pythoncom
+                pythoncom.CoUninitialize()
+            except Exception:
+                pass
 
     def _parse_text(self, file_path):
         """解析文本文件"""
@@ -494,12 +562,12 @@ class DocumentParser:
                 with open(file_path, 'r', encoding='gbk', errors='replace') as file:
                     content = file.read()
                     # 限制返回内容大小
-                    max_size = 10 * 1024 * 1024  # 10MB限制
+                    max_size = self.MAX_FILE_SIZE_TEXT_MB * 1024 * 1024
                     if len(content) > max_size:
                         content = content[:max_size] + "\n... (内容已截断)"
                     return content
-            except:
-                self.logger.error(f"文本解析失败 {file_path}: 编码错误")
+            except (UnicodeDecodeError, LookupError) as e:
+                self.logger.error(f"文本解析失败 {file_path}: 编码错误 - {e}")
                 return "错误: 无法解析文本内容（编码问题）"
         except Exception as e:
             self.logger.error(f"文本解析失败 {file_path}: {str(e)}")
@@ -538,9 +606,10 @@ class DocumentParser:
             # 尝试作为普通文本文件解析
             try:
                 return self._parse_text(file_path)
-            except:
-                return f"错误: 无法解析CSV内容\n{str(e)}"
+            except (OSError, ValueError) as e2:
+                return f"错误: 无法解析CSV内容\n{str(e2)}"
     
+    @timeout(30)
     def _parse_excel(self, file_path):
         """解析Excel文件"""
         try:
@@ -556,7 +625,7 @@ class DocumentParser:
 
             # 限制返回内容大小
             content = df.to_string()
-            max_content_size = 10 * 1024 * 1024  # 10MB限制内容
+            max_content_size = self.MAX_OUTPUT_SIZE_DOC_MB * 1024 * 1024
             if len(content) > max_content_size:
                 content = content[:max_content_size] + "\n... (内容已截断)"
             return content
@@ -564,6 +633,8 @@ class DocumentParser:
             self.logger.error(f"Excel解析失败 {file_path}: {str(e)}")
             # 尝试使用win32com作为后备 (仅Windows)
             if win32com:
+                excel = None
+                wb = None
                 try:
                     excel = win32com.client.Dispatch("Excel.Application")
                     excel.Visible = False
@@ -571,15 +642,14 @@ class DocumentParser:
 
                     # 检查Excel文件大小
                     file_size = os.path.getsize(file_path)
-                    if file_size > 50 * 1024 * 1024:
-                        excel.Quit()
+                    if file_size > self.MAX_FILE_SIZE_EXCEL_MB * 1024 * 1024:
                         self.logger.warning(f"Excel文件过大，跳过Win32解析 {file_path}: {file_size} bytes")
                         return f"错误: Excel文件过大 ({file_size} bytes)，已跳过解析"
 
                     wb = excel.Workbooks.Open(abs_path)
                     text = ""
                     for sheet in wb.Sheets:
-                        if len(text) > 10 * 1024 * 1024:  # 限制输出大小
+                        if len(text) > self.MAX_OUTPUT_SIZE_TEXT_MB * 1024 * 1024:
                             text += "\n... (内容已截断)"
                             break
                         try:
@@ -591,28 +661,38 @@ class DocumentParser:
                                 for row in used_range.Value:
                                     if row and len(text) <= 10 * 1024 * 1024:  # 限制输出大小
                                         text += " ".join([str(cell) for cell in row if cell is not None and cell != '']) + "\n"
-                                    if len(text) > 10 * 1024 * 1024:  # 限制输出大小
+                                    if len(text) > self.MAX_OUTPUT_SIZE_TEXT_MB * 1024 * 1024:
                                         text += "\n... (内容已截断)"
                                         break
                         except Exception:
                             pass
-                        if len(text) > 10 * 1024 * 1024:  # 限制输出大小
+                        if len(text) > self.MAX_OUTPUT_SIZE_TEXT_MB * 1024 * 1024:
                             break
-                    wb.Close(False)
-                    excel.Quit()
                     return text
                 except Exception as we:
                     self.logger.warning(f"Win32解析Excel失败 {file_path}: {str(we)}")
+                finally:
+                    # 确保资源被释放
+                    if wb is not None:
+                        try:
+                            wb.Close(SaveChanges=False)
+                        except Exception:
+                            pass
+                    if excel is not None:
+                        try:
+                            excel.Quit()
+                        except Exception:
+                            pass
 
             # 尝试使用textract作为后备
             if textract:
                 try:
                     # 检查文件大小限制
-                    if file_size > 50 * 1024 * 1024:
+                    if file_size > self.MAX_FILE_SIZE_EXCEL_MB * 1024 * 1024:
                         return f"错误: Excel文件过大 ({file_size} bytes)，已跳过解析"
 
                     content = textract.process(file_path).decode('utf-8', errors='ignore')
-                    max_content_size = 10 * 1024 * 1024  # 10MB限制内容
+                    max_content_size = self.MAX_OUTPUT_SIZE_DOC_MB * 1024 * 1024
                     if len(content) > max_content_size:
                         content = content[:max_content_size] + "\n... (内容已截断)"
                     return content
@@ -621,6 +701,7 @@ class DocumentParser:
             # 如果没有textract或解析失败，返回错误信息
             return f"错误: 无法解析Excel内容\n{str(e)}"
     
+    @timeout(20)
     def _parse_generic(self, file_path):
         """通用解析器，用于处理不支持的文件格式"""
         file_ext = os.path.splitext(file_path)[1].lower()[1:]

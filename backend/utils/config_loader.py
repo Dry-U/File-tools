@@ -3,14 +3,32 @@
 # -*- coding: utf-8 -*-
 """配置加载器模块 - 负责加载、验证和管理配置"""
 import yaml
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List, Tuple
 from pathlib import Path
 import os
 import datetime
 import logging
 import threading
+import hashlib
+import base64
+
+# 尝试导入加密库，如果不存在则使用简单的 base64 混淆
+try:
+    from cryptography.fernet import Fernet
+    from cryptography.hazmat.primitives import hashes
+    from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2
+    CRYPTO_AVAILABLE = True
+except ImportError:
+    CRYPTO_AVAILABLE = False
+    logging.warning("cryptography 库未安装，敏感信息将使用简单混淆存储")
 
 logger = logging.getLogger(__name__)
+
+# 敏感字段列表 - 这些字段会被加密存储
+SENSITIVE_FIELDS: List[Tuple[str, str]] = [
+    ('ai_model', 'api_key'),
+    ('ai_model', 'api_secret'),
+]
 
 
 class ConfigLoader:
@@ -27,6 +45,18 @@ class ConfigLoader:
                 if cls._instance is None:
                     cls._instance = super().__new__(cls)
         return cls._instance
+
+    @classmethod
+    def reset_instance(cls) -> None:
+        """
+        重置单例实例（主要用于测试）
+
+        警告：此方法会清除当前实例，仅在测试环境中使用
+        """
+        with cls._lock:
+            if cls._instance is not None:
+                cls._instance = None
+        logger.debug("ConfigLoader 单例已重置")
 
     def __init__(self, config_path: Optional[str] = None):
         # 避免重复初始化
@@ -51,6 +81,116 @@ class ConfigLoader:
 
         # 验证配置
         self._validate_config()
+
+        # 解密敏感字段
+        self._decrypt_sensitive_fields()
+
+    def _get_encryption_key(self) -> bytes:
+        """
+        生成基于机器标识的加密密钥
+
+        使用机器特定的信息（如机器名、用户名等）派生密钥，
+        这样配置只能在同一台机器上解密。
+        """
+        # 收集机器特定信息
+        machine_info = [
+            os.environ.get('COMPUTERNAME', ''),
+            os.environ.get('USERDOMAIN', ''),
+            os.environ.get('USERNAME', ''),
+            str(Path.home()),
+        ]
+
+        # 创建稳定的密钥派生输入
+        key_material = '|'.join(machine_info).encode('utf-8')
+
+        if CRYPTO_AVAILABLE:
+            # 使用 PBKDF2 派生密钥
+            kdf = PBKDF2(
+                algorithm=hashes.SHA256(),
+                length=32,
+                salt=b'file_tools_salt_v1',  # 固定盐值，确保同一台机器密钥一致
+                iterations=100000,
+            )
+            key = base64.urlsafe_b64encode(kdf.derive(key_material))
+            return key
+        else:
+            # 降级方案：使用简单的哈希
+            return base64.urlsafe_b64encode(
+                hashlib.sha256(key_material).digest()
+            )
+
+    def _encrypt_value(self, value: str) -> str:
+        """加密单个值"""
+        if not value or not isinstance(value, str):
+            return value
+
+        # 检查是否已经加密（避免双重加密）
+        if value.startswith('enc:'):
+            return value
+
+        try:
+            key = self._get_encryption_key()
+
+            if CRYPTO_AVAILABLE:
+                f = Fernet(key)
+                encrypted = f.encrypt(value.encode('utf-8'))
+                return f"enc:{encrypted.decode('utf-8')}"
+            else:
+                # 降级方案：简单的 base64 混淆
+                # 注意：这不是真正的加密，只是防止明文存储
+                obfuscated = base64.b64encode(value.encode('utf-8')).decode('utf-8')
+                return f"enc:b64:{obfuscated}"
+        except Exception as e:
+            logger.warning(f"加密失败: {e}")
+            return value
+
+    def _decrypt_value(self, value: str) -> str:
+        """解密单个值"""
+        if not value or not isinstance(value, str):
+            return value
+
+        # 检查是否是加密格式
+        if not value.startswith('enc:'):
+            return value
+
+        try:
+            key = self._get_encryption_key()
+            encrypted_data = value[4:]  # 移除 'enc:' 前缀
+
+            if encrypted_data.startswith('b64:'):
+                # 降级方案：base64 解码
+                obfuscated = encrypted_data[4:]
+                return base64.b64decode(obfuscated).decode('utf-8')
+
+            if CRYPTO_AVAILABLE:
+                f = Fernet(key)
+                decrypted = f.decrypt(encrypted_data.encode('utf-8'))
+                return decrypted.decode('utf-8')
+            else:
+                # 无法解密 Fernet 格式
+                logger.warning("无法解密 Fernet 格式的值，cryptography 库可能未安装")
+                return value
+        except Exception as e:
+            logger.warning(f"解密失败: {e}")
+            return value  # 返回原值，避免丢失配置
+
+    def _encrypt_sensitive_fields(self) -> None:
+        """加密所有敏感字段"""
+        for section, key in SENSITIVE_FIELDS:
+            if section in self.config and key in self.config[section]:
+                value = self.config[section][key]
+                if value and isinstance(value, str) and not value.startswith('enc:'):
+                    self.config[section][key] = self._encrypt_value(value)
+                    logger.debug(f"已加密字段: {section}.{key}")
+
+    def _decrypt_sensitive_fields(self) -> None:
+        """解密所有敏感字段"""
+        for section, key in SENSITIVE_FIELDS:
+            if section in self.config and key in self.config[section]:
+                value = self.config[section][key]
+                if value and isinstance(value, str) and value.startswith('enc:'):
+                    self.config[section][key] = self._decrypt_value(value)
+                    logger.debug(f"已解密字段: {section}.{key}")
 
     def _load_config(self) -> Dict[str, Any]:
         """从文件加载配置 (线程安全)"""
@@ -373,6 +513,81 @@ class ConfigLoader:
                 logger.error(f"验证配置项 {section}.{key} 时出错: {e}")
                 self.set(section, key, default_val)
 
+        # 验证字符串配置
+        self._validate_string_configs()
+
+    def _validate_string_configs(self):
+        """验证字符串类型的配置"""
+        import re
+
+        # 验证 URL 格式
+        url_configs = [
+            ('ai_model', 'api_url', 'http://127.0.0.1:8080/v1/chat/completions'),
+        ]
+
+        url_pattern = re.compile(
+            r'^(https?://)?'  # 协议
+            r'(([\w.-]+)'  # 域名
+            r'|(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}))'  # IP 地址
+            r'(:\d{1,5})?'  # 端口号
+            r'(/[\w./-]*)?$'  # 路径
+        )
+
+        for section, key, default_val in url_configs:
+            try:
+                val = self.get(section, key, default_val)
+                if val and isinstance(val, str):
+                    # 允许 localhost 和 127.0.0.1
+                    if not url_pattern.match(val) and 'localhost' not in val:
+                        logger.warning(
+                            f"配置项 {section}.{key} 的 URL 格式无效: {val}，使用默认值")
+                        self.set(section, key, default_val)
+            except Exception as e:
+                logger.error(f"验证 URL 配置项 {section}.{key} 时出错: {e}")
+                self.set(section, key, default_val)
+
+        # 验证路径格式（不能包含非法字符）
+        path_configs = [
+            ('system', 'data_dir'),
+            ('system', 'index_dir'),
+            ('system', 'cache_dir'),
+            ('system', 'temp_dir'),
+        ]
+
+        invalid_chars = '<>:"|?*'
+
+        for section, key in path_configs:
+            try:
+                val = self.get(section, key, '')
+                if val and isinstance(val, str):
+                    # 检查是否包含非法字符
+                    if any(c in val for c in invalid_chars):
+                        logger.warning(
+                            f"配置项 {section}.{key} 包含非法字符: {val}，使用默认值")
+                        self.set(section, key, './data')
+            except Exception as e:
+                logger.error(f"验证路径配置项 {section}.{key} 时出错: {e}")
+
+        # 验证枚举值
+        enum_configs = [
+            ('system', 'log_level', ['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'], 'INFO'),
+            ('system', 'log_rotation', ['midnight', 'daily', 'weekly', 'monthly'], 'midnight'),
+            ('system', 'log_format', ['structured', 'simple', 'detailed'], 'structured'),
+            ('embedding', 'provider', ['fastembed', 'sentence_transformers', 'modelscope'], 'fastembed'),
+        ]
+
+        for section, key, allowed_values, default_val in enum_configs:
+            try:
+                val = self.get(section, key, default_val)
+                if val and isinstance(val, str):
+                    if val.upper() not in [v.upper() for v in allowed_values]:
+                        logger.warning(
+                            f"配置项 {section}.{key} 的值 {val} 不在允许的范围 {allowed_values} 内，使用默认值 {default_val}")
+                        self.set(section, key, default_val)
+            except Exception as e:
+                logger.error(f"验证枚举配置项 {section}.{key} 时出错: {e}")
+                self.set(section, key, default_val)
+
     def get(self, section, key: Optional[str] = None, default: Any = None) -> Any:
         """获取配置值"""
         # 添加类型检查，防止section为dict等不可哈希类型
@@ -532,6 +747,8 @@ class ConfigLoader:
     def save(self) -> bool:
         """保存配置到文件 (线程安全)"""
         try:
+            # 在保存前加密敏感字段
+            self._encrypt_sensitive_fields()
 
             # 确保配置目录存在
             config_dir = self.config_path.parent
@@ -546,9 +763,14 @@ class ConfigLoader:
                 if os.name == 'posix':  # Unix-like systems
                     os.chmod(self.config_path, 0o600)  # 只有所有者可读写
 
+            # 保存后解密敏感字段，以便内存中保持明文
+            self._decrypt_sensitive_fields()
+
             return True
         except Exception as e:
             logger.error(f"保存配置文件失败: {str(e)}")
+            # 保存失败时也尝试解密，避免配置被锁在加密状态
+            self._decrypt_sensitive_fields()
             return False
 
     def get_path(self, section: str, key: str, default: str = '') -> Path:

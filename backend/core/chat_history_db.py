@@ -12,7 +12,8 @@ from backend.utils.logger import setup_logger
 logger = setup_logger(__name__)
 
 # Pre-compile session ID validation regex
-SESSION_ID_PATTERN = re.compile(r'^[\w\-.$@:]+$')  # 会话ID验证正则
+# 只允许字母数字、下划线、连字符，长度限制在1-64字符
+SESSION_ID_PATTERN = re.compile(r'^[a-zA-Z0-9_-]{1,64}$')  # 会话ID验证正则
 
 
 class ChatHistoryDB:
@@ -44,6 +45,19 @@ class ChatHistoryDB:
             self._local.conn = sqlite3.connect(str(self.db_path), check_same_thread=False)
             self._local.conn.row_factory = sqlite3.Row
         return self._local.conn
+
+    def close(self) -> None:
+        """关闭当前线程的数据库连接"""
+        if hasattr(self._local, 'conn') and self._local.conn is not None:
+            try:
+                self._local.conn.close()
+                self._local.conn = None
+            except Exception as e:
+                logger.warning(f"关闭数据库连接失败: {e}")
+
+    def __del__(self):
+        """析构时确保连接被关闭"""
+        self.close()
 
     def _init_db(self):
         """初始化数据库表"""
@@ -95,7 +109,7 @@ class ChatHistoryDB:
         """
         if not session_id or not isinstance(session_id, str):
             return False
-        if len(session_id) > 256:
+        if len(session_id) > 64:
             return False
         # Allow alphanumeric, underscore, hyphen, and some safe characters
         return bool(SESSION_ID_PATTERN.match(session_id))
@@ -147,9 +161,10 @@ class ChatHistoryDB:
 
         now = time.time()
         try:
-            # 确保会话存在
+            # 优化：使用 INSERT OR IGNORE 自动创建会话（如果不存在）
+            # 这样可以避免先查询再创建的两次数据库操作
             cursor.execute(
-                "INSERT OR IGNORE INTO sessions (session_id, title, created_at, updated_at) VALUES (?, ?, ?, ?)",
+                "INSERT OR IGNORE INTO sessions (session_id, title, created_at, updated_at, message_count) VALUES (?, ?, ?, ?, 0)",
                 (session_id, '新对话', now, now)
             )
 
@@ -184,6 +199,10 @@ class ChatHistoryDB:
             return True
         except Exception as e:
             logger.error(f"添加消息失败: {e}")
+            try:
+                conn.rollback()
+            except Exception:
+                pass
             return False
 
     def get_session_messages(self, session_id: str, limit: int = None) -> List[Dict[str, Any]]:
@@ -345,3 +364,54 @@ class ChatHistoryDB:
         if hasattr(self._local, 'conn') and self._local.conn:
             self._local.conn.close()
             self._local.conn = None
+
+    def cleanup_old_sessions(self, max_age_days: int = 30, max_sessions: int = 1000) -> int:
+        """
+        清理旧会话，防止数据库无限增长
+
+        Args:
+            max_age_days: 会话最大保留天数
+            max_sessions: 最大保留会话数
+
+        Returns:
+            删除的会话数
+        """
+        conn = self._get_connection()
+        cursor = conn.cursor()
+        deleted_count = 0
+
+        try:
+            # 1. 删除超过 max_age_days 天的旧会话
+            cutoff_time = time.time() - (max_age_days * 24 * 3600)
+            cursor.execute(
+                "DELETE FROM sessions WHERE updated_at < ?",
+                (cutoff_time,)
+            )
+            deleted_count += cursor.rowcount
+
+            # 2. 如果会话数仍然超过 max_sessions，删除最旧的
+            cursor.execute("SELECT COUNT(*) FROM sessions")
+            count = cursor.fetchone()[0]
+
+            if count > max_sessions:
+                # 删除最旧的会话，保留 max_sessions 个
+                cursor.execute(
+                    """
+                    DELETE FROM sessions
+                    WHERE session_id IN (
+                        SELECT session_id FROM sessions
+                        ORDER BY updated_at DESC
+                        LIMIT -1 OFFSET ?
+                    )
+                    """,
+                    (max_sessions,)
+                )
+                deleted_count += cursor.rowcount
+
+            conn.commit()
+            if deleted_count > 0:
+                logger.info(f"清理了 {deleted_count} 个旧会话")
+            return deleted_count
+        except Exception as e:
+            logger.error(f"清理旧会话失败: {e}")
+            return 0

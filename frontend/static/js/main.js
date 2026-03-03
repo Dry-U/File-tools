@@ -39,13 +39,15 @@ function showTestResultModal(title, message, isSuccess) {
 
     if (!modalEl || !titleEl || !bodyEl) return;
 
+    const safeTitle = escapeHtml(title);
+    const safeMessage = escapeHtml(message);
     const iconClass = isSuccess ? 'bi-check-circle-fill text-success' : 'bi-x-circle-fill text-danger';
-    titleEl.innerHTML = `<i class="bi ${isSuccess ? 'bi-check-circle' : 'bi-x-circle'} me-2"></i>${title}`;
+    titleEl.innerHTML = `<i class="bi ${isSuccess ? 'bi-check-circle' : 'bi-x-circle'} me-2"></i>${safeTitle}`;
     bodyEl.innerHTML = `
         <div class="mb-3">
             <i class="bi ${iconClass}" style="font-size: 48px;"></i>
         </div>
-        <p class="mb-0 small">${message}</p>
+        <p class="mb-0 small">${safeMessage}</p>
     `;
 
     showModal(modalEl);
@@ -426,10 +428,11 @@ async function confirmRebuild() {
         }
     } catch (error) {
         console.error('Error rebuilding index:', error);
+        const safeErrorMessage = escapeHtml(error.message || '请求失败');
         modalBody.innerHTML = `
             <i class="bi bi-x-circle-fill text-danger display-4 mb-3"></i>
             <p class="mb-0 small">索引重建失败</p>
-            <p class="small text-muted mt-1">${error.message || '请求失败'}</p>
+            <p class="small text-muted mt-1">${safeErrorMessage}</p>
         `;
     } finally {
         // Restore close capability
@@ -698,9 +701,10 @@ function showToast(message, type) {
         animation: slideIn 0.3s ease;
     `;
 
+    const safeMessage = escapeHtml(message);
     toastEl.innerHTML = `
         <i class="bi ${iconClass}" style="color: ${borderColor}; font-size: 18px;"></i>
-        <span style="flex: 1;">${message}</span>
+        <span style="flex: 1;">${safeMessage}</span>
         <button type="button" style="
             background: transparent;
             border: none;

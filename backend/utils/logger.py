@@ -18,6 +18,37 @@ import time
 from functools import wraps
 from dataclasses import dataclass, asdict
 from enum import Enum
+import re
+
+def sanitize_log_message(msg: str) -> str:
+    """
+    清理日志消息，防止日志注入攻击
+
+    移除或转义控制字符，防止通过用户输入伪造日志条目
+
+    Args:
+        msg: 原始日志消息
+
+    Returns:
+        清理后的日志消息
+    """
+    if not isinstance(msg, str):
+        msg = str(msg)
+
+    # 移除控制字符（除了常见的空白字符）
+    # 保留: \t (9), \n (10), \r (13)
+    # 只允许可打印ASCII (32-126) 和常用Unicode字符 (>127)
+    allowed_whitespace = {'\t', '\n', '\r'}
+    sanitized = ''.join(
+        char if (32 <= ord(char) <= 126 or ord(char) > 127) or char in allowed_whitespace
+        else '?'
+        for char in msg
+    )
+
+    # 防止多行日志注入（将换行符替换为可见表示）
+    sanitized = sanitized.replace('\n', '\\n').replace('\r', '\\r')
+
+    return sanitized
 
 class LogLevel(Enum):
     """日志级别枚举"""
@@ -42,7 +73,16 @@ class LoggerConfig:
 
     def __init__(self, config):
         from backend.utils.config_loader import ConfigLoader
-        if isinstance(config, ConfigLoader):
+        # 检查 ConfigLoader 是否成功导入（避免循环导入问题）
+        is_config_loader = False
+        try:
+            if ConfigLoader is not None and isinstance(config, ConfigLoader):
+                is_config_loader = True
+        except TypeError:
+            # isinstance() arg 2 必须是类型，忽略此错误
+            pass
+
+        if is_config_loader:
             self.log_level = config.get('system', 'log_level', 'INFO')
             self.log_dir = config.get('system', 'data_dir', './data') + '/logs'
             self.log_max_size = config.get('system', 'log_max_size', 10)
@@ -442,29 +482,41 @@ def performance_monitor(metric_name: str, description: str = ""):
 def debug(message: Union[str, Exception], *args, **kwargs) -> None:
     """记录调试级别日志"""
     logger = get_logger()
+    if isinstance(message, str):
+        message = sanitize_log_message(message)
     logger.debug(message, *args, **kwargs)
 
 def info(message: Union[str, Exception], *args, **kwargs) -> None:
     """记录信息级别日志"""
     logger = get_logger()
+    if isinstance(message, str):
+        message = sanitize_log_message(message)
     logger.info(message, *args, **kwargs)
 
 def warning(message: Union[str, Exception], *args, **kwargs) -> None:
     """记录警告级别日志"""
     logger = get_logger()
+    if isinstance(message, str):
+        message = sanitize_log_message(message)
     logger.warning(message, *args, **kwargs)
 
 def error(message: Union[str, Exception], *args, **kwargs) -> None:
     """记录错误级别日志"""
     logger = get_logger()
+    if isinstance(message, str):
+        message = sanitize_log_message(message)
     logger.error(message, *args, **kwargs)
 
 def critical(message: Union[str, Exception], *args, **kwargs) -> None:
     """记录严重错误级别日志"""
     logger = get_logger()
+    if isinstance(message, str):
+        message = sanitize_log_message(message)
     logger.critical(message, *args, **kwargs)
 
 def exception(message: Union[str, Exception], *args, **kwargs) -> None:
     """记录异常日志"""
     logger = get_logger()
+    if isinstance(message, str):
+        message = sanitize_log_message(message)
     logger.exception(message, *args, **kwargs)

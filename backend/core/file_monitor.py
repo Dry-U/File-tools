@@ -96,53 +96,15 @@ class FileMonitor:
                 if dir_path and os.path.exists(dir_path):
                     monitored_dirs.append(os.path.abspath(dir_path))
         
-        # 如果没有配置监控目录,在Windows系统下监控所有磁盘驱动器
+        # 如果没有配置监控目录，默认只监控用户主目录
+        # 注意：出于安全和性能考虑，不再自动监控所有磁盘驱动器
         if not monitored_dirs:
-            if os.name == 'nt':  # Windows系统
-                # 使用ctypes获取所有磁盘驱动器(标准库方案)
-                drives = []
-                try:
-                    import ctypes
-                    # 遍历可能的驱动器字母 A-Z
-                    for drive_letter in 'ABCDEFGHIJKLMNOPQRSTUVWXYZ':
-                        drive_path = f"{drive_letter}:\\"
-                        # 使用GetDriveType函数检查是否为有效的驱动器
-                        # 类型: 2=可移动磁盘 3=固定磁盘 4=网络驱动器 5=光驱 6=RAM磁盘
-                        if ctypes.windll.kernel32.GetDriveTypeW(drive_path) in [2, 3, 4, 5, 6]:
-                            if os.path.exists(drive_path):
-                                drives.append(drive_path)
-                except Exception as e:
-                    self.logger.error(f"使用ctypes获取驱动器信息失败: {str(e)}")
-                    # 最终备选方案：尝试使用win32api
-                    try:
-                        import win32api  # type: ignore
-                        drives_str = win32api.GetLogicalDriveStrings()
-                        drives = drives_str.split('\\000')[:-1]
-                    except (ImportError, Exception) as e:
-                        self.logger.warning(f"win32api备选方案也失败: {str(e)}")
-                        drives = []
-                        
-                # 添加检测到的驱动器
-                if drives:
-                    for drive in drives:
-                        drive_path = os.path.abspath(drive)
-                        if os.path.exists(drive_path) and os.path.isdir(drive_path):
-                            monitored_dirs.append(drive_path)
-                    self.logger.info(f"未配置监控目录，默认监控所有磁盘驱动器: {', '.join(monitored_dirs)}")
-                else:
-                    # 无法获取驱动器信息时使用用户主目录作为备选
-                    default_dir = os.path.expanduser('~')
-                    if os.path.exists(default_dir):
-                        monitored_dirs.append(default_dir)
-                        self.logger.warning(f"未配置监控目录，无法自动检测所有磁盘驱动器，默认监控用户主目录: {default_dir}")
+            default_dir = os.path.expanduser('~')
+            if os.path.exists(default_dir):
+                monitored_dirs.append(default_dir)
+                self.logger.warning(f"未配置监控目录，默认监控用户主目录: {default_dir}")
             else:
-                # 非Windows系统，保持使用用户主目录
-                default_dir = os.path.expanduser('~')
-                if os.path.exists(default_dir):
-                    monitored_dirs.append(default_dir)
-                    self.logger.warning(f"未配置监控目录，默认监控用户主目录: {default_dir}")
-                else:
-                    self.logger.error("未配置监控目录，且默认用户主目录不存在")
+                self.logger.error("未配置监控目录，且默认用户主目录不存在")
         
         return monitored_dirs
     
@@ -178,6 +140,14 @@ class FileMonitor:
             return
 
         try:
+            # 确保之前的线程池已正确关闭（防止重复创建）
+            if self._executor is not None:
+                try:
+                    self._executor.shutdown(wait=True)
+                except Exception as e:
+                    self.logger.warning(f"关闭旧线程池时出错: {e}")
+                self._executor = None
+
             # 初始化线程池
             self._executor = ThreadPoolExecutor(max_workers=self.max_workers)
             self._processed_count = 0
@@ -209,7 +179,7 @@ class FileMonitor:
                 try:
                     self.observer.stop()
                     self.observer.join()
-                except:
+                except (OSError, RuntimeError):
                     pass
 
     def stop_monitoring(self):

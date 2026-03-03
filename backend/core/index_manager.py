@@ -12,6 +12,29 @@ from datetime import datetime
 from typing import List, Dict, Any, Optional
 import json
 import threading
+from contextlib import contextmanager
+
+
+class BatchModeContext:
+    """批量操作上下文管理器，确保批量操作的原子性"""
+
+    def __init__(self, index_manager, commit=True):
+        self.index_manager = index_manager
+        self.commit = commit
+        self._entered = False
+
+    def __enter__(self):
+        self.index_manager.start_batch_mode()
+        self._entered = True
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        if self._entered:
+            # 无论是否发生异常，都结束批量模式
+            # 如果发生异常，不提交更改（回滚）
+            should_commit = self.commit and (exc_type is None)
+            self.index_manager.end_batch_mode(commit=should_commit)
+        return False  # 不捕获异常，让异常继续传播
 
 
 class IndexManager:
@@ -327,6 +350,23 @@ class IndexManager:
                 self.logger.info("结束批量添加模式")
             except Exception as e:
                 self.logger.error(f"结束批量模式时出错: {e}")
+
+    def batch_mode(self, commit=True):
+        """
+        批量操作上下文管理器
+
+        使用示例:
+            with index_manager.batch_mode():
+                for doc in documents:
+                    index_manager.add_document(doc)
+
+        Args:
+            commit: 是否提交更改，如果为False则回滚
+
+        Returns:
+            BatchModeContext 上下文管理器
+        """
+        return BatchModeContext(self, commit=commit)
 
     def _add_doc_to_writer(self, document):
         """将文档添加到 writer"""

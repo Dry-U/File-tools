@@ -4,6 +4,7 @@
 """
 import re
 import hashlib
+from collections import OrderedDict
 from typing import Dict, Tuple, List, Optional
 from backend.utils.logger import setup_logger
 
@@ -22,9 +23,9 @@ class PrivacyGuard:
 
     def __init__(self, max_map_size: int = 1000):
         self.patterns = SENSITIVE_PATTERNS
-        self._mask_map: Dict[str, str] = {}  # 哈希 -> 占位符映射
+        # 使用OrderedDict实现O(1)的LRU操作
+        self._mask_map: OrderedDict[str, str] = OrderedDict()
         self._max_map_size = max_map_size
-        self._access_order: List[str] = []  # 用于LRU清理
 
     def detect_sensitive(self, text: str) -> List[Tuple[str, str, str]]:
         """
@@ -40,10 +41,10 @@ class PrivacyGuard:
         return findings
 
     def _cleanup_old_mappings(self):
-        """LRU清理：当映射表过大时清理最旧的条目"""
+        """LRU清理：当映射表过大时清理最旧的条目（使用OrderedDict实现O(1)）"""
         while len(self._mask_map) > self._max_map_size:
-            oldest_key = self._access_order.pop(0)
-            self._mask_map.pop(oldest_key, None)
+            # OrderedDict的popitem(last=False)是O(1)操作
+            self._mask_map.popitem(last=False)
 
     def redact(self, text: str) -> str:
         """
@@ -67,7 +68,7 @@ class PrivacyGuard:
             def replace_func(match):
                 original = match.group()
                 # 使用哈希记录映射关系，便于后续还原（如需要）
-                key = hashlib.md5(original.encode()).hexdigest()[:8]
+                key = hashlib.sha256(original.encode()).hexdigest()[:16]
                 self._mask_map[key] = original
                 # 更新访问顺序
                 if key in self._access_order:
@@ -94,8 +95,8 @@ class PrivacyGuard:
 
         result = text
         for ptype, (pattern, placeholder) in self.patterns.items():
-            # 匹配 [***XXX***:hash] 格式
-            marker_pattern = rf'\[{re.escape(placeholder)}:([a-f0-9]{{8}})\]'
+            # 匹配 [***XXX***:hash] 格式 (SHA256前16位)
+            marker_pattern = rf'\[{re.escape(placeholder)}:([a-f0-9]{{16}})\]'
 
             def restore_func(match):
                 key = match.group(1)

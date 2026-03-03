@@ -35,10 +35,12 @@ class VRAMManager:
 
         # 获取内存管理配置
         try:
-            advanced_config = config.get('advanced', {})
-            self.mem_limit = int(advanced_config.get('whoosh_mem_limit', 512))  # in MB
-            self.max_cached_results = int(advanced_config.get('max_cached_results', 1000))
-        except:
+            # 直接从配置获取，处理ConfigLoader可能返回字符串的情况
+            mem_limit_val = config.get('advanced', 'whoosh_mem_limit', 512)
+            self.mem_limit = int(mem_limit_val) if mem_limit_val else 512  # in MB
+            max_cached_val = config.get('advanced', 'max_cached_results', 1000)
+            self.max_cached_results = int(max_cached_val) if max_cached_val else 1000
+        except (ValueError, TypeError):
             self.mem_limit = 512  # default 512MB limit
             self.max_cached_results = 1000
 
