@@ -43,14 +43,29 @@ pip install -e .
 ```yaml
 ai_model:
   enabled: true  # 启用 AI 问答功能
-  interface_type: "wsl"  # 接口类型: wsl 或 api
-  api_url: "http://localhost:8080/v1/chat/completions"
-  api_key: ""
-  api_model: "gpt-3.5-turbo"
-  temperature: 0.7
-  top_p: 0.9
-  top_k: 40
-  max_tokens: 2048
+  mode: "api"  # 模式: "local" 或 "api"
+  api:
+    provider: "siliconflow"  # 或 "deepseek", "custom"
+    api_url: "https://api.siliconflow.cn/v1/chat/completions"
+    api_key: "your-api-key"
+    model_name: "deepseek-ai/DeepSeek-V2.5"
+    keys:  # 多提供商 API Keys
+      siliconflow: ""
+      deepseek: ""
+      custom: ""
+  local:
+    api_url: "http://localhost:8000/v1/chat/completions"
+    max_context: 4096
+    max_tokens: 512
+  sampling:
+    temperature: 0.7
+    top_p: 0.9
+    top_k: 40
+    max_tokens: 2048
+  security:
+    verify_ssl: true
+    timeout: 120
+    retry_count: 2
 
 file_scanner:
   scan_paths:
@@ -60,6 +75,8 @@ file_scanner:
     spreadsheet: [".xls", ".xlsx", ".csv"]
     presentation: [".ppt", ".pptx"]
     archive: [".zip", ".rar", ".7z"]
+  max_file_size: 100  # MB
+  scan_threads: 4
 
 monitor:
   enabled: true
@@ -69,6 +86,7 @@ monitor:
 search:
   text_weight: 0.6
   vector_weight: 0.4
+  max_results: 50
 ```
 
 ## 启动应用
@@ -135,22 +153,49 @@ API 服务在 `http://127.0.0.1:8000` 上运行；若端口被占用，将自动
 - 点击右上角的齿轮图标打开设置面板
 - **采样参数**：调整 temperature、top_p、max_tokens 等
 - **惩罚参数**：设置 frequency_penalty、presence_penalty 等
-- **接入模式**：切换 WSL 本地模式或 API 远程模式
+- **接入模式**：切换 Local 本地模式或 API 远程模式
+- **提供商选择**：支持 SiliconFlow、DeepSeek、自定义 API
 - 点击"保存更改"将设置持久化到配置文件
+
+#### 目录管理
+- 点击侧边栏的"目录管理"按钮
+- **添加目录**：
+  - 点击"添加目录"打开文件对话框选择文件夹
+  - 或手动输入路径
+  - 新目录将同时添加为扫描路径和监控目录
+- **删除目录**：点击目录卡片上的删除按钮
+- **目录状态**：
+  - 绿色：目录存在且正常
+  - 红色：目录不存在或无法访问
+  - 显示文件数量估计
 
 ## API 接口
 
-### 健康检查
+### 系统接口
+
+#### 健康检查
 ```
 GET /api/health
 ```
 
-### 重建索引
+#### 就绪检查
+```
+GET /api/health/ready
+```
+
+#### 存活检查
+```
+GET /api/health/live
+```
+
+#### 重建索引
 ```
 POST /api/rebuild-index
 ```
 
 ### 搜索接口
+
+#### 搜索
 ```
 POST /api/search
 {
@@ -159,7 +204,17 @@ POST /api/search
 }
 ```
 
+#### 文件预览
+```
+POST /api/preview
+{
+  "path": "文件路径"
+}
+```
+
 ### 问答接口
+
+#### 问答对话
 ```
 POST /api/chat
 {
@@ -168,38 +223,74 @@ POST /api/chat
 }
 ```
 
-### 文件预览
-```
-POST /api/preview
-{
-  "path": "文件路径"
-}
-```
-
-### 获取配置
-```
-GET /api/config
-```
-
-### 更新配置
-```
-POST /api/config
-{
-  "ai_model": {
-    "temperature": 0.7,
-    "api_url": "http://localhost:8080/v1/chat/completions"
-  }
-}
-```
-
-### 获取会话列表
+#### 获取会话列表
 ```
 GET /api/sessions
 ```
 
-### 删除会话
+#### 删除会话
 ```
 DELETE /api/sessions/{session_id}
+```
+
+#### 获取会话消息
+```
+GET /api/sessions/{session_id}/messages
+```
+
+### 配置接口
+
+#### 获取配置
+```
+GET /api/config
+```
+
+#### 更新配置
+```
+POST /api/config
+{
+  "ai_model": {
+    "sampling": {
+      "temperature": 0.7
+    },
+    "api": {
+      "api_key": "your-key"
+    }
+  }
+}
+```
+
+#### 测试模型连接
+```
+GET /api/model/test
+```
+
+### 目录管理接口
+
+#### 获取目录列表
+```
+GET /api/directories
+```
+
+#### 添加目录
+```
+POST /api/directories
+{
+  "path": "C:/Users/YourName/Documents"
+}
+```
+
+#### 删除目录
+```
+DELETE /api/directories
+{
+  "path": "C:/Users/YourName/Documents"
+}
+```
+
+#### 浏览目录（打开对话框）
+```
+POST /api/directories/browse
 ```
 
 ## 配置详解
@@ -223,9 +314,15 @@ DELETE /api/sessions/{session_id}
 
 ### AI模型配置 (ai_model)
 - `enabled`: 是否启用AI功能
-- `interface_type`: 接口类型(wsl/api)
-- `api_url`: API地址
-- `temperature`: 生成温度
+- `mode`: 运行模式 ("local" 或 "api")
+- `api.provider`: API 提供商 ("siliconflow"/"deepseek"/"custom")
+- `api.api_url`: API 地址
+- `api.api_key`: 当前提供商的 API Key
+- `api.keys`: 各提供商的 API Keys 集合
+- `sampling.temperature`: 生成温度
+- `sampling.max_tokens`: 最大生成 token 数
+- `security.timeout`: 请求超时时间
+- `security.retry_count`: 重试次数
 
 ## 性能指标
 
@@ -271,11 +368,19 @@ pyinstaller file-tools.spec
 ```
 File-tools/
 ├── backend/                # 后端服务
-│   ├── api/                # API接口层
+│   ├── api/                # API接口层（模块化路由）
+│   │   ├── main.py         # FastAPI 主文件
+│   │   ├── models.py       # 数据模型
+│   │   ├── dependencies.py # 依赖注入
+│   │   └── routes/         # 路由模块
 │   ├── core/               # 核心业务逻辑
 │   └── utils/              # 工具模块
 ├── frontend/               # 前端界面
-├── tests/                  # 测试代码
+├── tests/                  # 测试代码（分层结构）
+│   ├── unit/               # 单元测试
+│   ├── integration/        # 集成测试
+│   ├── api/                # API 测试
+│   └── e2e/                # 端到端测试
 ├── data/                   # 数据存储
 └── docs/                   # 项目文档
 ```

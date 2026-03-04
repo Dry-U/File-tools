@@ -153,7 +153,6 @@ cython_debug/
 # Project specific
 data/cache/*
 data/temp/*
-data/index/*
 data/metadata/*
 data/tantivy_index/*
 data/hnsw_index/*
@@ -162,7 +161,6 @@ data/models/*
 # Keep directory structure
 !data/cache/.gitkeep
 !data/temp/.gitkeep
-!data/index/.gitkeep
 !data/tantivy_index/.gitkeep
 !data/hnsw_index/.gitkeep
 !data/metadata/.gitkeep

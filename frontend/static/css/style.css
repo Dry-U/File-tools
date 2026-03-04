@@ -89,13 +89,13 @@ body {
 /* 文件类型按钮网格 */
 .file-type-grid {
     display: grid;
-    grid-template-columns: repeat(4, 1fr);
+    grid-template-columns: repeat(3, 1fr);
     gap: 8px;
 }
 
 .file-type-btn {
-    padding: 6px 8px;
-    font-size: 12px;
+    padding: 6px 4px;
+    font-size: 11px;
     font-weight: 500;
     border: 1px solid var(--llama-border);
     background-color: transparent;
@@ -105,8 +105,10 @@ body {
     transition: all 0.2s ease;
     text-align: center;
     white-space: nowrap;
-    overflow: hidden;
+    overflow: visible;
     text-overflow: ellipsis;
+    min-width: 0;
+    width: 100%;
 }
 
 .file-type-btn:hover {
@@ -1162,7 +1164,7 @@ input[type="date"]::-webkit-calendar-picker-indicator {
     padding: 16px !important;
 }
 
-#settingsModal .modal-body > .d-flex {
+#settingsModal .modal-body>.d-flex {
     display: flex !important;
     flex-direction: row !important;
     align-items: flex-start !important;
@@ -1445,7 +1447,7 @@ input[type="date"]::-webkit-calendar-picker-indicator {
     background-color: var(--llama-hover);
 }
 
-.mode-card input[type="radio"]:checked + .mode-card-content {
+.mode-card input[type="radio"]:checked+.mode-card-content {
     border-color: var(--llama-accent);
     background-color: rgba(108, 117, 125, 0.15);
 }
@@ -1461,7 +1463,7 @@ input[type="date"]::-webkit-calendar-picker-indicator {
     transition: all 0.2s ease;
 }
 
-.mode-card input[type="radio"]:checked + .mode-card-content .mode-radio {
+.mode-card input[type="radio"]:checked+.mode-card-content .mode-radio {
     border-color: var(--llama-accent);
     background-color: var(--llama-accent);
 }
@@ -1479,7 +1481,7 @@ input[type="date"]::-webkit-calendar-picker-indicator {
     transition: transform 0.2s ease;
 }
 
-.mode-card input[type="radio"]:checked + .mode-card-content .mode-radio::after {
+.mode-card input[type="radio"]:checked+.mode-card-content .mode-radio::after {
     transform: translate(-50%, -50%) scale(1);
 }
 

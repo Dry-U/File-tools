@@ -43,9 +43,16 @@ class IndexManager:
         self.logger = logging.getLogger(__name__)
         try:
             data_dir = config_loader.get('system', 'data_dir', './data')
-            self.tantivy_index_path = config_loader.get('index', 'tantivy_path', f'{data_dir}/tantivy_index')
-            self.hnsw_index_path = config_loader.get('index', 'hnsw_path', f'{data_dir}/hnsw_index')
-            self.metadata_path = config_loader.get('index', 'metadata_path', f'{data_dir}/metadata')
+            # 确保 data_dir 是字符串类型（防止 mock 对象传入）
+            if not isinstance(data_dir, str):
+                self.logger.warning(f"data_dir 类型错误: {type(data_dir)}, 使用默认值")
+                data_dir = './data'
+            self.tantivy_index_path = config_loader.get(
+                'index', 'tantivy_path', f'{data_dir}/tantivy_index')
+            self.hnsw_index_path = config_loader.get(
+                'index', 'hnsw_path', f'{data_dir}/hnsw_index')
+            self.metadata_path = config_loader.get(
+                'index', 'metadata_path', f'{data_dir}/metadata')
         except Exception as e:
             self.logger.error(f"配置读取失败: {str(e)}")
             self.tantivy_index_path = './data/tantivy_index'
@@ -55,39 +62,47 @@ class IndexManager:
         os.makedirs(self.hnsw_index_path, exist_ok=True)
         os.makedirs(self.metadata_path, exist_ok=True)
         try:
-            custom_dict_path = os.path.join(os.path.dirname(__file__), '..', '..', 'data', 'custom_dict.txt')
+            custom_dict_path = os.path.join(os.path.dirname(
+                __file__), '..', '..', 'data', 'custom_dict.txt')
             if os.path.exists(custom_dict_path):
                 jieba.load_userdict(custom_dict_path)
                 self.logger.debug(f"加载自定义词典: {custom_dict_path}")
         except Exception as e:
             self.logger.warning(f"加载自定义词典失败: {str(e)}")
-        self.embedding_provider = config_loader.get('embedding', 'provider', 'fastembed')
+        self.embedding_provider = config_loader.get(
+            'embedding', 'provider', 'fastembed')
         model_enabled = config_loader.get('embedding', 'enabled', False)
         if model_enabled:
             try:
                 if self.embedding_provider == 'modelscope':
                     from modelscope.pipelines import pipeline
                     from modelscope.utils.constant import Tasks
-                    model_name = config_loader.get('embedding', 'model_name', 'iic/nlp_gte_sentence-embedding_chinese-base')
-                    cache_dir = config_loader.get('embedding', 'cache_dir', None)
-                    
+                    model_name = config_loader.get(
+                        'embedding', 'model_name', 'iic/nlp_gte_sentence-embedding_chinese-base')
+                    cache_dir = config_loader.get(
+                        'embedding', 'cache_dir', None)
+
                     # 如果指定了本地路径，使用本地路径
                     if cache_dir and os.path.exists(os.path.join(cache_dir, model_name.split('/')[-1])):
-                         model_path = os.path.join(cache_dir, model_name.split('/')[-1])
-                         self.logger.info(f"使用本地模型路径: {model_path}")
-                         self.embedding_pipeline = pipeline(Tasks.sentence_embedding, model=model_path)
+                        model_path = os.path.join(
+                            cache_dir, model_name.split('/')[-1])
+                        self.logger.info(f"使用本地模型路径: {model_path}")
+                        self.embedding_pipeline = pipeline(
+                            Tasks.sentence_embedding, model=model_path)
                     else:
-                         self.embedding_pipeline = pipeline(Tasks.sentence_embedding, model=model_name)
-                    
+                        self.embedding_pipeline = pipeline(
+                            Tasks.sentence_embedding, model=model_name)
+
                     # 包装一个embed方法以兼容
                     class ModelScopeWrapper:
                         def __init__(self, pipeline):
                             self.pipeline = pipeline
+
                         def embed(self, texts):
                             # ModelScope pipeline returns a dict with 'text_embedding'
                             # We need to yield vectors one by one or batch
                             # The pipeline handles batching if texts is a list
-                            
+
                             # 针对 gte-sentence-embedding 模型的特殊处理
                             # 它可能需要字典输入或者对列表输入的处理不同
                             if isinstance(texts, list):
@@ -98,8 +113,9 @@ class IndexManager:
                                         res = self.pipeline(input=text)
                                     except TypeError:
                                         # 如果失败，尝试传字典
-                                        res = self.pipeline(input={'source_sentence': [text]})
-                                    
+                                        res = self.pipeline(
+                                            input={'source_sentence': [text]})
+
                                     if 'text_embedding' in res:
                                         # 结果可能是 [1, 768] 或 [768]
                                         emb = res['text_embedding']
@@ -117,8 +133,9 @@ class IndexManager:
                                 try:
                                     res = self.pipeline(input=texts)
                                 except TypeError:
-                                    res = self.pipeline(input={'source_sentence': [texts]})
-                                    
+                                    res = self.pipeline(
+                                        input={'source_sentence': [texts]})
+
                                 if 'text_embedding' in res:
                                     emb = res['text_embedding']
                                     if isinstance(emb, list) and len(emb) > 0 and isinstance(emb[0], list):
@@ -131,36 +148,44 @@ class IndexManager:
                                     else:
                                         yield emb
 
-                    self.embedding_model = ModelScopeWrapper(self.embedding_pipeline)
-                    
+                    self.embedding_model = ModelScopeWrapper(
+                        self.embedding_pipeline)
+
                     # Test
                     vec = next(self.embedding_model.embed(['test']))
                     self.vector_dim = len(vec)
-                    self.logger.info(f"ModelScope Embedding模型加载成功，维度: {self.vector_dim}")
+                    self.logger.info(
+                        f"ModelScope Embedding模型加载成功，维度: {self.vector_dim}")
 
                 else:
                     # Default to fastembed
                     from fastembed import TextEmbedding
-                    model_name = config_loader.get('embedding', 'model_name', 'BAAI/bge-small-zh-v1.5')
+                    model_name = config_loader.get(
+                        'embedding', 'model_name', 'BAAI/bge-small-zh-v1.5')
                     if not model_name:
                         model_name = 'BAAI/bge-small-zh-v1.5'
-                    
-                    cache_dir = config_loader.get('embedding', 'cache_dir', None)
+
+                    cache_dir = config_loader.get(
+                        'embedding', 'cache_dir', None)
 
                     # 尝试创建模型实例，如果下载失败则记录错误并禁用embedding
                     try:
                         if cache_dir:
-                            self.embedding_model = TextEmbedding(model_name=model_name, cache_dir=cache_dir)
+                            self.embedding_model = TextEmbedding(
+                                model_name=model_name, cache_dir=cache_dir)
                         else:
-                            self.embedding_model = TextEmbedding(model_name=model_name)
+                            self.embedding_model = TextEmbedding(
+                                model_name=model_name)
                         try:
                             # 测试模型是否可以正常工作
                             vec = next(self.embedding_model.embed(['test']))
                             self.vector_dim = len(vec)
-                            self.logger.info(f"Embedding模型加载成功，维度: {self.vector_dim}")
+                            self.logger.info(
+                                f"Embedding模型加载成功，维度: {self.vector_dim}")
                         except Exception as e:
                             self.vector_dim = 384
-                            self.logger.warning(f"Embedding模型测试失败，使用默认维度: {self.vector_dim}, 错误: {str(e)}")
+                            self.logger.warning(
+                                f"Embedding模型测试失败，使用默认维度: {self.vector_dim}, 错误: {str(e)}")
                     except Exception as e:
                         self.logger.error(f"Embedding模型创建失败，将禁用向量索引: {str(e)}")
                         self.embedding_model = None
@@ -190,38 +215,51 @@ class IndexManager:
         self._batch_mode = False
         self._batch_buffer = []
         self._batch_size = config_loader.getint('index', 'batch_size', 100)
-        self._batch_commit_interval = config_loader.getint('index', 'commit_interval', 30)  # 秒
+        self._batch_commit_interval = config_loader.getint(
+            'index', 'commit_interval', 30)  # 秒
         self._last_commit_time = time.time()
         self._batch_lock = threading.Lock()
         self._writer = None
 
     def _init_tantivy_index(self):
         schema_builder = tantivy.SchemaBuilder()
-        self.t_path = schema_builder.add_text_field('path', stored=True, tokenizer_name='raw')
-        self.t_filename = schema_builder.add_text_field('filename', stored=True)
-        self.t_filename_chars = schema_builder.add_text_field('filename_chars', stored=True)
+        self.t_path = schema_builder.add_text_field(
+            'path', stored=True, tokenizer_name='raw')
+        self.t_filename = schema_builder.add_text_field(
+            'filename', stored=True)
+        self.t_filename_chars = schema_builder.add_text_field(
+            'filename_chars', stored=True)
         self.t_content = schema_builder.add_text_field('content', stored=True)
-        self.t_content_raw = schema_builder.add_text_field('content_raw', stored=True, tokenizer_name='raw')
-        self.t_content_chars = schema_builder.add_text_field('content_chars', stored=True)
-        self.t_keywords = schema_builder.add_text_field('keywords', stored=True)
-        self.t_file_type = schema_builder.add_text_field('file_type', stored=True)
+        self.t_content_raw = schema_builder.add_text_field(
+            'content_raw', stored=True, tokenizer_name='raw')
+        self.t_content_chars = schema_builder.add_text_field(
+            'content_chars', stored=True)
+        self.t_keywords = schema_builder.add_text_field(
+            'keywords', stored=True)
+        self.t_file_type = schema_builder.add_text_field(
+            'file_type', stored=True)
         self.t_size = schema_builder.add_integer_field('size', stored=True)
-        self.t_created = schema_builder.add_integer_field('created', stored=True)
-        self.t_modified = schema_builder.add_integer_field('modified', stored=True)
+        self.t_created = schema_builder.add_integer_field(
+            'created', stored=True)
+        self.t_modified = schema_builder.add_integer_field(
+            'modified', stored=True)
         self.schema = schema_builder.build()
         try:
             # 检查索引路径是否存在，如果不存在，则创建
             if not os.path.exists(self.tantivy_index_path):
                 os.makedirs(self.tantivy_index_path, exist_ok=True)
-                self.tantivy_index = tantivy.Index(self.schema, path=self.tantivy_index_path)
+                self.tantivy_index = tantivy.Index(
+                    self.schema, path=self.tantivy_index_path)
             else:
-                self.tantivy_index = tantivy.Index(self.schema, path=self.tantivy_index_path)
+                self.tantivy_index = tantivy.Index(
+                    self.schema, path=self.tantivy_index_path)
         except Exception as e:
             self.logger.error(f"初始化Tantivy索引失败: {str(e)}")
             # 如果指定路径失败，尝试在内存中创建新索引，但仍尝试重新创建文件目录
             try:
                 os.makedirs(self.tantivy_index_path, exist_ok=True)
-                self.tantivy_index = tantivy.Index(self.schema, path=self.tantivy_index_path)
+                self.tantivy_index = tantivy.Index(
+                    self.schema, path=self.tantivy_index_path)
             except Exception as e2:
                 self.logger.error(f"创建索引目录或初始化索引失败: {str(e2)}")
                 self.tantivy_index = tantivy.Index(self.schema)
@@ -233,21 +271,25 @@ class IndexManager:
         os.makedirs(self.metadata_path, exist_ok=True)
 
         index_file = os.path.join(self.hnsw_index_path, 'vector_index.bin')
-        metadata_file = os.path.join(self.metadata_path, 'vector_metadata.json')
-        
+        metadata_file = os.path.join(
+            self.metadata_path, 'vector_metadata.json')
+
         if os.path.exists(index_file) and os.path.exists(metadata_file):
             try:
                 with open(metadata_file, 'r', encoding='utf-8') as f:
                     metadata_dict = json.load(f)
                     self.vector_metadata = metadata_dict.get('metadata', {})
-                    self.next_id = metadata_dict.get('next_id', len(self.vector_metadata))
-                
+                    self.next_id = metadata_dict.get(
+                        'next_id', len(self.vector_metadata))
+
                 # 检查向量维度是否匹配
                 if self.embedding_model:
-                    self.hnsw = hnswlib.Index(space='cosine', dim=self.vector_dim)
+                    self.hnsw = hnswlib.Index(
+                        space='cosine', dim=self.vector_dim)
                     max_elements = max(self.next_id + 1024, 1024)
                     self.hnsw.load_index(index_file, max_elements=max_elements)
-                    self.logger.info(f"成功加载向量索引，维度: {self.vector_dim}, 元素数: {self.next_id}")
+                    self.logger.info(
+                        f"成功加载向量索引，维度: {self.vector_dim}, 元素数: {self.next_id}")
                 else:
                     self.logger.warning("向量索引已存在但嵌入模型未启用，跳过加载")
                     self._create_new_hnsw_index()
@@ -272,7 +314,8 @@ class IndexManager:
             self.next_id = 0
 
     def _ensure_schema_version(self):
-        expected_fields = ['path','filename','filename_chars','content','content_raw','content_chars','keywords','file_type','size','created','modified']
+        expected_fields = ['path', 'filename', 'filename_chars', 'content', 'content_raw',
+                           'content_chars', 'keywords', 'file_type', 'size', 'created', 'modified']
         version_file = os.path.join(self.metadata_path, 'schema_version.json')
         current = {}
         try:
@@ -288,7 +331,8 @@ class IndexManager:
                 self.rebuild_index()
                 self.schema_updated = True
                 with open(version_file, 'w', encoding='utf-8') as f:
-                    json.dump({'fields': expected_fields}, f, ensure_ascii=False, indent=2)
+                    json.dump({'fields': expected_fields}, f,
+                              ensure_ascii=False, indent=2)
             except Exception as e:
                 self.logger.error(f'更新索引模式失败: {str(e)}')
 
@@ -386,8 +430,10 @@ class IndexManager:
             content_chars=[content_chars],
             file_type=[document['file_type']],
             size=int(document['size']),
-            created=int(time.mktime(document['created'].timetuple())) if isinstance(document['created'], datetime) else int(document['created']),
-            modified=int(time.mktime(document['modified'].timetuple())) if isinstance(document['modified'], datetime) else int(document['modified']),
+            created=int(time.mktime(document['created'].timetuple())) if isinstance(
+                document['created'], datetime) else int(document['created']),
+            modified=int(time.mktime(document['modified'].timetuple())) if isinstance(
+                document['modified'], datetime) else int(document['modified']),
             keywords=[seg_keywords]
         )
         self._writer.add_document(tdoc)
@@ -443,8 +489,10 @@ class IndexManager:
                     content_chars=[content_chars],
                     file_type=[document['file_type']],
                     size=int(document['size']),
-                    created=int(time.mktime(document['created'].timetuple())) if isinstance(document['created'], datetime) else int(document['created']),
-                    modified=int(time.mktime(document['modified'].timetuple())) if isinstance(document['modified'], datetime) else int(document['modified']),
+                    created=int(time.mktime(document['created'].timetuple())) if isinstance(
+                        document['created'], datetime) else int(document['created']),
+                    modified=int(time.mktime(document['modified'].timetuple())) if isinstance(
+                        document['modified'], datetime) else int(document['modified']),
                     keywords=[seg_keywords]
                 )
                 writer.add_document(tdoc)
@@ -453,22 +501,28 @@ class IndexManager:
             # 添加向量索引（如果启用了embedding）
             if self.embedding_model and self.hnsw is not None:
                 try:
-                    content_to_encode = document['content'][:5000] if document['content'] else ''
+                    content_to_encode = document['content'][:
+                                                            5000] if document['content'] else ''
                     if content_to_encode.strip():  # 只有当内容不为空时才编码
-                        v = np.array([self._encode_text(content_to_encode)], dtype=np.float32)
+                        v = np.array(
+                            [self._encode_text(content_to_encode)], dtype=np.float32)
                         doc_id = self.next_id
                         ids = np.array([doc_id])
                         try:
                             self.hnsw.add_items(v, ids)
-                            self.logger.info(f"成功添加文档到向量索引: {document['path']}")
+                            self.logger.info(
+                                f"成功添加文档到向量索引: {document['path']}")
                         except Exception as ve:
                             # 如果添加项目失败，尝试调整索引大小
                             try:
-                                self.hnsw.resize_index(self.hnsw.get_max_elements() + 1024)
+                                self.hnsw.resize_index(
+                                    self.hnsw.get_max_elements() + 1024)
                                 self.hnsw.add_items(v, ids)
-                                self.logger.info(f"调整向量索引大小后成功添加文档: {document['path']}")
+                                self.logger.info(
+                                    f"调整向量索引大小后成功添加文档: {document['path']}")
                             except Exception as resize_e:
-                                self.logger.error(f"调整向量索引大小后仍无法添加文档: {str(resize_e)}")
+                                self.logger.error(
+                                    f"调整向量索引大小后仍无法添加文档: {str(resize_e)}")
 
                         # 记录元数据
                         self.vector_metadata[str(doc_id)] = {
@@ -482,9 +536,11 @@ class IndexManager:
                         # 确保定期保存向量索引
                         self.save_indexes()
                     else:
-                        self.logger.warning(f"文档内容为空，跳过向量索引: {document['path']}")
+                        self.logger.warning(
+                            f"文档内容为空，跳过向量索引: {document['path']}")
                 except Exception as e:
-                    self.logger.error(f"添加文档到向量索引失败 {document['path']}: {str(e)}")
+                    self.logger.error(
+                        f"添加文档到向量索引失败 {document['path']}: {str(e)}")
             else:
                 if not self.embedding_model:
                     self.logger.info("Embedding模型未启用，跳过向量索引")
@@ -493,7 +549,8 @@ class IndexManager:
 
             return True
         except Exception as e:
-            self.logger.error(f"添加文档到索引失败 {document.get('path', '')}: {str(e)}")
+            self.logger.error(
+                f"添加文档到索引失败 {document.get('path', '')}: {str(e)}")
             return False
 
     def _add_vector_in_batch_mode(self, document):
@@ -502,11 +559,13 @@ class IndexManager:
             return True
 
         try:
-            content_to_encode = document['content'][:5000] if document['content'] else ''
+            content_to_encode = document['content'][:
+                                                    5000] if document['content'] else ''
             if not content_to_encode.strip():
                 return True
 
-            v = np.array([self._encode_text(content_to_encode)], dtype=np.float32)
+            v = np.array([self._encode_text(content_to_encode)],
+                         dtype=np.float32)
             doc_id = self.next_id
             ids = np.array([doc_id])
 
@@ -532,7 +591,8 @@ class IndexManager:
             return True
 
         except Exception as e:
-            self.logger.error(f"批量模式添加向量索引失败 {document.get('path', '')}: {str(e)}")
+            self.logger.error(
+                f"批量模式添加向量索引失败 {document.get('path', '')}: {str(e)}")
             return False
 
     def update_document(self, document):
@@ -543,7 +603,8 @@ class IndexManager:
         try:
             self.delete_document(document.get('path'))
         except Exception as e:
-            self.logger.debug(f"删除旧文档失败（可能不存在）{document.get('path', '')}: {str(e)}")
+            self.logger.debug(
+                f"删除旧文档失败（可能不存在）{document.get('path', '')}: {str(e)}")
         return self.add_document(document)
 
     def delete_document(self, file_path):
@@ -616,7 +677,8 @@ class IndexManager:
                 seen = set()
                 for pat in patterns:
                     for match in pat.finditer(full_text):
-                        span = _expand_ascii_span(full_text, match.start(), match.end())
+                        span = _expand_ascii_span(
+                            full_text, match.start(), match.end())
                         if span not in seen:
                             seen.add(span)
                             spans.append(span)
@@ -627,9 +689,10 @@ class IndexManager:
             # 1. 原始查询作为关键词
             if query.strip():
                 keywords.add(query.strip())
-            
+
             # 2. 分词后的关键词
-            raw_tokens = [k.strip() for k in re.split(r'[\s,;，；]+', query) if k.strip()]
+            raw_tokens = [k.strip()
+                          for k in re.split(r'[\s,;，；]+', query) if k.strip()]
             for token in raw_tokens:
                 cleaned = _clean_keyword(token)
                 if cleaned:
@@ -638,7 +701,7 @@ class IndexManager:
                 if len(token) > 2:
                     for seg in jieba.lcut_for_search(token):
                         seg_clean = _clean_keyword(seg)
-                        if seg_clean and len(seg_clean) > 1: # 忽略单字，除非是原始token
+                        if seg_clean and len(seg_clean) > 1:  # 忽略单字，除非是原始token
                             keywords.add(seg_clean)
 
             if not keywords:
@@ -656,7 +719,8 @@ class IndexManager:
                 for token in keywords:
                     idx = lowered.find(token.lower())
                     if idx != -1:
-                        match_span = _expand_ascii_span(content, idx, idx + len(token))
+                        match_span = _expand_ascii_span(
+                            content, idx, idx + len(token))
                         matches.append(match_span)
                         # 只要找到一个匹配就足够了
                         break
@@ -672,7 +736,8 @@ class IndexManager:
                 win_start = max(0, start - window_size // 2)
                 win_end = min(len(content), end + window_size // 2)
                 if windows and win_start < windows[-1][1]:
-                    windows[-1] = (windows[-1][0], max(windows[-1][1], win_end))
+                    windows[-1] = (windows[-1][0],
+                                   max(windows[-1][1], win_end))
                 else:
                     windows.append((win_start, win_end))
 
@@ -690,7 +755,8 @@ class IndexManager:
                 scored_windows.append((score, win_start, win_end))
 
             scored_windows.sort(key=lambda x: x[0], reverse=True)
-            selected_windows = [(s, e) for _, s, e in scored_windows[:max_snippets]]
+            selected_windows = [(s, e)
+                                for _, s, e in scored_windows[:max_snippets]]
             selected_windows.sort(key=lambda x: x[0])
 
             snippets = []
@@ -743,12 +809,14 @@ class IndexManager:
                         continue
                     highlighted.append(text[last:start])
                     # 使用 text-danger 和 fw-bold 高亮
-                    highlighted.append(f'<span class="text-danger fw-bold">{text[start:end]}</span>')
+                    highlighted.append(
+                        f'<span class="text-danger fw-bold">{text[start:end]}</span>')
                     last = end
                 highlighted.append(text[last:])
                 return ''.join(highlighted)
 
-            processed_snippets = [_apply_highlight(chunk) for chunk in snippets]
+            processed_snippets = [_apply_highlight(
+                chunk) for chunk in snippets]
             final_snippet = '<br>...<br>'.join(processed_snippets)
             return final_snippet
         except Exception as exc:
@@ -788,7 +856,7 @@ class IndexManager:
                 query_str = f'filename:"{escaped_filename}"'
                 try:
                     query = self.tantivy_index.parse_query(query_str)
-                    hits = searcher.search(query, 5).hits # 获取前5个同名文件
+                    hits = searcher.search(query, 5).hits  # 获取前5个同名文件
                     for _, doc_addr in hits:
                         doc = searcher.doc(doc_addr)
                         idx_path = doc.get_first('path')
@@ -820,7 +888,8 @@ class IndexManager:
         try:
             # 扩展支持的文本格式列表
             ext = os.path.splitext(path)[1].lower()
-            text_exts = ['.txt', '.md', '.py', '.json', '.xml', '.csv', '.log', '.js', '.html', '.css', '.bat', '.sh', '.yaml', '.yml', '.ini', '.conf', '.sql', '.properties', '.gradle', '.java', '.c', '.cpp', '.h', '.hpp']
+            text_exts = ['.txt', '.md', '.py', '.json', '.xml', '.csv', '.log', '.js', '.html', '.css', '.bat', '.sh',
+                         '.yaml', '.yml', '.ini', '.conf', '.sql', '.properties', '.gradle', '.java', '.c', '.cpp', '.h', '.hpp']
             if ext in text_exts:
                 if os.path.exists(path):
                     # 读取完整文件内容，不限制长度（调用方应自行处理大文件）
@@ -846,15 +915,16 @@ class IndexManager:
         display_content = raw_content if raw_content else content or ''
         norm_query = (query_str or '').strip()
         norm_query_lower = norm_query.lower()
-        
+
         # 改进内容结构：如果文件名没有在内容中，添加到内容开头
         # 这样可以确保文件名中的关键词也能被高亮和搜索到
         structured_content = display_content
         if filename:
             # 检查文件名是否已经在内容开头，避免重复
             if not display_content.strip().startswith(filename):
-                structured_content = f"文件名: {filename}\n\n" + structured_content
-        
+                structured_content = f"文件名: {filename}\n\n" + \
+                    structured_content
+
         # 使用包含文件名的内容进行高亮和查询检查
         display_lower = structured_content.lower() if structured_content else ''
         contains_query = bool(norm_query and norm_query_lower in display_lower)
@@ -871,10 +941,11 @@ class IndexManager:
                     fallback_structured = fallback
                     if filename and not fallback.strip().startswith(filename):
                         fallback_structured = f"文件名: {filename}\n\n" + fallback
-                    
+
                     display_lower = fallback_structured.lower()
                     contains_query = norm_query_lower in display_lower
-                    snippet = self._highlight_text(fallback_structured, norm_query)
+                    snippet = self._highlight_text(
+                        fallback_structured, norm_query)
                     structured_content = fallback_structured
             except Exception as e:
                 self.logger.debug(f"Fallback解析失败: {str(e)}")
@@ -885,7 +956,8 @@ class IndexManager:
             try:
                 import datetime
                 if isinstance(modified, (int, float)):
-                    modified_time = datetime.datetime.fromtimestamp(modified).strftime('%Y-%m-%d %H:%M:%S')
+                    modified_time = datetime.datetime.fromtimestamp(
+                        modified).strftime('%Y-%m-%d %H:%M:%S')
                 else:
                     modified_time = str(modified)
             except (ValueError, TypeError, OverflowError) as e:
@@ -899,7 +971,7 @@ class IndexManager:
             'snippet': snippet,     # 添加高亮摘要
             'file_type': file_type,
             'size': size,
-            'modified': modified_time, # 添加修改时间
+            'modified': modified_time,  # 添加修改时间
             'score': score,
             'has_query': contains_query
         }
@@ -924,7 +996,8 @@ class IndexManager:
 
             if search_content:
                 exact_fields = ['content_raw', 'filename']
-                fields = ['filename', 'content', 'content_raw', 'keywords', 'filename_chars', 'content_chars']
+                fields = ['filename', 'content', 'content_raw',
+                          'keywords', 'filename_chars', 'content_chars']
             else:
                 exact_fields = ['filename']
                 fields = ['filename', 'filename_chars']
@@ -933,20 +1006,23 @@ class IndexManager:
             try:
                 trimmed = query_str_processed.strip()
                 if trimmed:
-                    queries_to_try.append(self.tantivy_index.parse_query(f'"{trimmed}"', exact_fields))
+                    queries_to_try.append(self.tantivy_index.parse_query(
+                        f'"{trimmed}"', exact_fields))
             except Exception as e:
                 self.logger.debug(f"精确短语查询构建失败: {str(e)}")
 
             # 正常模糊搜索逻辑
             # 简化查询构建逻辑
             try:
-                queries_to_try.append(self.tantivy_index.parse_query(seg_query, fields))
+                queries_to_try.append(
+                    self.tantivy_index.parse_query(seg_query, fields))
             except Exception as e:
                 self.logger.debug(f"分词查询构建失败: {str(e)}")
 
             if query_str != seg_query:
                 try:
-                    queries_to_try.append(self.tantivy_index.parse_query(query_str, fields))
+                    queries_to_try.append(
+                        self.tantivy_index.parse_query(query_str, fields))
                 except Exception as e:
                     self.logger.debug(f"原始查询构建失败: {str(e)}")
 
@@ -954,7 +1030,8 @@ class IndexManager:
             try:
                 for word in seg_query.split():
                     if word.strip():
-                        queries_to_try.append(self.tantivy_index.parse_query(word, fields))
+                        queries_to_try.append(
+                            self.tantivy_index.parse_query(word, fields))
             except Exception as e:
                 self.logger.debug(f"单词查询构建失败: {str(e)}")
 
@@ -963,9 +1040,11 @@ class IndexManager:
                 import re
                 for ch in re.findall(r'\w', query_str_processed or ''):
                     if search_content:
-                        queries_to_try.append(self.tantivy_index.parse_query(ch, ['filename_chars', 'content_chars']))
+                        queries_to_try.append(self.tantivy_index.parse_query(
+                            ch, ['filename_chars', 'content_chars']))
                     else:
-                        queries_to_try.append(self.tantivy_index.parse_query(ch, ['filename_chars']))
+                        queries_to_try.append(
+                            self.tantivy_index.parse_query(ch, ['filename_chars']))
             except Exception as e:
                 self.logger.debug(f"字符查询构建失败: {str(e)}")
 
@@ -977,16 +1056,17 @@ class IndexManager:
                 except Exception as e:
                     self.logger.debug(f"查询执行失败: {str(e)}")
                     continue
-            
+
             unique_docs = {}
             for score, doc_address in all_hits:
                 addr_key = str(doc_address)
                 if addr_key not in unique_docs or unique_docs[addr_key][0] < score:
                     unique_docs[addr_key] = (score, doc_address)
-            
-            sorted_hits = sorted(unique_docs.values(), key=lambda x: x[0], reverse=True)
+
+            sorted_hits = sorted(unique_docs.values(),
+                                 key=lambda x: x[0], reverse=True)
             final_hits = sorted_hits[:limit]
-            
+
             for score, doc_address in final_hits:
                 doc = searcher.doc(doc_address)
                 try:
@@ -1000,23 +1080,25 @@ class IndexManager:
                 except (AttributeError, KeyError, TypeError) as e:
                     self.logger.debug(f"获取文档字段失败: {str(e)}")
                     continue
-                
+
                 # 不再限制BM25分数的上限，以便在搜索引擎中进行正确的归一化
                 # normalized_score = min(float(score), 100.0)
                 raw_score = float(score)
-                
+
                 results.append(self._format_result(
                     path_val, filename_val, content_val, content_raw_val, file_type_val,
                     size_val, modified_val, raw_score, query_str_processed
                 ))
-                
+
             results.sort(key=lambda x: x['score'], reverse=True)
 
             if query_str_processed and results:
                 # 先将包含高亮的结果排列到前面，但保留其他候选
-                highlighted = [r for r in results if 'text-danger' in (r.get('snippet') or '')]
+                highlighted = [
+                    r for r in results if 'text-danger' in (r.get('snippet') or '')]
                 if highlighted:
-                    non_highlighted = [r for r in results if r not in highlighted]
+                    non_highlighted = [
+                        r for r in results if r not in highlighted]
                     results = highlighted + non_highlighted
 
                 primary = [r for r in results if r.get('has_query')]
@@ -1056,15 +1138,16 @@ class IndexManager:
                     d = distances[0][i]
                     sim = 1.0 - float(d)
                     adjusted = min(sim * 100.0, 100.0)
-                    
+
                     path = metadata['path']
                     content = self.get_document_content(path)
-                    
+
                     results.append(self._format_result(
                         path, metadata['filename'], content, content,
-                        metadata['file_type'], 0, metadata.get('modified'), adjusted, query_str
+                        metadata['file_type'], 0, metadata.get(
+                            'modified'), adjusted, query_str
                     ))
-                    
+
             results.sort(key=lambda x: x['score'], reverse=True)
             return results[:limit]
         except Exception as e:
@@ -1089,7 +1172,8 @@ class IndexManager:
             if getattr(self, 'hnsw', None) is not None:
                 import tempfile
                 # 使用临时文件，然后原子性地移动到目标位置以避免损坏
-                index_file = os.path.join(self.hnsw_index_path, 'vector_index.bin')
+                index_file = os.path.join(
+                    self.hnsw_index_path, 'vector_index.bin')
                 temp_index_file = index_file + '.tmp'
 
                 # 保存向量索引到临时文件
@@ -1100,7 +1184,8 @@ class IndexManager:
                     import shutil
                     shutil.move(temp_index_file, index_file)
 
-            metadata_file = os.path.join(self.metadata_path, 'vector_metadata.json')
+            metadata_file = os.path.join(
+                self.metadata_path, 'vector_metadata.json')
             temp_metadata_file = metadata_file + '.tmp'
             metadata_dict = {
                 'metadata': self.vector_metadata,
@@ -1125,16 +1210,34 @@ class IndexManager:
             return False
 
     def rebuild_index(self):
+        """重建索引"""
         try:
+            # 1. 先确保关闭索引，释放锁
+            self.close()
+
+            # 2. 删除 Tantivy 索引锁文件（如果存在）
+            lock_file = os.path.join(self.tantivy_index_path, 'meta.json.lock')
+            if os.path.exists(lock_file):
+                try:
+                    os.remove(lock_file)
+                    self.logger.info("已删除 Tantivy 索引锁文件")
+                except Exception as e:
+                    self.logger.warning(f"删除锁文件失败: {e}")
+
+            # 3. 删除旧索引目录
             if os.path.exists(self.tantivy_index_path):
                 shutil.rmtree(self.tantivy_index_path)
             if os.path.exists(self.hnsw_index_path):
                 shutil.rmtree(self.hnsw_index_path)
             if os.path.exists(self.metadata_path):
                 shutil.rmtree(self.metadata_path)
+
+            # 4. 重新创建目录
             os.makedirs(self.tantivy_index_path, exist_ok=True)
             os.makedirs(self.hnsw_index_path, exist_ok=True)
             os.makedirs(self.metadata_path, exist_ok=True)
+
+            # 5. 重新初始化索引
             self._init_tantivy_index()
             self._init_hnsw_index()
             return True
@@ -1154,13 +1257,19 @@ class IndexManager:
         try:
             # 获取Tantivy索引统计
             searcher = self.tantivy_index.searcher()
-            doc_count = searcher.num_docs()
-            
+            # num_docs 在新版 tantivy 中是属性而非方法
+            if callable(getattr(searcher, 'num_docs', None)):
+                doc_count = searcher.num_docs()
+            else:
+                doc_count = searcher.num_docs
+
             # 获取向量索引统计
-            vector_count = len(self.vector_metadata) if hasattr(self, 'vector_metadata') else 0
-            
+            vector_count = len(self.vector_metadata) if hasattr(
+                self, 'vector_metadata') else 0
+
             # 获取索引目录大小
             import os
+
             def get_dir_size(path):
                 total = 0
                 for dirpath, dirnames, filenames in os.walk(path):
@@ -1168,11 +1277,13 @@ class IndexManager:
                         filepath = os.path.join(dirpath, filename)
                         total += os.path.getsize(filepath)
                 return total
-            
+
             tantivy_size = get_dir_size(self.tantivy_index_path)
-            hnsw_size = get_dir_size(self.hnsw_index_path) if os.path.exists(self.hnsw_index_path) else 0
-            metadata_size = get_dir_size(self.metadata_path) if os.path.exists(self.metadata_path) else 0
-            
+            hnsw_size = get_dir_size(self.hnsw_index_path) if os.path.exists(
+                self.hnsw_index_path) else 0
+            metadata_size = get_dir_size(self.metadata_path) if os.path.exists(
+                self.metadata_path) else 0
+
             return {
                 'tantivy_docs': doc_count,
                 'vector_docs': vector_count,
@@ -1201,13 +1312,13 @@ class IndexManager:
                     # 合并段以优化搜索性能
                     writer.commit()
                     self.logger.info("Tantivy索引优化完成")
-            
+
             # 优化HNSW索引
             if hasattr(self, 'hnsw') and self.hnsw:
                 # HNSW索引本身不需要特别的优化，但可以调整参数
                 self.hnsw.set_ef(200)  # 设置搜索参数
                 self.logger.info("HNSW索引参数已优化")
-                
+
             return True
         except Exception as e:
             self.logger.error(f"索引优化失败: {str(e)}")
@@ -1219,14 +1330,18 @@ class IndexManager:
             # 验证Tantivy索引
             if hasattr(self, 'tantivy_index') and self.tantivy_index:
                 searcher = self.tantivy_index.searcher()
-                doc_count = searcher.num_docs()
+                # num_docs 在新版 tantivy 中是属性而非方法
+                if callable(getattr(searcher, 'num_docs', None)):
+                    doc_count = searcher.num_docs()
+                else:
+                    doc_count = searcher.num_docs
                 self.logger.info(f"Tantivy索引验证完成，文档数: {doc_count}")
-            
+
             # 验证向量索引
             if hasattr(self, 'hnsw') and self.hnsw and hasattr(self, 'vector_metadata'):
                 vector_count = len(self.vector_metadata)
                 self.logger.info(f"向量索引验证完成，向量数: {vector_count}")
-                
+
                 # 检查元数据与索引的一致性
                 indexed_ids = set()
                 for i in range(min(self.next_id, 1000)):  # 检查前1000个ID以避免性能问题
@@ -1236,16 +1351,17 @@ class IndexManager:
                             indexed_ids.add(i)
                     except (RuntimeError, AttributeError) as e:
                         self.logger.debug(f"检查向量ID {i} 失败: {str(e)}")
-                
+
                 metadata_ids = set(int(k) for k in self.vector_metadata.keys())
                 missing_in_metadata = indexed_ids - metadata_ids
                 missing_in_index = metadata_ids - indexed_ids
-                
+
                 if missing_in_metadata or missing_in_index:
-                    self.logger.warning(f"向量索引与元数据不一致: 索引中缺失元数据的ID数: {len(missing_in_metadata)}, 元数据中缺失索引的ID数: {len(missing_in_index)}")
+                    self.logger.warning(
+                        f"向量索引与元数据不一致: 索引中缺失元数据的ID数: {len(missing_in_metadata)}, 元数据中缺失索引的ID数: {len(missing_in_index)}")
                 else:
                     self.logger.info("向量索引与元数据一致性检查通过")
-            
+
             return True
         except Exception as e:
             self.logger.error(f"索引完整性验证失败: {str(e)}")

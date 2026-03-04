@@ -17,6 +17,7 @@
 
 - **核心框架 (Core Framework):** `FastAPI` + `Pywebview`
   - **理由:** FastAPI 提供高性能异步 API 服务，Pywebview 将 Web 界面封装为原生桌面窗口。
+  - **架构:** API 层采用模块化路由设计，按功能划分为搜索、聊天、配置、目录管理等独立模块，便于维护和扩展。
 - **全文检索 (Full-Text Search):** `tantivy`
   - **理由:** 基于 Rust 的高性能搜索引擎，提供卓越的索引和查询速度，内存占用低。
 - **向量检索 (Vector Search):** `hnswlib`
@@ -36,7 +37,15 @@
 File-tools/
 ├── backend/                # 后端服务
 │   ├── api/                # API接口层
-│   │   └── api.py          # FastAPI应用主文件
+│   │   ├── main.py         # FastAPI应用主文件
+│   │   ├── models.py       # 请求/响应模型
+│   │   ├── dependencies.py # 依赖注入
+│   │   └── routes/         # 路由模块
+│   │       ├── search.py   # 搜索/预览
+│   │       ├── chat.py     # 聊天/会话
+│   │       ├── config.py   # 配置管理
+│   │       ├── directory.py# 目录管理
+│   │       └── system.py   # 健康检查
 │   ├── core/               # 核心业务逻辑
 │   │   ├── document_parser.py      # 文档解析器
 │   │   ├── file_scanner.py         # 文件扫描器
@@ -53,16 +62,22 @@ File-tools/
 │   ├── index.html          # 主页面
 │   └── static/             # 静态资源 (CSS/JS)
 ├── tests/                  # 测试代码
+│   ├── unit/               # 单元测试
+│   ├── integration/        # 集成测试
+│   ├── api/                # API测试
+│   └── e2e/                # 端到端测试
 ├── data/                   # 数据存储
-│   ├── index/              # 文本索引
 │   ├── tantivy_index/      # Tantivy 索引
 │   ├── hnsw_index/         # HNSWLib 索引
 │   ├── metadata/           # 元数据
+│   ├── models/             # 模型文件
 │   ├── cache/              # 缓存文件
+│   ├── temp/               # 临时文件
 │   └── logs/               # 日志文件
 ├── docs/                   # 项目文档
 ├── config.yaml             # 配置文件
 ├── main.py                 # 应用入口
+├── build_exe.bat           # 构建脚本
 └── pyproject.toml          # 项目配置
 ```
 
@@ -95,11 +110,15 @@ pip install -e .
 ```yaml
 ai_model:
   enabled: true  # 启用 AI 问答功能
-  interface_type: "wsl"  # 或 "api"
-  api_url: "http://localhost:8080/v1/chat/completions"
-  api_key: ""
-  temperature: 0.7
-  max_tokens: 2048
+  mode: "api"  # "local" 或 "api"
+  api:
+    provider: "siliconflow"  # 或 "deepseek", "custom"
+    api_url: "https://api.siliconflow.cn/v1/chat/completions"
+    api_key: "your-api-key"
+    model_name: "deepseek-ai/DeepSeek-V2.5"
+  sampling:
+    temperature: 0.7
+    max_tokens: 2048
 
 file_scanner:
   scan_paths:
@@ -129,15 +148,33 @@ python main.py
 API 服务在 `http://127.0.0.1:8000` 上运行；若端口被占用，将自动选择 `8001–8010` 中的可用端口。
 
 **API 端点：**
+
+系统：
 - 健康检查：`GET /api/health`
+- 就绪检查：`GET /api/health/ready`
+- 存活检查：`GET /api/health/live`
 - 重建索引：`POST /api/rebuild-index`
+
+搜索：
 - 搜索：`POST /api/search`
-- 问答：`POST /api/chat`
 - 文件预览：`POST /api/preview`
-- 获取配置：`GET /api/config`
-- 更新配置：`POST /api/config`
+
+对话：
+- 问答：`POST /api/chat`
 - 获取会话列表：`GET /api/sessions`
 - 删除会话：`DELETE /api/sessions/{session_id}`
+- 获取会话消息：`GET /api/sessions/{session_id}/messages`
+
+配置：
+- 获取配置：`GET /api/config`
+- 更新配置：`POST /api/config`
+- 测试模型连接：`GET /api/model/test`
+
+目录管理：
+- 获取目录列表：`GET /api/directories`
+- 添加目录：`POST /api/directories`
+- 删除目录：`DELETE /api/directories`
+- 浏览目录（打开对话框）：`POST /api/directories/browse`
 
 ## 核心功能
 
@@ -170,6 +207,13 @@ API 服务在 `http://127.0.0.1:8000` 上运行；若端口被占用，将自动
 - 自动触发索引更新
 - 支持批量处理优化性能
 
+### 5. 目录管理
+
+- 图形界面添加/删除扫描目录
+- 支持系统文件对话框浏览
+- 目录状态实时显示（存在性、扫描状态、监控状态、文件数）
+- 路径安全检查，防止路径遍历攻击
+
 ## 性能指标
 
 - 关键词检索：< 1 秒
@@ -192,11 +236,20 @@ API 服务在 `http://127.0.0.1:8000` 上运行；若端口被占用，将自动
 # 运行所有测试
 pytest tests/
 
-# 运行特定测试
-pytest tests/test_config_loader.py
+# 运行单元测试
+pytest tests/unit/ -v
+
+# 运行集成测试
+pytest tests/integration/ -v
+
+# 运行 API 测试
+pytest tests/api/ -v
+
+# 运行端到端测试
+pytest tests/e2e/ -v
 
 # 性能测试
-pytest tests/test_performance.py -v
+pytest tests/integration/test_performance.py -v
 ```
 
 ## 打包为 .exe

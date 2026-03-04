@@ -1,7 +1,7 @@
 // 监听模式切换，显示/隐藏对应设置面板
-document.addEventListener('DOMContentLoaded', function() {
-    document.querySelectorAll('input[name="aiMode"]').forEach(function(radio) {
-        radio.addEventListener('change', function() {
+document.addEventListener('DOMContentLoaded', function () {
+    document.querySelectorAll('input[name="aiMode"]').forEach(function (radio) {
+        radio.addEventListener('change', function () {
             const localSettings = document.getElementById('localSettings');
             const apiSettings = document.getElementById('apiSettings');
             if (document.getElementById('modeAPI').checked) {
@@ -20,15 +20,33 @@ document.addEventListener('DOMContentLoaded', function() {
 // ============================================================================
 
 // 打开外部链接（在浏览器中打开）
-function openExternalLink(url) {
-    // 在桌面应用中，使用 window.open 或 pywebview 的 API
-    if (window.pywebview && window.pywebview.api) {
-        // 如果 pywebview API 可用，使用它打开链接
-        window.pywebview.api.open_external_link(url);
-    } else {
-        // 否则使用普通 window.open
-        window.open(url, '_blank');
+function openExternalLink(url, event) {
+    // 阻止默认行为和事件冒泡
+    if (event) {
+        event.preventDefault();
+        event.stopPropagation();
     }
+
+    // 优先尝试使用 pywebview API（桌面应用）
+    if (window.pywebview && window.pywebview.api && window.pywebview.api.open_external_link) {
+        try {
+            window.pywebview.api.open_external_link(url);
+            return false;
+        } catch (e) {
+            console.warn('pywebview API call failed, falling back to window.open:', e);
+        }
+    }
+
+    // 使用原生浏览器打开链接
+    // 设置noopener以提高安全性
+    const newWindow = window.open(url, '_blank', 'noopener,noreferrer');
+    if (!newWindow) {
+        // 如果弹出被阻止，尝试通过location跳转
+        console.warn('Popup blocked, trying location.href');
+        window.location.href = url;
+    }
+
+    return false;
 }
 
 // 显示测试结果弹窗
@@ -90,7 +108,7 @@ function renderDirectories() {
         return;
     }
 
-    container.innerHTML = directoriesData.directories.map(function(item) {
+    container.innerHTML = directoriesData.directories.map(function (item) {
         const existsClass = item.exists ? '' : 'exists-false';
         const iconClass = item.exists ? 'bi-folder-fill' : 'bi-folder-x';
         const fileCountText = item.exists ? `约 ${item.file_count} 个文件` : '路径不存在';
@@ -241,12 +259,12 @@ function initSettingsTabs() {
     const tabButtons = document.querySelectorAll('#v-pills-tab .nav-link');
     const tabPanes = document.querySelectorAll('#v-pills-tabContent .tab-pane');
 
-    tabButtons.forEach(function(button) {
+    tabButtons.forEach(function (button) {
         // 移除旧的事件监听器（如果有）
         const newButton = button.cloneNode(true);
         button.parentNode.replaceChild(newButton, button);
 
-        newButton.addEventListener('click', function(e) {
+        newButton.addEventListener('click', function (e) {
             e.preventDefault();
             e.stopPropagation();
 
@@ -256,10 +274,10 @@ function initSettingsTabs() {
             console.log('Tab clicked:', targetId);
 
             // 移除所有 active 类
-            tabButtons.forEach(function(btn) {
+            tabButtons.forEach(function (btn) {
                 btn.classList.remove('active');
             });
-            tabPanes.forEach(function(pane) {
+            tabPanes.forEach(function (pane) {
                 pane.classList.remove('show', 'active');
             });
 
@@ -287,7 +305,7 @@ function openSettingsModal() {
     if (modalEl) {
         console.log('Settings modal element found, loading settings...');
         // 先加载设置
-        loadSettings().then(function() {
+        loadSettings().then(function () {
             initialSettings = getCurrentSettings();
             console.log('Settings loaded, showing modal...');
             // 同时加载目录列表
@@ -295,7 +313,7 @@ function openSettingsModal() {
             // 初始化 Tab 切换（WebView2 兼容）
             initSettingsTabs();
             showModal(modalEl);
-        }).catch(function(err) {
+        }).catch(function (err) {
             console.error('Failed to load settings:', err);
             // 即使加载失败也显示模态框
             loadDirectories();
@@ -403,7 +421,7 @@ async function confirmRebuild() {
 
     closeBtn.style.display = 'none'; // Prevent closing
     modalFooter.style.display = 'none'; // Hide buttons
-    
+
     modalBody.innerHTML = `
         <div class="spinner-border text-primary mb-3" role="status">
             <span class="visually-hidden">Loading...</span>
@@ -416,7 +434,7 @@ async function confirmRebuild() {
             method: 'POST'
         });
         const data = await response.json();
-        
+
         if (response.ok) {
             modalBody.innerHTML = `
                 <i class="bi bi-check-circle-fill text-success display-4 mb-3"></i>
@@ -449,22 +467,22 @@ function confirmReset() {
     // Sampling
     document.getElementById('tempRange').value = 0.7;
     document.getElementById('tempValue').innerText = '0.7';
-    
+
     document.getElementById('topPRange').value = 0.9;
     document.getElementById('topPValue').innerText = '0.9';
-    
+
     document.getElementById('topKInput').value = 40;
-    
+
     document.getElementById('minPRange').value = 0.05;
     document.getElementById('minPValue').innerText = '0.05';
-    
+
     document.getElementById('maxTokensInput').value = 2048;
     document.getElementById('seedInput').value = -1;
 
     // Penalty
     document.getElementById('repeatPenaltyRange').value = 1.1;
     document.getElementById('repeatPenaltyValue').innerText = '1.1';
-    
+
     document.getElementById('freqPenaltyRange').value = 0.0;
     document.getElementById('freqPenaltyValue').innerText = '0.0';
 
@@ -493,54 +511,54 @@ async function loadSettings() {
             return;
         }
         if (config.ai_model) {
-                // 设置模式
-                const isApiMode = config.ai_model.mode === 'api';
-                document.getElementById('modeAPI').checked = isApiMode;
-                document.getElementById('modeLocal').checked = !isApiMode;
-                document.getElementById('localSettings').style.display = isApiMode ? 'none' : 'block';
-                document.getElementById('apiSettings').style.display = isApiMode ? 'block' : 'none';
+            // 设置模式
+            const isApiMode = config.ai_model.mode === 'api';
+            document.getElementById('modeAPI').checked = isApiMode;
+            document.getElementById('modeLocal').checked = !isApiMode;
+            document.getElementById('localSettings').style.display = isApiMode ? 'none' : 'block';
+            document.getElementById('apiSettings').style.display = isApiMode ? 'block' : 'none';
 
-                // 本地模式配置
-                if (config.ai_model.local) {
-                    document.getElementById('localUrlInput').value = config.ai_model.local.api_url != null ? config.ai_model.local.api_url : 'http://localhost:8000/v1/chat/completions';
-                }
-
-                // API模式配置
-                if (config.ai_model.api) {
-                    document.getElementById('apiProviderSelect').value = config.ai_model.api.provider != null ? config.ai_model.api.provider : 'siliconflow';
-                    document.getElementById('apiUrlInput').value = config.ai_model.api.api_url != null ? config.ai_model.api.api_url : '';
-                    document.getElementById('apiKeyInput').value = config.ai_model.api.api_key != null ? config.ai_model.api.api_key : '';
-                    document.getElementById('modelNameInput').value = config.ai_model.api.model_name != null ? config.ai_model.api.model_name : '';
-                }
-
-                // 安全配置
-                if (config.ai_model.security) {
-                    document.getElementById('verifySslCheck').checked = config.ai_model.security.verify_ssl != null ? config.ai_model.security.verify_ssl : true;
-                }
-
-                // 采样参数
-                if (config.ai_model.sampling) {
-                    document.getElementById('tempRange').value = config.ai_model.sampling.temperature != null ? config.ai_model.sampling.temperature : 0.7;
-                    document.getElementById('tempValue').innerText = config.ai_model.sampling.temperature != null ? config.ai_model.sampling.temperature : 0.7;
-                    document.getElementById('topPRange').value = config.ai_model.sampling.top_p != null ? config.ai_model.sampling.top_p : 0.9;
-                    document.getElementById('topPValue').innerText = config.ai_model.sampling.top_p != null ? config.ai_model.sampling.top_p : 0.9;
-                    document.getElementById('topKInput').value = config.ai_model.sampling.top_k != null ? config.ai_model.sampling.top_k : 40;
-                    document.getElementById('minPRange').value = config.ai_model.sampling.min_p != null ? config.ai_model.sampling.min_p : 0.05;
-                    document.getElementById('minPValue').innerText = config.ai_model.sampling.min_p != null ? config.ai_model.sampling.min_p : 0.05;
-                    document.getElementById('maxTokensInput').value = config.ai_model.sampling.max_tokens != null ? config.ai_model.sampling.max_tokens : 2048;
-                    document.getElementById('seedInput').value = config.ai_model.sampling.seed != null ? config.ai_model.sampling.seed : -1;
-                }
-
-                // 惩罚参数
-                if (config.ai_model.penalties) {
-                    document.getElementById('repeatPenaltyRange').value = config.ai_model.penalties.repeat_penalty != null ? config.ai_model.penalties.repeat_penalty : 1.1;
-                    document.getElementById('repeatPenaltyValue').innerText = config.ai_model.penalties.repeat_penalty != null ? config.ai_model.penalties.repeat_penalty : 1.1;
-                    document.getElementById('freqPenaltyRange').value = config.ai_model.penalties.frequency_penalty != null ? config.ai_model.penalties.frequency_penalty : 0.0;
-                    document.getElementById('freqPenaltyValue').innerText = config.ai_model.penalties.frequency_penalty != null ? config.ai_model.penalties.frequency_penalty : 0.0;
-                    document.getElementById('presencePenaltyRange').value = config.ai_model.penalties.presence_penalty != null ? config.ai_model.penalties.presence_penalty : 0.0;
-                    document.getElementById('presencePenaltyValue').innerText = config.ai_model.penalties.presence_penalty != null ? config.ai_model.penalties.presence_penalty : 0.0;
-                }
+            // 本地模式配置
+            if (config.ai_model.local) {
+                document.getElementById('localUrlInput').value = config.ai_model.local.api_url != null ? config.ai_model.local.api_url : 'http://localhost:8000/v1/chat/completions';
             }
+
+            // API模式配置
+            if (config.ai_model.api) {
+                document.getElementById('apiProviderSelect').value = config.ai_model.api.provider != null ? config.ai_model.api.provider : 'siliconflow';
+                document.getElementById('apiUrlInput').value = config.ai_model.api.api_url != null ? config.ai_model.api.api_url : '';
+                document.getElementById('apiKeyInput').value = config.ai_model.api.api_key != null ? config.ai_model.api.api_key : '';
+                document.getElementById('modelNameInput').value = config.ai_model.api.model_name != null ? config.ai_model.api.model_name : '';
+            }
+
+            // 安全配置
+            if (config.ai_model.security) {
+                document.getElementById('verifySslCheck').checked = config.ai_model.security.verify_ssl != null ? config.ai_model.security.verify_ssl : true;
+            }
+
+            // 采样参数
+            if (config.ai_model.sampling) {
+                document.getElementById('tempRange').value = config.ai_model.sampling.temperature != null ? config.ai_model.sampling.temperature : 0.7;
+                document.getElementById('tempValue').innerText = config.ai_model.sampling.temperature != null ? config.ai_model.sampling.temperature : 0.7;
+                document.getElementById('topPRange').value = config.ai_model.sampling.top_p != null ? config.ai_model.sampling.top_p : 0.9;
+                document.getElementById('topPValue').innerText = config.ai_model.sampling.top_p != null ? config.ai_model.sampling.top_p : 0.9;
+                document.getElementById('topKInput').value = config.ai_model.sampling.top_k != null ? config.ai_model.sampling.top_k : 40;
+                document.getElementById('minPRange').value = config.ai_model.sampling.min_p != null ? config.ai_model.sampling.min_p : 0.05;
+                document.getElementById('minPValue').innerText = config.ai_model.sampling.min_p != null ? config.ai_model.sampling.min_p : 0.05;
+                document.getElementById('maxTokensInput').value = config.ai_model.sampling.max_tokens != null ? config.ai_model.sampling.max_tokens : 2048;
+                document.getElementById('seedInput').value = config.ai_model.sampling.seed != null ? config.ai_model.sampling.seed : -1;
+            }
+
+            // 惩罚参数
+            if (config.ai_model.penalties) {
+                document.getElementById('repeatPenaltyRange').value = config.ai_model.penalties.repeat_penalty != null ? config.ai_model.penalties.repeat_penalty : 1.1;
+                document.getElementById('repeatPenaltyValue').innerText = config.ai_model.penalties.repeat_penalty != null ? config.ai_model.penalties.repeat_penalty : 1.1;
+                document.getElementById('freqPenaltyRange').value = config.ai_model.penalties.frequency_penalty != null ? config.ai_model.penalties.frequency_penalty : 0.0;
+                document.getElementById('freqPenaltyValue').innerText = config.ai_model.penalties.frequency_penalty != null ? config.ai_model.penalties.frequency_penalty : 0.0;
+                document.getElementById('presencePenaltyRange').value = config.ai_model.penalties.presence_penalty != null ? config.ai_model.penalties.presence_penalty : 0.0;
+                document.getElementById('presencePenaltyValue').innerText = config.ai_model.penalties.presence_penalty != null ? config.ai_model.penalties.presence_penalty : 0.0;
+            }
+        }
     } catch (error) {
         console.error('Load settings error:', error);
     }
@@ -777,15 +795,15 @@ function formatDate(timestamp) {
 // 模式切换逻辑
 function switchMode(mode) {
     currentMode = mode;
-    
+
     // 1. 更新 Tab 样式
-    document.querySelectorAll('.nav-tab-btn').forEach(function(btn) { btn.classList.remove('active'); });
+    document.querySelectorAll('.nav-tab-btn').forEach(function (btn) { btn.classList.remove('active'); });
     document.getElementById(`tab-${mode}`).classList.add('active');
 
     // 2. 切换侧边栏内容
     const searchSidebar = document.getElementById('sidebar-search-content');
     const chatSidebar = document.getElementById('sidebar-chat-content');
-    
+
     if (mode === 'search') {
         searchSidebar.style.display = 'block';
         chatSidebar.style.display = 'none';
@@ -894,7 +912,7 @@ function resetChat() {
 
     // Clear messages
     const messages = document.querySelectorAll('.message-row');
-    messages.forEach(function(msg) { msg.remove(); });
+    messages.forEach(function (msg) { msg.remove(); });
 
     // Generate new session ID
     currentSessionId = generateSessionId();
@@ -929,7 +947,7 @@ function renderHistoryList(sessions) {
         return;
     }
 
-    historyList.innerHTML = sessions.map(function(session) {
+    historyList.innerHTML = sessions.map(function (session) {
         const sessionIdAttr = escapeHtml(session.session_id);
         const sessionIdJs = JSON.stringify(session.session_id).slice(1, -1);
         const isActive = session.session_id === currentSessionId ? 'active' : '';
@@ -1002,7 +1020,7 @@ async function loadSessionMessages(sessionId) {
         inputArea.style.background = 'linear-gradient(to top, var(--llama-bg) 60%, transparent)';
 
         // Render messages if any
-        messages.forEach(function(msg) {
+        messages.forEach(function (msg) {
             if (msg.role === 'user') {
                 addMessage(msg.content, 'user');
             } else if (msg.role === 'assistant') {
@@ -1072,10 +1090,10 @@ async function executeDeleteSession(sessionId) {
 }
 
 // 绑定删除确认按钮事件
-document.addEventListener('DOMContentLoaded', function() {
+document.addEventListener('DOMContentLoaded', function () {
     const confirmDeleteBtn = document.getElementById('confirmDeleteBtn');
     if (confirmDeleteBtn) {
-        confirmDeleteBtn.addEventListener('click', function() {
+        confirmDeleteBtn.addEventListener('click', function () {
             if (sessionToDelete) {
                 executeDeleteSession(sessionToDelete);
                 // 关闭模态框
@@ -1088,8 +1106,8 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     // 为所有关闭按钮添加事件
-    document.querySelectorAll('[data-bs-dismiss="modal"]').forEach(function(btn) {
-        btn.addEventListener('click', function() {
+    document.querySelectorAll('[data-bs-dismiss="modal"]').forEach(function (btn) {
+        btn.addEventListener('click', function () {
             const modalEl = this.closest('.modal');
             if (modalEl) {
                 hideModal(modalEl);
@@ -1110,7 +1128,7 @@ function resetChatUI() {
 
     // Clear messages
     const messages = document.querySelectorAll('.message-row');
-    messages.forEach(function(msg) { msg.remove(); });
+    messages.forEach(function (msg) { msg.remove(); });
 }
 
 // HTML转义
@@ -1121,7 +1139,7 @@ function escapeHtml(text) {
 }
 
 // 页面加载时获取历史记录
-document.addEventListener('DOMContentLoaded', async function() {
+document.addEventListener('DOMContentLoaded', async function () {
     await loadChatHistory();
     await checkSystemHealth();
     initDatePickers();
@@ -1157,7 +1175,7 @@ function initDatePickers() {
         // 点击wrapper区域触发日期选择器
         const wrapperFrom = dateFrom.closest('.date-picker-wrapper');
         if (wrapperFrom) {
-            wrapperFrom.addEventListener('click', function(e) {
+            wrapperFrom.addEventListener('click', function (e) {
                 e.preventDefault();
                 e.stopPropagation();
                 // 启用指针事件以允许点击
@@ -1168,19 +1186,19 @@ function initDatePickers() {
                     } else {
                         dateFrom.click();
                     }
-                } catch(err) {
+                } catch (err) {
                     console.log('showPicker failed, falling back to focus');
                     dateFrom.focus();
                 }
                 // 恢复指针事件
-                setTimeout(function() {
+                setTimeout(function () {
                     dateFrom.style.pointerEvents = 'none';
                 }, 100);
             });
         }
 
         // 日期改变时更新显示
-        dateFrom.addEventListener('change', function() {
+        dateFrom.addEventListener('change', function () {
             console.log('DateFrom changed:', this.value);
             formatAndDisplayDate(dateFrom, dateFromDisplay, '开始');
         });
@@ -1190,7 +1208,7 @@ function initDatePickers() {
         // 点击wrapper区域触发日期选择器
         const wrapperTo = dateTo.closest('.date-picker-wrapper');
         if (wrapperTo) {
-            wrapperTo.addEventListener('click', function(e) {
+            wrapperTo.addEventListener('click', function (e) {
                 e.preventDefault();
                 e.stopPropagation();
                 // 启用指针事件以允许点击
@@ -1201,19 +1219,19 @@ function initDatePickers() {
                     } else {
                         dateTo.click();
                     }
-                } catch(err) {
+                } catch (err) {
                     console.log('showPicker failed, falling back to focus');
                     dateTo.focus();
                 }
                 // 恢复指针事件
-                setTimeout(function() {
+                setTimeout(function () {
                     dateTo.style.pointerEvents = 'none';
                 }, 100);
             });
         }
 
         // 日期改变时更新显示
-        dateTo.addEventListener('change', function() {
+        dateTo.addEventListener('change', function () {
             console.log('DateTo changed:', this.value);
             formatAndDisplayDate(dateTo, dateToDisplay, '结束');
         });
@@ -1248,7 +1266,7 @@ async function performSearch() {
     // 1. File Types
     const activeTypeBtns = document.querySelectorAll('.file-type-btn.active');
     if (activeTypeBtns.length > 0) {
-        filters.file_types = Array.from(activeTypeBtns).map(function(btn) { return '.' + btn.dataset.type; });
+        filters.file_types = Array.from(activeTypeBtns).map(function (btn) { return '.' + btn.dataset.type; });
     }
 
     // 2. File Size (MB -> Bytes)
@@ -1298,7 +1316,7 @@ async function performSearch() {
             headers: {
                 'Content-Type': 'application/json'
             },
-            body: JSON.stringify({ 
+            body: JSON.stringify({
                 query: query,
                 filters: filters
             })
@@ -1309,7 +1327,7 @@ async function performSearch() {
         }
 
         const results = await response.json();
-        
+
         if (results.length === 0) {
             resultsContainer.innerHTML = `
                 <div class="text-center text-muted mt-5">
@@ -1321,10 +1339,10 @@ async function performSearch() {
         }
 
         // 按匹配度降序排序
-        results.sort(function(a, b) { return b.score - a.score; });
+        results.sort(function (a, b) { return b.score - a.score; });
 
         let html = '<div class="d-flex flex-column gap-3">';
-        results.forEach(function(result, index) {
+        results.forEach(function (result, index) {
             const iconClass = getFileIcon(result.file_name);
             // 使用 escapeHtml 转义所有动态内容，防止 XSS
             const safeFileName = escapeHtml(result.file_name);
@@ -1357,8 +1375,8 @@ async function performSearch() {
         resultsContainer.innerHTML = html;
 
         // 使用事件委托绑定点击事件，避免 XSS 风险
-        resultsContainer.querySelectorAll('.search-result-card').forEach(function(card) {
-            card.addEventListener('click', function() {
+        resultsContainer.querySelectorAll('.search-result-card').forEach(function (card) {
+            card.addEventListener('click', function () {
                 const path = this.getAttribute('data-path');
                 if (path) {
                     previewFile(path);
@@ -1488,9 +1506,9 @@ function generateMessageId(prefix) {
 function debounce(func, wait, immediate) {
     if (immediate === undefined) immediate = false;
     let timeout;
-    const executedFunction = function() {
+    const executedFunction = function () {
         var args = Array.prototype.slice.call(arguments);
-        const later = function() {
+        const later = function () {
             timeout = null;
             if (!immediate) func.apply(null, args);
         };
@@ -1499,7 +1517,7 @@ function debounce(func, wait, immediate) {
         timeout = setTimeout(later, wait);
         if (callNow) func.apply(null, args);
     };
-    executedFunction.cancel = function() {
+    executedFunction.cancel = function () {
         if (timeout) {
             clearTimeout(timeout);
             timeout = null;
@@ -1516,7 +1534,7 @@ function throttle(func, limit) {
         if (!inThrottle) {
             func.apply(null, args);
             inThrottle = true;
-            setTimeout(function() { inThrottle = false; }, limit);
+            setTimeout(function () { inThrottle = false; }, limit);
         }
     };
 }
@@ -1593,12 +1611,12 @@ function removeLoadingMessage(id) {
 const debouncedSearch = debounce(performSearch, 300);
 
 // 绑定回车事件和实时搜索
-document.addEventListener('DOMContentLoaded', function() {
+document.addEventListener('DOMContentLoaded', function () {
     const userInput = document.getElementById('userInput');
     const searchInput = document.getElementById('searchInput');
 
     if (userInput) {
-        userInput.addEventListener('keydown', function(e) {
+        userInput.addEventListener('keydown', function (e) {
             if (e.key === 'Enter' && !e.shiftKey) {
                 e.preventDefault();
                 sendMessage();
@@ -1608,7 +1626,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
     if (searchInput) {
         // 回车立即搜索
-        searchInput.addEventListener('keydown', function(e) {
+        searchInput.addEventListener('keydown', function (e) {
             if (e.key === 'Enter') {
                 e.preventDefault();
                 // 取消防抖搜索，立即执行
@@ -1620,7 +1638,7 @@ document.addEventListener('DOMContentLoaded', function() {
         });
 
         // 输入防抖搜索（输入停止300ms后搜索）
-        searchInput.addEventListener('input', function(e) {
+        searchInput.addEventListener('input', function (e) {
             const query = e.target.value.trim();
             if (query.length >= 2) { // 至少2个字符才触发实时搜索
                 debouncedSearch();

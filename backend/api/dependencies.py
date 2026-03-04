@@ -1,0 +1,188 @@
+"""
+依赖注入函数 - 线程安全的组件访问
+"""
+
+from pathlib import Path
+from fastapi import Depends
+from backend.utils.config_loader import ConfigLoader
+from backend.utils.logger import get_logger
+
+logger = get_logger(__name__)
+
+
+def get_rate_limiter(config_loader=None):
+    """获取或初始化限流器"""
+    from backend.api.main import rate_limiter, RateLimiter
+    global rate_limiter
+    if rate_limiter is None and config_loader:
+        try:
+            max_entries = config_loader.getint(
+                'security', 'rate_limiter.max_entries', 10000)
+            rate_limiter = RateLimiter(max_entries=max_entries)
+        except Exception:
+            rate_limiter = RateLimiter()
+    elif rate_limiter is None:
+        rate_limiter = RateLimiter()
+    return rate_limiter
+
+# 全局状态引用（由 main.py 初始化）
+_app = None
+
+
+def set_app(app):
+    """设置全局应用实例"""
+    global _app
+    _app = app
+
+
+def get_app():
+    """获取全局应用实例"""
+    return _app
+
+
+def get_config_loader():
+    """获取配置加载器（单例）"""
+    if not hasattr(_app.state, 'config_loader'):
+        _app.state.config_loader = ConfigLoader()
+    return _app.state.config_loader
+
+
+def get_index_manager(config_loader: ConfigLoader = Depends(get_config_loader)):
+    """获取索引管理器"""
+    if not hasattr(_app.state, 'index_manager'):
+        from backend.core.index_manager import IndexManager
+        _app.state.index_manager = IndexManager(config_loader)
+    return _app.state.index_manager
+
+
+def get_search_engine(
+    config_loader: ConfigLoader = Depends(get_config_loader),
+    index_manager=Depends(get_index_manager)
+):
+    """获取搜索引擎"""
+    if not hasattr(_app.state, 'search_engine'):
+        from backend.core.search_engine import SearchEngine
+        _app.state.search_engine = SearchEngine(index_manager, config_loader)
+    return _app.state.search_engine
+
+
+def get_file_scanner(
+    config_loader: ConfigLoader = Depends(get_config_loader),
+    index_manager=Depends(get_index_manager)
+):
+    """获取文件扫描器"""
+    if not hasattr(_app.state, 'file_scanner'):
+        from backend.core.file_scanner import FileScanner
+        _app.state.file_scanner = FileScanner(
+            config_loader, None, index_manager)
+    return _app.state.file_scanner
+
+
+def get_rag_pipeline(
+    config_loader: ConfigLoader = Depends(get_config_loader),
+    search_engine=Depends(get_search_engine)
+):
+    """获取RAG管道（可选，禁用时返回None）"""
+    if not hasattr(_app.state, 'rag_pipeline'):
+        if config_loader.getboolean('ai_model', 'enabled', False):
+            from backend.core.model_manager import ModelManager
+            from backend.core.rag_pipeline import RAGPipeline
+            model_manager = ModelManager(config_loader)
+            _app.state.rag_pipeline = RAGPipeline(
+                model_manager, config_loader, search_engine)
+            logger.info("RAG管道初始化完成")
+        else:
+            _app.state.rag_pipeline = None
+    return _app.state.rag_pipeline
+
+
+def get_file_monitor(
+    config_loader: ConfigLoader = Depends(get_config_loader),
+    index_manager=Depends(get_index_manager),
+    file_scanner=Depends(get_file_scanner)
+):
+    """获取文件监控器"""
+    if not hasattr(_app.state, 'file_monitor'):
+        from backend.core.file_monitor import FileMonitor
+        _app.state.file_monitor = FileMonitor(
+            config_loader, index_manager, file_scanner)
+        if config_loader.getboolean('monitor', 'enabled', False):
+            _app.state.file_monitor.start_monitoring()
+            logger.info("文件监控已启动")
+    return _app.state.file_monitor
+
+
+def is_path_allowed(path: str, config_loader: ConfigLoader) -> bool:
+    """
+    检查路径是否在允许范围内，防止路径遍历攻击
+
+    安全特性：
+    1. 使用 Path.resolve() 解析符号链接和相对路径
+    2. 使用 Path.relative_to() 确保路径在允许目录内
+    3. 检查非法字符和路径遍历模式
+    """
+    if not path or not isinstance(path, str):
+        return False
+
+    # 标准化路径 - 去除引号
+    path = path.strip('"').strip("'")
+
+    # 检查明显的路径遍历模式
+    if ".." in path or path.startswith("//"):
+        logger.warning(f"路径包含遍历模式: {path}")
+        return False
+
+    try:
+        # 使用 resolve() 解析符号链接和相对路径，获取真实绝对路径
+        file_path = Path(path).resolve()
+
+        # 确保路径存在且是文件或目录
+        if not file_path.exists():
+            logger.warning(f"路径不存在，拒绝访问: {file_path}")
+            return False
+    except (OSError, ValueError) as e:
+        logger.warning(f"路径解析失败: {path} - {e}")
+        return False
+
+    # 获取允许的扫描路径
+    scan_paths = config_loader.get('file_scanner', 'scan_paths', '')
+    if not scan_paths:
+        logger.warning("未配置扫描路径，拒绝所有文件访问")
+        return False
+
+    # 构建允许的路径列表
+    allowed_paths = []
+    if isinstance(scan_paths, str):
+        path_list = [p.strip() for p in scan_paths.split(';') if p.strip()]
+    elif isinstance(scan_paths, list):
+        path_list = scan_paths
+    else:
+        path_list = []
+
+    for sp in path_list:
+        sp = str(sp).strip()
+        if sp:
+            try:
+                allowed_path = Path(sp).resolve()
+                if allowed_path.exists() and allowed_path.is_dir():
+                    allowed_paths.append(allowed_path)
+            except (OSError, ValueError):
+                logger.debug(f"无效的允许路径: {sp}")
+                continue
+
+    if not allowed_paths:
+        logger.warning("没有有效的允许路径")
+        return False
+
+    # 使用 relative_to 检查路径是否在允许范围内
+    # 这比 startswith 更安全，因为 "C:\allowed\file.txt" 不会匹配 "C:\allowed_malicious\file.txt"
+    for allowed_path in allowed_paths:
+        try:
+            file_path.relative_to(allowed_path)
+            return True
+        except ValueError:
+            # 路径不在此允许目录内，继续检查下一个
+            continue
+
+    logger.warning(f"路径不在允许范围内: {file_path}")
+    return False

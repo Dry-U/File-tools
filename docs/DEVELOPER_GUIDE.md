@@ -6,8 +6,16 @@
 ```
 File-tools/
 ├── backend/                # 后端服务
-│   ├── api/                # API接口层
-│   │   └── api.py          # FastAPI应用主文件
+│   ├── api/                # API接口层（模块化设计）
+│   │   ├── main.py         # FastAPI应用主文件
+│   │   ├── models.py       # 请求/响应模型
+│   │   ├── dependencies.py # 依赖注入函数
+│   │   └── routes/         # 路由模块
+│   │       ├── search.py   # 搜索/预览路由
+│   │       ├── chat.py     # 聊天/会话路由
+│   │       ├── config.py   # 配置管理路由
+│   │       ├── directory.py# 目录管理路由
+│   │       └── system.py   # 系统/健康检查路由
 │   ├── core/               # 核心业务逻辑
 │   │   ├── document_parser.py      # 文档解析器
 │   │   ├── file_scanner.py         # 文件扫描器
@@ -15,23 +23,31 @@ File-tools/
 │   │   ├── index_manager.py        # 索引管理器
 │   │   ├── search_engine.py        # 搜索引擎
 │   │   ├── model_manager.py        # 模型管理器
-│   │   └── rag_pipeline.py         # RAG 问答流水线
+│   │   ├── rag_pipeline.py         # RAG 问答流水线
+│   │   └── vram_manager.py         # VRAM 管理器
 │   └── utils/              # 工具模块
 │       ├── config_loader.py        # 配置加载
 │       └── logger.py               # 日志系统
 ├── frontend/               # 前端界面
 │   ├── index.html          # 主页面
 │   └── static/             # 静态资源 (CSS/JS)
-├── tests/                  # 测试代码
+├── tests/                  # 测试代码（分层结构）
+│   ├── unit/               # 单元测试
+│   ├── integration/        # 集成测试
+│   ├── api/                # API测试
+│   └── e2e/                # 端到端测试
 ├── data/                   # 数据存储
-│   ├── index/              # 文本索引
 │   ├── tantivy_index/      # Tantivy 索引
 │   ├── hnsw_index/         # HNSWLib 索引
 │   ├── metadata/           # 元数据
+│   ├── models/             # 模型文件
 │   ├── cache/              # 缓存文件
+│   ├── temp/               # 临时文件
 │   └── logs/               # 日志文件
 ├── docs/                   # 项目文档
 ├── config.yaml             # 配置文件
+├── main.py                 # 应用入口
+├── build_exe.bat           # 构建脚本
 └── pyproject.toml          # 项目配置
 ```
 
@@ -115,6 +131,25 @@ File-tools/
 - 提供文档聚合功能
 - 实现智能回答生成
 
+### 5. DirectoryManager (目录管理)
+
+#### 功能
+- 管理扫描路径和监控目录
+- 提供目录浏览对话框
+- 目录状态跟踪
+
+#### 关键方法
+- `get_directories()`: 获取所有管理的目录
+- `add_directory(path)`: 添加新目录
+- `remove_directory(path)`: 移除目录
+- `browse_directory()`: 打开系统目录选择对话框
+
+#### 设计要点
+- 路径安全验证（防止路径遍历）
+- 统一处理扫描路径和监控目录
+- 实时状态显示（存在性、扫描状态、监控状态、文件数）
+- 支持 Windows/Linux/macOS 文件对话框
+
 ## API 接口设计
 
 ### FastAPI 依赖注入系统
@@ -134,40 +169,59 @@ def get_index_manager(config_loader = Depends(get_config_loader)):
     return app.state.index_manager
 ```
 
-### 路由结构
+### 路由结构（模块化设计）
+
+API 路由按功能划分为独立模块，每个模块负责特定的功能域：
+
+```
+backend/api/routes/
+├── search.py      # 搜索和预览 (/api/search, /api/preview)
+├── chat.py        # 聊天和会话 (/api/chat, /api/sessions/*)
+├── config.py      # 配置管理 (/api/config, /api/model/test)
+├── directory.py   # 目录管理 (/api/directories/*)
+└── system.py      # 系统接口 (/api/health/*, /api/rebuild-index)
+```
+
+#### 路由注册（main.py）
 
 ```python
-# API 路由前缀为 /api
-api_router = APIRouter()
+from backend.api.routes import search, chat, config, directory, system
 
-@api_router.get("/health")
-async def health_check():
-    ...
-
-@api_router.post("/search")
-async def search(...):
-    ...
-
-@api_router.post("/chat")
-async def chat(...):
-    ...
-
-@api_router.get("/config")
-async def get_config(...):
-    ...
-
-@api_router.post("/config")
-async def update_config(...):
-    ...
-
-@api_router.get("/sessions")
-async def get_sessions(...):
-    ...
-
-@api_router.delete("/sessions/{session_id}")
-async def delete_session(...):
-    ...
+app.include_router(search.router, prefix="/api")
+app.include_router(chat.router, prefix="/api")
+app.include_router(config.router, prefix="/api")
+app.include_router(directory.router, prefix="/api")
+app.include_router(system.router, prefix="/api")
 ```
+
+#### 各模块主要端点
+
+**Search 模块** (`search.py`):
+- `POST /api/search` - 混合搜索
+- `POST /api/preview` - 文件预览
+
+**Chat 模块** (`chat.py`):
+- `POST /api/chat` - 问答对话
+- `GET /api/sessions` - 获取会话列表
+- `DELETE /api/sessions/{session_id}` - 删除会话
+- `GET /api/sessions/{session_id}/messages` - 获取会话消息
+
+**Config 模块** (`config.py`):
+- `GET /api/config` - 获取配置
+- `POST /api/config` - 更新配置
+- `GET /api/model/test` - 测试模型连接
+
+**Directory 模块** (`directory.py`):
+- `GET /api/directories` - 获取目录列表
+- `POST /api/directories` - 添加目录
+- `DELETE /api/directories` - 删除目录
+- `POST /api/directories/browse` - 浏览目录（打开对话框）
+
+**System 模块** (`system.py`):
+- `GET /api/health` - 健康检查
+- `GET /api/health/ready` - 就绪检查
+- `GET /api/health/live` - 存活检查
+- `POST /api/rebuild-index` - 重建索引
 
 ## 配置管理系统
 
@@ -224,16 +278,60 @@ async def delete_session(...):
 
 ## 测试策略
 
-### 测试类型
-- 单元测试：测试独立函数和方法
-- 集成测试：测试模块间协作
-- 性能测试：验证系统性能
+### 测试分层结构
 
-### 测试覆盖
-- 配置加载器测试
-- 索引管理器测试
-- 搜索引擎测试
-- API 接口测试
+```
+tests/
+├── unit/               # 单元测试 - 测试独立函数和方法
+│   ├── test_config_loader.py
+│   ├── test_document_parser.py
+│   ├── test_file_scanner.py
+│   ├── test_file_monitor.py
+│   ├── test_index_manager.py
+│   ├── test_search_engine.py
+│   ├── test_rag_pipeline.py
+│   ├── test_model_manager.py
+│   ├── test_vram_manager.py
+│   ├── test_query_processor.py
+│   ├── test_privacy_guard.py
+│   ├── test_chat_history_db.py
+│   └── test_logger.py
+├── integration/        # 集成测试 - 测试模块间协作
+│   ├── test_file_processing_integration.py
+│   ├── test_rag_workflow.py
+│   └── test_performance.py
+├── api/                # API 测试 - 测试 API 端点
+│   ├── test_web_api.py
+│   └── test_web_api_simple.py
+└── e2e/                # 端到端测试 - 测试完整用户流程
+    ├── test_ui_chat.py
+    ├── test_ui_search.py
+    └── test_ui_settings.py
+```
+
+### 运行测试
+
+```bash
+# 运行所有测试
+pytest tests/
+
+# 运行单元测试
+pytest tests/unit/ -v
+
+# 运行集成测试
+pytest tests/integration/ -v
+
+# 运行 API 测试
+pytest tests/api/ -v
+
+# 运行端到端测试
+pytest tests/e2e/ -v
+```
+
+### 测试覆盖目标
+- 核心业务逻辑：> 80%
+- 工具函数：> 60%
+- API 端点：主要流程覆盖
 
 ## 打包与部署
 

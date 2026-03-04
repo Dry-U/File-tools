@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="zh-CN" data-bs-theme="dark">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -12,581 +13,662 @@
     <!-- 引入自定义样式 -->
     <link rel="stylesheet" href="static/css/style.css">
 </head>
+
 <body>
 
-<div class="app-container">
-    <!-- 侧边栏 (Sidebar) -->
-    <div class="sidebar collapsed" id="sidebar">
-        <!-- Logo / Header -->
-        <div class="sidebar-header">
-            <img src="static/logo.svg" alt="Logo" class="sidebar-logo">
-            <span class="sidebar-title">File Tools</span>
-        </div>
-
-        <!-- 侧边栏内容容器 -->
-        <div class="sidebar-content">
-            
-            <!-- 1. 文件搜索模式侧边栏内容 -->
-            <div id="sidebar-search-content">
-                <div class="settings-group">
-                    <span class="settings-label">文件类型</span>
-                    <div class="file-type-grid">
-                        <button class="file-type-btn active" data-type="pdf" onclick="toggleFileType(this)">PDF</button>
-                        <button class="file-type-btn active" data-type="docx" onclick="toggleFileType(this)">Word</button>
-                        <button class="file-type-btn active" data-type="txt" onclick="toggleFileType(this)">TXT</button>
-                        <button class="file-type-btn" data-type="md" onclick="toggleFileType(this)">MD</button>
-                        <button class="file-type-btn" data-type="ppt,pptx" onclick="toggleFileType(this)" title="PowerPoint演示文稿">PPT</button>
-                        <button class="file-type-btn" data-type="xls,xlsx" onclick="toggleFileType(this)" title="Excel表格">Excel</button>
-                        <button class="file-type-btn" data-type="other" onclick="toggleFileType(this)" title="其他类型文件">Others</button>
-                    </div>
-                </div>
-
-                <div class="settings-group">
-                    <span class="settings-label">文件大小限制 (MB)</span>
-                    <div class="size-range-inputs">
-                        <input type="number" min="0" class="size-input" id="minSize" placeholder="最小">
-                        <span class="range-separator">-</span>
-                        <input type="number" min="0" class="size-input" id="maxSize" placeholder="最大">
-                    </div>
-                </div>
-
-                <div class="settings-group">
-                    <span class="settings-label">修改日期范围</span>
-                    <div class="date-range-compact">
-                        <div class="date-picker-wrapper">
-                            <input type="date" class="native-date-picker" id="dateFrom">
-                            <span class="date-display" id="dateFromDisplay">开始</span>
-                        </div>
-                        <span class="range-separator">-</span>
-                        <div class="date-picker-wrapper">
-                            <input type="date" class="native-date-picker" id="dateTo">
-                            <span class="date-display" id="dateToDisplay">结束</span>
-                        </div>
-                    </div>
-                </div>
-
-                <div class="settings-group">
-                    <span class="settings-label">搜索选项</span>
-                    <div class="search-options">
-                        <label class="switch-label">
-                            <input type="checkbox" id="searchContent" checked>
-                            <span class="switch-slider"></span>
-                            <span class="switch-text">搜索文件内容</span>
-                        </label>
-                    </div>
-                </div>
-
-                <div class="settings-group rebuild-section">
-                    <button class="rebuild-btn" onclick="showRebuildModal()">
-                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" style="width: 16px; height: 16px;">
-                          <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 12c0-1.232-.046-2.453-.138-3.662a4.006 4.006 0 0 0-3.7-3.7 48.678 48.678 0 0 0-7.324 0 4.006 4.006 0 0 0-3.7 3.7c-.017.22-.032.441-.046.662M19.5 12l3-3m-3 3-3-3m-12 3c0 1.232.046 2.453.138 3.662a4.006 4.006 0 0 0 3.7 3.7 48.656 48.656 0 0 0 7.324 0 4.006 4.006 0 0 0 3.7-3.7c.017-.22.032-.441.046-.662M4.5 12l3 3m-3-3-3 3" />
-                        </svg>
-                        <span>重建索引</span>
-                    </button>
-                </div>
+    <div class="app-container">
+        <!-- 侧边栏 (Sidebar) -->
+        <div class="sidebar collapsed" id="sidebar">
+            <!-- Logo / Header -->
+            <div class="sidebar-header">
+                <img src="static/logo.svg" alt="Logo" class="sidebar-logo">
+                <span class="sidebar-title">File Tools</span>
             </div>
 
-            <!-- 2. 智能问答模式侧边栏内容 -->
-            <div id="sidebar-chat-content" style="display: none;">
-                <button class="new-chat-btn" onclick="resetChat()">
-                    <i class="bi bi-plus-lg"></i>
-                    <span>新建对话</span>
+            <!-- 侧边栏内容容器 -->
+            <div class="sidebar-content">
+
+                <!-- 1. 文件搜索模式侧边栏内容 -->
+                <div id="sidebar-search-content">
+                    <div class="settings-group">
+                        <span class="settings-label">文件类型</span>
+                        <div class="file-type-grid">
+                            <button class="file-type-btn active" data-type="pdf"
+                                onclick="toggleFileType(this)">PDF</button>
+                            <button class="file-type-btn active" data-type="docx"
+                                onclick="toggleFileType(this)">Word</button>
+                            <button class="file-type-btn active" data-type="txt"
+                                onclick="toggleFileType(this)">TXT</button>
+                            <button class="file-type-btn" data-type="md" onclick="toggleFileType(this)">MD</button>
+                            <button class="file-type-btn" data-type="ppt,pptx" onclick="toggleFileType(this)"
+                                title="PowerPoint演示文稿">PPT</button>
+                            <button class="file-type-btn" data-type="xls,xlsx" onclick="toggleFileType(this)"
+                                title="Excel表格">Excel</button>
+                            <button class="file-type-btn" data-type="other" onclick="toggleFileType(this)"
+                                title="其他类型文件">Others</button>
+                        </div>
+                    </div>
+
+                    <div class="settings-group">
+                        <span class="settings-label">文件大小限制 (MB)</span>
+                        <div class="size-range-inputs">
+                            <input type="number" min="0" class="size-input" id="minSize" placeholder="最小">
+                            <span class="range-separator">-</span>
+                            <input type="number" min="0" class="size-input" id="maxSize" placeholder="最大">
+                        </div>
+                    </div>
+
+                    <div class="settings-group">
+                        <span class="settings-label">修改日期范围</span>
+                        <div class="date-range-compact">
+                            <div class="date-picker-wrapper">
+                                <input type="date" class="native-date-picker" id="dateFrom">
+                                <span class="date-display" id="dateFromDisplay">开始</span>
+                            </div>
+                            <span class="range-separator">-</span>
+                            <div class="date-picker-wrapper">
+                                <input type="date" class="native-date-picker" id="dateTo">
+                                <span class="date-display" id="dateToDisplay">结束</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="settings-group">
+                        <span class="settings-label">搜索选项</span>
+                        <div class="search-options">
+                            <label class="switch-label">
+                                <input type="checkbox" id="searchContent" checked>
+                                <span class="switch-slider"></span>
+                                <span class="switch-text">搜索文件内容</span>
+                            </label>
+                        </div>
+                    </div>
+
+                    <div class="settings-group rebuild-section">
+                        <button class="rebuild-btn" onclick="showRebuildModal()">
+                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5"
+                                stroke="currentColor" style="width: 16px; height: 16px;">
+                                <path stroke-linecap="round" stroke-linejoin="round"
+                                    d="M19.5 12c0-1.232-.046-2.453-.138-3.662a4.006 4.006 0 0 0-3.7-3.7 48.678 48.678 0 0 0-7.324 0 4.006 4.006 0 0 0-3.7 3.7c-.017.22-.032.441-.046.662M19.5 12l3-3m-3 3-3-3m-12 3c0 1.232.046 2.453.138 3.662a4.006 4.006 0 0 0 3.7 3.7 48.656 48.656 0 0 0 7.324 0 4.006 4.006 0 0 0 3.7-3.7c.017-.22.032-.441.046-.662M4.5 12l3 3m-3-3-3 3" />
+                            </svg>
+                            <span>重建索引</span>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- 2. 智能问答模式侧边栏内容 -->
+                <div id="sidebar-chat-content" style="display: none;">
+                    <button class="new-chat-btn" onclick="resetChat()">
+                        <i class="bi bi-plus-lg"></i>
+                        <span>新建对话</span>
+                    </button>
+
+                    <div class="settings-group">
+                        <span class="settings-label">历史记录</span>
+                        <div class="history-list" id="historyList">
+                            <div class="text-muted small text-center py-3">
+                                <i class="bi bi-hourglass-split me-1"></i>加载中...
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+
+            <!-- 底部状态 -->
+            <div class="sidebar-footer">
+                <div class="status-indicator">
+                    <span class="status-dot"></span>
+                    <span>系统就绪</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- 主内容区 (Main Content) -->
+        <div class="main-content">
+            <!-- 顶部导航栏 -->
+            <div class="top-nav-bar">
+                <!-- 左侧：折叠按钮 -->
+                <button class="nav-icon-btn" id="sidebarToggleBtn" onclick="toggleSidebar()" aria-label="切换侧边栏">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5"
+                        stroke="currentColor" style="width: 24px; height: 24px;">
+                        <path stroke-linecap="round" stroke-linejoin="round"
+                            d="M15.75 9V5.25A2.25 2.25 0 0 0 13.5 3h-6a2.25 2.25 0 0 0-2.25 2.25v13.5A2.25 2.25 0 0 0 7.5 21h6a2.25 2.25 0 0 0 2.25-2.25V15M12 9l-3 3m0 0 3 3m-3-3h12.75" />
+                    </svg>
                 </button>
 
-                <div class="settings-group">
-                    <span class="settings-label">历史记录</span>
-                    <div class="history-list" id="historyList">
-                        <div class="text-muted small text-center py-3">
-                            <i class="bi bi-hourglass-split me-1"></i>加载中...
-                        </div>
-                    </div>
+                <!-- 中间：模式切换 Tabs -->
+                <div class="nav-tabs-wrapper">
+                    <div class="nav-tab-btn active" id="tab-search" onclick="switchMode('search')">文件搜索</div>
+                    <div class="nav-tab-btn" id="tab-chat" onclick="switchMode('chat')">智能问答</div>
                 </div>
-            </div>
 
-        </div>
-
-        <!-- 底部状态 -->
-        <div class="sidebar-footer">
-            <div class="status-indicator">
-                <span class="status-dot"></span>
-                <span>系统就绪</span>
-            </div>
-        </div>
-    </div>
-
-    <!-- 主内容区 (Main Content) -->
-    <div class="main-content">
-        <!-- 顶部导航栏 -->
-        <div class="top-nav-bar">
-            <!-- 左侧：折叠按钮 -->
-            <button class="nav-icon-btn" id="sidebarToggleBtn" onclick="toggleSidebar()" aria-label="切换侧边栏">
-                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" style="width: 24px; height: 24px;">
-                  <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 9V5.25A2.25 2.25 0 0 0 13.5 3h-6a2.25 2.25 0 0 0-2.25 2.25v13.5A2.25 2.25 0 0 0 7.5 21h6a2.25 2.25 0 0 0 2.25-2.25V15M12 9l-3 3m0 0 3 3m-3-3h12.75" />
-                </svg>
-            </button>
-
-            <!-- 中间：模式切换 Tabs -->
-            <div class="nav-tabs-wrapper">
-                <div class="nav-tab-btn active" id="tab-search" onclick="switchMode('search')">文件搜索</div>
-                <div class="nav-tab-btn" id="tab-chat" onclick="switchMode('chat')">智能问答</div>
-            </div>
-
-            <!-- 右侧：设置按钮 -->
-            <button class="nav-icon-btn settings-btn" onclick="openSettingsModal()" aria-label="设置">
-                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.324.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 011.37.49l1.296 2.247a1.125 1.125 0 01-.26 1.431l-1.003.827c-.293.24-.438.613-.431.992a6.759 6.759 0 010 .255c-.007.378.138.75.43.99l1.005.828c.424.35.534.954.26 1.43l-1.298 2.247a1.125 1.125 0 01-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.57 6.57 0 01-.22.128c-.331.183-.581.495-.644.869l-.212 1.28c-.09.543-.56.941-1.11.941h-2.594c-.55 0-1.02-.398-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 01-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 01-1.369-.49l-1.297-2.247a1.125 1.125 0 01.26-1.431l1.004-.827c.292-.24.437-.613.43-.992a6.932 6.932 0 010-.255c.007-.378-.138-.75-.43-.99l-1.004-.828a1.125 1.125 0 01-.26-1.43l1.297-2.247a1.125 1.125 0 011.37-.491l1.216.456c.356.133.751.072 1.076-.124.072-.044.146-.087.22-.128.332-.183.582-.495.644-.869l.214-1.281z" />
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                </svg>
-            </button>
-        </div>
-
-        <!-- 1. 文件搜索视图 -->
-        <div id="view-search" class="search-view">
-            <!-- 搜索结果区域 (有结果时显示) -->
-            <div class="search-results" id="resultsContainer" style="display: none;">
-                <!-- Results will be added here -->
-            </div>
-
-            <!-- 初始欢迎区域 (无结果时显示) -->
-            <div class="search-welcome" id="search-welcome-container">
-                <div class="search-welcome-content">
-                    <h1 class="search-title">File Tools</h1>
-                    <p class="search-subtitle">快速查找本地文档</p>
-                </div>
-            </div>
-
-            <!-- 输入框区域 (固定在底部) -->
-            <div class="search-input-area" id="search-input-area">
-                <div class="search-input-wrapper">
-                    <div class="search-input-box">
-                        <input type="text" class="search-input" id="searchInput" placeholder="输入关键词搜索...">
-                        <button class="search-btn" onclick="performSearch()" aria-label="搜索">
-                            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="currentColor" viewBox="0 0 16 16">
-                                <path d="M11.742 10.344a6.5 6.5 0 1 0-1.397 1.398h-.001c.03.04.062.078.098.115l3.85 3.85a1 1 0 0 0 1.415-1.414l-3.85-3.85a1.007 1.007 0 0 0-.115-.1zM12 6.5a5.5 5.5 0 1 1-11 0 5.5 5.5 0 0 1 11 0z"/>
-                            </svg>
-                        </button>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <!-- 2. 智能问答视图 -->
-        <div id="view-chat" class="chat-view" style="display: none;">
-            <!-- 消息列表区域 (有消息时显示) -->
-            <div class="chat-messages" id="chatContainer" style="display: none;">
-                <!-- Messages will be added here -->
-            </div>
-
-            <!-- 初始欢迎区域 (无消息时显示) -->
-            <div class="chat-welcome" id="chat-welcome-container">
-                <div class="chat-welcome-content">
-                    <h1 class="chat-title">File Tools</h1>
-                    <p class="chat-subtitle">我可以帮您检索本地文档，或者回答一般性问题。</p>
-                </div>
-            </div>
-
-            <!-- 输入框区域 (固定在底部) -->
-            <div class="chat-input-area" id="chat-input-area">
-                <div class="chat-input-wrapper">
-                    <div class="chat-input-box">
-                        <textarea class="chat-textarea" id="userInput" rows="1" placeholder="输入您的问题..." oninput="autoResize(this)"></textarea>
-                        <button class="chat-send-btn" onclick="sendMessage()" aria-label="发送">
-                            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="currentColor" viewBox="0 0 16 16">
-                                <path d="M15.854.146a.5.5 0 0 1 .11.54l-5.819 14.547a.75.75 0 0 1-1.329.124l-3.178-4.995L.643 7.184a.75.75 0 0 1 .124-1.33L15.314.037a.5.5 0 0 1 .54.11ZM6.636 10.07l2.761 4.338L14.13 2.576 6.636 10.07Zm6.787-8.201L1.591 6.602l4.339 2.76 7.494-7.493Z"/>
-                            </svg>
-                        </button>
-                    </div>
-                    <div class="chat-disclaimer">
-                        <small>AI 生成的内容可能不准确，请核对重要信息。</small>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </div>
-</div>
-
-<!-- 引入 Bootstrap JS -->
-<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
-
-<!-- 设置模态框 (Settings Modal) -->
-<div class="modal fade" id="settingsModal" tabindex="-1" aria-hidden="true" data-bs-backdrop="false">
-    <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
-        <div class="modal-content" style="background-color: var(--llama-bg); border: 1px solid var(--llama-border); color: var(--llama-text-main); max-height: 80vh;">
-            <div class="modal-header border-secondary">
-                <h5 class="modal-title">设置</h5>
-                <button type="button" class="btn btn-llama p-1" data-bs-dismiss="modal" aria-label="Close">
-                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" style="width: 24px; height: 24px;">
-                      <path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" />
+                <!-- 右侧：设置按钮 -->
+                <button class="nav-icon-btn settings-btn" onclick="openSettingsModal()" aria-label="设置">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5"
+                        stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round"
+                            d="M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.324.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 011.37.49l1.296 2.247a1.125 1.125 0 01-.26 1.431l-1.003.827c-.293.24-.438.613-.431.992a6.759 6.759 0 010 .255c-.007.378.138.75.43.99l1.005.828c.424.35.534.954.26 1.43l-1.298 2.247a1.125 1.125 0 01-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.57 6.57 0 01-.22.128c-.331.183-.581.495-.644.869l-.212 1.28c-.09.543-.56.941-1.11.941h-2.594c-.55 0-1.02-.398-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 01-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 01-1.369-.49l-1.297-2.247a1.125 1.125 0 01.26-1.431l1.004-.827c.292-.24.437-.613.43-.992a6.932 6.932 0 010-.255c.007-.378-.138-.75-.43-.99l-1.004-.828a1.125 1.125 0 01-.26-1.43l1.297-2.247a1.125 1.125 0 011.37-.491l1.216.456c.356.133.751.072 1.076-.124.072-.044.146-.087.22-.128.332-.183.582-.495.644-.869l.214-1.281z" />
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
                     </svg>
                 </button>
             </div>
-            <div class="modal-body">
-                <div class="d-flex align-items-start">
-                    <!-- 侧边导航 -->
-                    <div class="nav flex-column nav-pills me-4" id="v-pills-tab" role="tablist" aria-orientation="vertical" style="min-width: 120px;">
-                        <button class="nav-link active text-start mb-2" id="v-pills-sampling-tab" data-bs-toggle="pill" data-bs-target="#v-pills-sampling" type="button" role="tab">采样参数</button>
-                        <button class="nav-link text-start mb-2" id="v-pills-penalty-tab" data-bs-toggle="pill" data-bs-target="#v-pills-penalty" type="button" role="tab">惩罚参数</button>
-                        <button class="nav-link text-start mb-2" id="v-pills-mode-tab" data-bs-toggle="pill" data-bs-target="#v-pills-mode" type="button" role="tab">接入模式</button>
-                        <button class="nav-link text-start mb-2" id="v-pills-directories-tab" data-bs-toggle="pill" data-bs-target="#v-pills-directories" type="button" role="tab">目录管理</button>
-                        <button class="nav-link text-start" id="v-pills-about-tab" data-bs-toggle="pill" data-bs-target="#v-pills-about" type="button" role="tab">关于</button>
+
+            <!-- 1. 文件搜索视图 -->
+            <div id="view-search" class="search-view">
+                <!-- 搜索结果区域 (有结果时显示) -->
+                <div class="search-results" id="resultsContainer" style="display: none;">
+                    <!-- Results will be added here -->
+                </div>
+
+                <!-- 初始欢迎区域 (无结果时显示) -->
+                <div class="search-welcome" id="search-welcome-container">
+                    <div class="search-welcome-content">
+                        <h1 class="search-title">File Tools</h1>
+                        <p class="search-subtitle">快速查找本地文档</p>
                     </div>
-                    
-                    <!-- 内容区域 -->
-                    <div class="tab-content flex-grow-1 border-start border-secondary" id="v-pills-tabContent" style="overflow-y: auto; max-height: 50vh; padding-right: 10px;">
-                        
-                        <!-- 1. 采样参数 -->
-                        <div class="tab-pane fade show active ps-4" id="v-pills-sampling" role="tabpanel">
-                            <h6 class="mb-3 text-light">采样设置 (Sampling)</h6>
+                </div>
 
-                            <div class="mb-3">
-                                <label for="tempRange" class="form-label small text-muted d-flex justify-content-between">
-                                    <span>Temperature (温度)</span>
-                                    <span id="tempValue">0.7</span>
-                                </label>
-                                <input type="range" class="form-range" min="0" max="2" step="0.1" id="tempRange" value="0.7" oninput="document.getElementById('tempValue').innerText = this.value">
-                                <div class="form-text small text-muted">控制生成的随机性。值越高越随机，值越低越确定。</div>
-                            </div>
-
-                            <div class="mb-3">
-                                <label for="topPRange" class="form-label small text-muted d-flex justify-content-between">
-                                    <span>Top P (核采样)</span>
-                                    <span id="topPValue">0.9</span>
-                                </label>
-                                <input type="range" class="form-range" min="0" max="1" step="0.05" id="topPRange" value="0.9" oninput="document.getElementById('topPValue').innerText = this.value">
-                            </div>
-
-                            <div class="mb-3">
-                                <label for="topKInput" class="form-label small text-muted">Top K</label>
-                                <input type="number" class="form-control bg-dark text-light border-secondary" id="topKInput" value="40">
-                            </div>
-
-                            <div class="mb-3">
-                                <label for="minPRange" class="form-label small text-muted d-flex justify-content-between">
-                                    <span>Min P (最小概率)</span>
-                                    <span id="minPValue">0.05</span>
-                                </label>
-                                <input type="range" class="form-range" min="0" max="1" step="0.01" id="minPRange" value="0.05" oninput="document.getElementById('minPValue').innerText = this.value">
-                            </div>
-
-                            <div class="row mb-3">
-                                <div class="col-6">
-                                    <label for="maxTokensInput" class="form-label small text-muted">Max Tokens</label>
-                                    <input type="number" class="form-control bg-dark text-light border-secondary" id="maxTokensInput" value="2048">
-                                </div>
-                                <div class="col-6">
-                                    <label for="seedInput" class="form-label small text-muted">Seed (-1随机)</label>
-                                    <input type="number" class="form-control bg-dark text-light border-secondary" id="seedInput" value="-1">
-                                </div>
-                            </div>
-                        </div>
-
-                        <!-- 2. 惩罚参数 -->
-                        <div class="tab-pane fade ps-4" id="v-pills-penalty" role="tabpanel">
-                            <h6 class="mb-3 text-light">惩罚设置 (Penalties)</h6>
-                            
-                            <div class="mb-3">
-                                <label for="repeatPenaltyRange" class="form-label small text-muted d-flex justify-content-between">
-                                    <span>Repeat Penalty (重复惩罚)</span>
-                                    <span id="repeatPenaltyValue">1.1</span>
-                                </label>
-                                <input type="range" class="form-range" min="1" max="2" step="0.05" id="repeatPenaltyRange" value="1.1" oninput="document.getElementById('repeatPenaltyValue').innerText = this.value">
-                                <div class="form-text small text-muted">防止模型重复相同的文本。</div>
-                            </div>
-
-                            <div class="mb-3">
-                                <label for="freqPenaltyRange" class="form-label small text-muted d-flex justify-content-between">
-                                    <span>Frequency Penalty (频率惩罚)</span>
-                                    <span id="freqPenaltyValue">0.0</span>
-                                </label>
-                                <input type="range" class="form-range" min="-2" max="2" step="0.1" id="freqPenaltyRange" value="0.0" oninput="document.getElementById('freqPenaltyValue').innerText = this.value">
-                            </div>
-
-                            <div class="mb-3">
-                                <label for="presencePenaltyRange" class="form-label small text-muted d-flex justify-content-between">
-                                    <span>Presence Penalty (存在惩罚)</span>
-                                    <span id="presencePenaltyValue">0.0</span>
-                                </label>
-                                <input type="range" class="form-range" min="-2" max="2" step="0.1" id="presencePenaltyRange" value="0.0" oninput="document.getElementById('presencePenaltyValue').innerText = this.value">
-                            </div>
-                        </div>
-
-                        <!-- 3. 接入模式 -->
-                        <div class="tab-pane fade ps-4" id="v-pills-mode" role="tabpanel">
-                            <h6 class="mb-3 text-light">AI 接入模式</h6>
-
-                            <!-- 模式选择卡片 -->
-                            <div class="mode-cards mb-3">
-                                <label class="mode-card" data-mode="local">
-                                    <input type="radio" name="aiMode" id="modeLocal" value="local" checked hidden>
-                                    <div class="mode-card-content">
-                                        <div class="mode-radio"></div>
-                                        <div class="mode-info">
-                                            <strong>本地模式</strong>
-                                            <small>使用本地运行的模型 (llama.cpp/Ollama)</small>
-                                        </div>
-                                    </div>
-                                </label>
-                                <label class="mode-card" data-mode="api">
-                                    <input type="radio" name="aiMode" id="modeAPI" value="api" hidden>
-                                    <div class="mode-card-content">
-                                        <div class="mode-radio"></div>
-                                        <div class="mode-info">
-                                            <strong>API 模式</strong>
-                                            <small>连接到云端 API (硅基流动/DeepSeek等)</small>
-                                        </div>
-                                    </div>
-                                </label>
-                            </div>
-
-                            <!-- 本地模式配置 -->
-                            <div id="localSettings" class="config-card">
-                                <label class="form-label small text-muted">本地 API URL</label>
-                                <input type="text" class="form-control form-control-sm" id="localUrlInput" placeholder="http://localhost:8000/v1/chat/completions" value="http://localhost:8000/v1/chat/completions">
-                                <div class="form-text small">本地模型服务端点</div>
-                            </div>
-
-                            <!-- API模式配置 -->
-                            <div id="apiSettings" class="config-card" style="display: none;">
-                                <div class="mb-2">
-                                    <label class="form-label small text-muted">API 提供商</label>
-                                    <select class="form-select form-select-sm" id="apiProviderSelect" onchange="onProviderChange()">
-                                        <option value="siliconflow">硅基流动 (SiliconFlow)</option>
-                                        <option value="deepseek">DeepSeek 官方</option>
-                                        <option value="custom">自定义</option>
-                                    </select>
-                                </div>
-                                <div class="mb-2">
-                                    <label class="form-label small text-muted">API URL</label>
-                                    <input type="text" class="form-control form-control-sm" id="apiUrlInput" placeholder="https://api.siliconflow.cn/v1/chat/completions">
-                                </div>
-                                <div class="mb-2">
-                                    <label class="form-label small text-muted">API Key</label>
-                                    <input type="password" class="form-control form-control-sm" id="apiKeyInput" placeholder="sk-...">
-                                    <div class="form-text small">密钥仅存储在本地，不会上传</div>
-                                </div>
-                                <div class="mb-2">
-                                    <label class="form-label small text-muted">模型名称</label>
-                                    <input type="text" class="form-control form-control-sm" id="modelNameInput" placeholder="deepseek-ai/DeepSeek-V2.5">
-                                </div>
-                                <div class="mt-3 pt-2 border-top border-secondary">
-                                    <button type="button" class="btn btn-sm btn-outline-secondary w-100" onclick="testAPIConnection()">
-                                        <i class="bi bi-lightning me-1"></i>测试连接
-                                    </button>
-                                </div>
-                            </div>
-
-                            <!-- 安全配置 -->
-                            <div class="security-card">
-                                <h6 class="small text-light mb-2">安全与隐私</h6>
-                                <div class="form-check form-switch mb-2">
-                                    <input class="form-check-input" type="checkbox" id="verifySslCheck" checked>
-                                    <label class="form-check-label small text-light" for="verifySslCheck">验证 SSL 证书</label>
-                                </div>
-                                <div class="form-text small">
-                                    <i class="bi bi-shield-check me-1"></i>隐私保护始终启用：自动检测并脱敏手机号、身份证、邮箱
-                                </div>
-                            </div>
-                        </div>
-
-                        <!-- 4. 目录管理 -->
-                        <div class="tab-pane fade ps-4" id="v-pills-directories" role="tabpanel">
-                            <h6 class="mb-3 text-light">管理目录</h6>
-                            <p class="small text-muted mb-3">这些目录将被扫描建立索引并实时监控文件变化</p>
-
-                            <!-- 目录列表 -->
-                            <div class="directory-list mb-3" id="directoriesList">
-                                <div class="directory-empty">
-                                    <i class="bi bi-folder2-open mb-2" style="font-size: 24px; display: block;"></i>
-                                    暂无管理的目录
-                                </div>
-                            </div>
-
-                            <!-- 添加目录按钮 -->
-                            <button type="button" class="btn btn-sm btn-outline-secondary w-100" onclick="browseAndAddDirectory()">
-                                <i class="bi bi-plus-lg me-1"></i>添加目录
+                <!-- 输入框区域 (固定在底部) -->
+                <div class="search-input-area" id="search-input-area">
+                    <div class="search-input-wrapper">
+                        <div class="search-input-box">
+                            <input type="text" class="search-input" id="searchInput" placeholder="输入关键词搜索...">
+                            <button class="search-btn" onclick="performSearch()" aria-label="搜索">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="currentColor"
+                                    viewBox="0 0 16 16">
+                                    <path
+                                        d="M11.742 10.344a6.5 6.5 0 1 0-1.397 1.398h-.001c.03.04.062.078.098.115l3.85 3.85a1 1 0 0 0 1.415-1.414l-3.85-3.85a1.007 1.007 0 0 0-.115-.1zM12 6.5a5.5 5.5 0 1 1-11 0 5.5 5.5 0 0 1 11 0z" />
+                                </svg>
                             </button>
                         </div>
-
-                        <!-- 5. 关于 -->
-                        <div class="tab-pane fade ps-4" id="v-pills-about" role="tabpanel">
-                            <div class="text-center py-4">
-                                <h4 class="fw-bold mb-3">File Tools</h4>
-                                <p class="text-muted mb-4">智能文件检索与问答系统 v1.0.0</p>
-                                
-                                <div class="d-grid gap-2 col-8 mx-auto">
-                                    <button type="button" class="btn btn-outline-secondary btn-sm" onclick="openExternalLink('https://github.com/yourusername/file-tools')">
-                                        <i class="bi bi-github me-2"></i>GitHub Repository
-                                    </button>
-                                    <button type="button" class="btn btn-outline-secondary btn-sm" onclick="openExternalLink('https://github.com/yourusername/file-tools/issues')">
-                                        <i class="bi bi-bug me-2"></i>Report Issue
-                                    </button>
-                                </div>
-
-                                <div class="mt-4 pt-3 border-top border-secondary">
-                                    <small class="text-muted d-block">Developed by Darian&AI</small>
-                                    <small class="text-muted">Based on Llama.cpp & LangChain</small>
-                                </div>
-                            </div>
-                        </div>
-
                     </div>
                 </div>
             </div>
-            <div class="modal-footer border-secondary justify-content-between">
-                <button type="button" class="btn btn-outline-secondary border-0" onclick="resetSettings()">
-                    <i class="bi bi-arrow-counterclockwise me-1"></i>恢复默认
-                </button>
-                <div>
-                    <button type="button" class="btn btn-primary" onclick="saveSettings()">
-                        <i class="bi bi-check-lg me-1"></i>保存更改
+
+            <!-- 2. 智能问答视图 -->
+            <div id="view-chat" class="chat-view" style="display: none;">
+                <!-- 消息列表区域 (有消息时显示) -->
+                <div class="chat-messages" id="chatContainer" style="display: none;">
+                    <!-- Messages will be added here -->
+                </div>
+
+                <!-- 初始欢迎区域 (无消息时显示) -->
+                <div class="chat-welcome" id="chat-welcome-container">
+                    <div class="chat-welcome-content">
+                        <h1 class="chat-title">File Tools</h1>
+                        <p class="chat-subtitle">我可以帮您检索本地文档，或者回答一般性问题。</p>
+                    </div>
+                </div>
+
+                <!-- 输入框区域 (固定在底部) -->
+                <div class="chat-input-area" id="chat-input-area">
+                    <div class="chat-input-wrapper">
+                        <div class="chat-input-box">
+                            <textarea class="chat-textarea" id="userInput" rows="1" placeholder="输入您的问题..."
+                                oninput="autoResize(this)"></textarea>
+                            <button class="chat-send-btn" onclick="sendMessage()" aria-label="发送">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="currentColor"
+                                    viewBox="0 0 16 16">
+                                    <path
+                                        d="M15.854.146a.5.5 0 0 1 .11.54l-5.819 14.547a.75.75 0 0 1-1.329.124l-3.178-4.995L.643 7.184a.75.75 0 0 1 .124-1.33L15.314.037a.5.5 0 0 1 .54.11ZM6.636 10.07l2.761 4.338L14.13 2.576 6.636 10.07Zm6.787-8.201L1.591 6.602l4.339 2.76 7.494-7.493Z" />
+                                </svg>
+                            </button>
+                        </div>
+                        <div class="chat-disclaimer">
+                            <small>AI 生成的内容可能不准确，请核对重要信息。</small>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 引入 Bootstrap JS -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+
+    <!-- 设置模态框 (Settings Modal) -->
+    <div class="modal fade" id="settingsModal" tabindex="-1" aria-hidden="true" data-bs-backdrop="false">
+        <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
+            <div class="modal-content"
+                style="background-color: var(--llama-bg); border: 1px solid var(--llama-border); color: var(--llama-text-main); max-height: 80vh;">
+                <div class="modal-header border-secondary">
+                    <h5 class="modal-title">设置</h5>
+                    <button type="button" class="btn btn-llama p-1" data-bs-dismiss="modal" aria-label="Close">
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5"
+                            stroke="currentColor" style="width: 24px; height: 24px;">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" />
+                        </svg>
                     </button>
                 </div>
-            </div>
-        </div>
-    </div>
-</div>
+                <div class="modal-body">
+                    <div class="d-flex align-items-start">
+                        <!-- 侧边导航 -->
+                        <div class="nav flex-column nav-pills me-4" id="v-pills-tab" role="tablist"
+                            aria-orientation="vertical" style="min-width: 120px;">
+                            <button class="nav-link active text-start mb-2" id="v-pills-sampling-tab"
+                                data-bs-toggle="pill" data-bs-target="#v-pills-sampling" type="button"
+                                role="tab">采样参数</button>
+                            <button class="nav-link text-start mb-2" id="v-pills-penalty-tab" data-bs-toggle="pill"
+                                data-bs-target="#v-pills-penalty" type="button" role="tab">惩罚参数</button>
+                            <button class="nav-link text-start mb-2" id="v-pills-mode-tab" data-bs-toggle="pill"
+                                data-bs-target="#v-pills-mode" type="button" role="tab">接入模式</button>
+                            <button class="nav-link text-start mb-2" id="v-pills-directories-tab" data-bs-toggle="pill"
+                                data-bs-target="#v-pills-directories" type="button" role="tab">目录管理</button>
+                            <button class="nav-link text-start" id="v-pills-about-tab" data-bs-toggle="pill"
+                                data-bs-target="#v-pills-about" type="button" role="tab">关于</button>
+                        </div>
 
-<!-- 确认重建索引模态框 (Rebuild Index Confirmation Modal) -->
-<div class="modal fade" id="rebuildIndexModal" tabindex="-1" aria-hidden="true" data-bs-backdrop="false" data-bs-keyboard="false">
-    <div class="modal-dialog modal-dialog-centered modal-sm">
-        <div class="modal-content" style="background-color: var(--llama-bg); border: 1px solid var(--llama-border); color: var(--llama-text-main);">
-            <div class="modal-header border-secondary py-2">
-                <h6 class="modal-title"><i class="bi bi-arrow-clockwise me-2"></i>重建索引</h6>
-                <button type="button" class="btn btn-llama p-1" data-bs-dismiss="modal" aria-label="Close" id="rebuildCloseBtn">
-                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" style="width: 20px; height: 20px;">
-                      <path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" />
-                    </svg>
-                </button>
-            </div>
-            <div class="modal-body text-center py-4" id="rebuildModalBody">
-                <p class="mb-0 small">确定要重建文件索引吗？<br>这可能需要一些时间。</p>
-                <div class="alert alert-warning mt-3 mb-0 py-2 px-2 small text-start" style="font-size: 0.75rem;">
-                    <i class="bi bi-info-circle me-1"></i>
-                    重建期间请勿操作文件，如有文件监控冲突可暂时关闭监控。
+                        <!-- 内容区域 -->
+                        <div class="tab-content flex-grow-1 border-start border-secondary" id="v-pills-tabContent"
+                            style="overflow-y: auto; max-height: 50vh; padding-right: 10px;">
+
+                            <!-- 1. 采样参数 -->
+                            <div class="tab-pane fade show active ps-4" id="v-pills-sampling" role="tabpanel">
+                                <h6 class="mb-3 text-light">采样设置 (Sampling)</h6>
+
+                                <div class="mb-3">
+                                    <label for="tempRange"
+                                        class="form-label small text-muted d-flex justify-content-between">
+                                        <span>Temperature (温度)</span>
+                                        <span id="tempValue">0.7</span>
+                                    </label>
+                                    <input type="range" class="form-range" min="0" max="2" step="0.1" id="tempRange"
+                                        value="0.7"
+                                        oninput="document.getElementById('tempValue').innerText = this.value">
+                                    <div class="form-text small text-muted">控制生成的随机性。值越高越随机，值越低越确定。</div>
+                                </div>
+
+                                <div class="mb-3">
+                                    <label for="topPRange"
+                                        class="form-label small text-muted d-flex justify-content-between">
+                                        <span>Top P (核采样)</span>
+                                        <span id="topPValue">0.9</span>
+                                    </label>
+                                    <input type="range" class="form-range" min="0" max="1" step="0.05" id="topPRange"
+                                        value="0.9"
+                                        oninput="document.getElementById('topPValue').innerText = this.value">
+                                </div>
+
+                                <div class="mb-3">
+                                    <label for="topKInput" class="form-label small text-muted">Top K</label>
+                                    <input type="number" class="form-control bg-dark text-light border-secondary"
+                                        id="topKInput" value="40">
+                                </div>
+
+                                <div class="mb-3">
+                                    <label for="minPRange"
+                                        class="form-label small text-muted d-flex justify-content-between">
+                                        <span>Min P (最小概率)</span>
+                                        <span id="minPValue">0.05</span>
+                                    </label>
+                                    <input type="range" class="form-range" min="0" max="1" step="0.01" id="minPRange"
+                                        value="0.05"
+                                        oninput="document.getElementById('minPValue').innerText = this.value">
+                                </div>
+
+                                <div class="row mb-3">
+                                    <div class="col-6">
+                                        <label for="maxTokensInput" class="form-label small text-muted">Max
+                                            Tokens</label>
+                                        <input type="number" class="form-control bg-dark text-light border-secondary"
+                                            id="maxTokensInput" value="2048">
+                                    </div>
+                                    <div class="col-6">
+                                        <label for="seedInput" class="form-label small text-muted">Seed (-1随机)</label>
+                                        <input type="number" class="form-control bg-dark text-light border-secondary"
+                                            id="seedInput" value="-1">
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- 2. 惩罚参数 -->
+                            <div class="tab-pane fade ps-4" id="v-pills-penalty" role="tabpanel">
+                                <h6 class="mb-3 text-light">惩罚设置 (Penalties)</h6>
+
+                                <div class="mb-3">
+                                    <label for="repeatPenaltyRange"
+                                        class="form-label small text-muted d-flex justify-content-between">
+                                        <span>Repeat Penalty (重复惩罚)</span>
+                                        <span id="repeatPenaltyValue">1.1</span>
+                                    </label>
+                                    <input type="range" class="form-range" min="1" max="2" step="0.05"
+                                        id="repeatPenaltyRange" value="1.1"
+                                        oninput="document.getElementById('repeatPenaltyValue').innerText = this.value">
+                                    <div class="form-text small text-muted">防止模型重复相同的文本。</div>
+                                </div>
+
+                                <div class="mb-3">
+                                    <label for="freqPenaltyRange"
+                                        class="form-label small text-muted d-flex justify-content-between">
+                                        <span>Frequency Penalty (频率惩罚)</span>
+                                        <span id="freqPenaltyValue">0.0</span>
+                                    </label>
+                                    <input type="range" class="form-range" min="-2" max="2" step="0.1"
+                                        id="freqPenaltyRange" value="0.0"
+                                        oninput="document.getElementById('freqPenaltyValue').innerText = this.value">
+                                </div>
+
+                                <div class="mb-3">
+                                    <label for="presencePenaltyRange"
+                                        class="form-label small text-muted d-flex justify-content-between">
+                                        <span>Presence Penalty (存在惩罚)</span>
+                                        <span id="presencePenaltyValue">0.0</span>
+                                    </label>
+                                    <input type="range" class="form-range" min="-2" max="2" step="0.1"
+                                        id="presencePenaltyRange" value="0.0"
+                                        oninput="document.getElementById('presencePenaltyValue').innerText = this.value">
+                                </div>
+                            </div>
+
+                            <!-- 3. 接入模式 -->
+                            <div class="tab-pane fade ps-4" id="v-pills-mode" role="tabpanel">
+                                <h6 class="mb-3 text-light">AI 接入模式</h6>
+
+                                <!-- 模式选择卡片 -->
+                                <div class="mode-cards mb-3">
+                                    <label class="mode-card" data-mode="local">
+                                        <input type="radio" name="aiMode" id="modeLocal" value="local" checked hidden>
+                                        <div class="mode-card-content">
+                                            <div class="mode-radio"></div>
+                                            <div class="mode-info">
+                                                <strong>本地模式</strong>
+                                                <small>使用本地运行的模型 (llama.cpp/Ollama)</small>
+                                            </div>
+                                        </div>
+                                    </label>
+                                    <label class="mode-card" data-mode="api">
+                                        <input type="radio" name="aiMode" id="modeAPI" value="api" hidden>
+                                        <div class="mode-card-content">
+                                            <div class="mode-radio"></div>
+                                            <div class="mode-info">
+                                                <strong>API 模式</strong>
+                                                <small>连接到云端 API (硅基流动/DeepSeek等)</small>
+                                            </div>
+                                        </div>
+                                    </label>
+                                </div>
+
+                                <!-- 本地模式配置 -->
+                                <div id="localSettings" class="config-card">
+                                    <label class="form-label small text-muted">本地 API URL</label>
+                                    <input type="text" class="form-control form-control-sm" id="localUrlInput"
+                                        placeholder="http://localhost:8000/v1/chat/completions"
+                                        value="http://localhost:8000/v1/chat/completions">
+                                    <div class="form-text small">本地模型服务端点</div>
+                                </div>
+
+                                <!-- API模式配置 -->
+                                <div id="apiSettings" class="config-card" style="display: none;">
+                                    <div class="mb-2">
+                                        <label class="form-label small text-muted">API 提供商</label>
+                                        <select class="form-select form-select-sm" id="apiProviderSelect"
+                                            onchange="onProviderChange()">
+                                            <option value="siliconflow">硅基流动 (SiliconFlow)</option>
+                                            <option value="deepseek">DeepSeek 官方</option>
+                                            <option value="custom">自定义</option>
+                                        </select>
+                                    </div>
+                                    <div class="mb-2">
+                                        <label class="form-label small text-muted">API URL</label>
+                                        <input type="text" class="form-control form-control-sm" id="apiUrlInput"
+                                            placeholder="https://api.siliconflow.cn/v1/chat/completions">
+                                    </div>
+                                    <div class="mb-2">
+                                        <label class="form-label small text-muted">API Key</label>
+                                        <input type="password" class="form-control form-control-sm" id="apiKeyInput"
+                                            placeholder="sk-...">
+                                        <div class="form-text small">密钥仅存储在本地，不会上传</div>
+                                    </div>
+                                    <div class="mb-2">
+                                        <label class="form-label small text-muted">模型名称</label>
+                                        <input type="text" class="form-control form-control-sm" id="modelNameInput"
+                                            placeholder="deepseek-ai/DeepSeek-V2.5">
+                                    </div>
+                                    <div class="mt-3 pt-2 border-top border-secondary">
+                                        <button type="button" class="btn btn-sm btn-outline-secondary w-100"
+                                            onclick="testAPIConnection()">
+                                            <i class="bi bi-lightning me-1"></i>测试连接
+                                        </button>
+                                    </div>
+                                </div>
+
+                                <!-- 安全配置 -->
+                                <div class="security-card">
+                                    <h6 class="small text-light mb-2">安全与隐私</h6>
+                                    <div class="form-check form-switch mb-2">
+                                        <input class="form-check-input" type="checkbox" id="verifySslCheck" checked>
+                                        <label class="form-check-label small text-light" for="verifySslCheck">验证 SSL
+                                            证书</label>
+                                    </div>
+                                    <div class="form-text small">
+                                        <i class="bi bi-shield-check me-1"></i>隐私保护始终启用：自动检测并脱敏手机号、身份证、邮箱
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- 4. 目录管理 -->
+                            <div class="tab-pane fade ps-4" id="v-pills-directories" role="tabpanel">
+                                <h6 class="mb-3 text-light">管理目录</h6>
+                                <p class="small text-muted mb-3">这些目录将被扫描建立索引并实时监控文件变化</p>
+
+                                <!-- 目录列表 -->
+                                <div class="directory-list mb-3" id="directoriesList">
+                                    <div class="directory-empty">
+                                        <i class="bi bi-folder2-open mb-2" style="font-size: 24px; display: block;"></i>
+                                        暂无管理的目录
+                                    </div>
+                                </div>
+
+                                <!-- 添加目录按钮 -->
+                                <button type="button" class="btn btn-sm btn-outline-secondary w-100"
+                                    onclick="browseAndAddDirectory()">
+                                    <i class="bi bi-plus-lg me-1"></i>添加目录
+                                </button>
+                            </div>
+
+                            <!-- 5. 关于 -->
+                            <div class="tab-pane fade ps-4" id="v-pills-about" role="tabpanel">
+                                <div class="text-center py-4">
+                                    <h4 class="fw-bold mb-3">File Tools</h4>
+                                    <p class="text-muted mb-4">智能文件检索与问答系统 v1.0.0</p>
+
+                                    <div class="d-grid gap-2 col-8 mx-auto">
+                                        <button type="button" class="btn btn-outline-secondary btn-sm"
+                                            onclick="return openExternalLink('https://github.com/Dry-U/File-tools', event)">
+                                            <i class="bi bi-github me-2"></i>GitHub Repository
+                                        </button>
+                                        <button type="button" class="btn btn-outline-secondary btn-sm"
+                                            onclick="return openExternalLink('https://github.com/Dry-U/File-tools/issues', event)">
+                                            <i class="bi bi-bug me-2"></i>Report Issue
+                                        </button>
+                                    </div>
+
+                                    <div class="mt-4 pt-3 border-top border-secondary">
+                                        <small class="text-muted d-block">Developed by Darian&AI</small>
+                                        <small class="text-muted">Based on Llama.cpp & LangChain</small>
+                                    </div>
+                                </div>
+                            </div>
+
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer border-secondary justify-content-between">
+                    <button type="button" class="btn btn-outline-secondary border-0" onclick="resetSettings()">
+                        <i class="bi bi-arrow-counterclockwise me-1"></i>恢复默认
+                    </button>
+                    <div>
+                        <button type="button" class="btn btn-primary" onclick="saveSettings()">
+                            <i class="bi bi-check-lg me-1"></i>保存更改
+                        </button>
+                    </div>
                 </div>
             </div>
-            <div class="modal-footer border-secondary justify-content-center p-2" id="rebuildModalFooter">
-                <button type="button" class="btn btn-sm btn-outline-secondary border-0" data-bs-dismiss="modal">取消</button>
-                <button type="button" class="btn btn-sm btn-primary px-3" onclick="confirmRebuild()">确定</button>
+        </div>
+    </div>
+
+    <!-- 确认重建索引模态框 (Rebuild Index Confirmation Modal) -->
+    <div class="modal fade" id="rebuildIndexModal" tabindex="-1" aria-hidden="true" data-bs-backdrop="false"
+        data-bs-keyboard="false">
+        <div class="modal-dialog modal-dialog-centered modal-sm">
+            <div class="modal-content"
+                style="background-color: var(--llama-bg); border: 1px solid var(--llama-border); color: var(--llama-text-main);">
+                <div class="modal-header border-secondary py-2">
+                    <h6 class="modal-title"><i class="bi bi-arrow-clockwise me-2"></i>重建索引</h6>
+                    <button type="button" class="btn btn-llama p-1" data-bs-dismiss="modal" aria-label="Close"
+                        id="rebuildCloseBtn">
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5"
+                            stroke="currentColor" style="width: 20px; height: 20px;">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" />
+                        </svg>
+                    </button>
+                </div>
+                <div class="modal-body text-center py-4" id="rebuildModalBody">
+                    <p class="mb-0 small">确定要重建文件索引吗？<br>这可能需要一些时间。</p>
+                    <div class="alert alert-warning mt-3 mb-0 py-2 px-2 small text-start" style="font-size: 0.75rem;">
+                        <i class="bi bi-info-circle me-1"></i>
+                        重建期间请勿操作文件，如有文件监控冲突可暂时关闭监控。
+                    </div>
+                </div>
+                <div class="modal-footer border-secondary justify-content-center p-2" id="rebuildModalFooter">
+                    <button type="button" class="btn btn-sm btn-outline-secondary border-0"
+                        data-bs-dismiss="modal">取消</button>
+                    <button type="button" class="btn btn-sm btn-primary px-3" onclick="confirmRebuild()">确定</button>
+                </div>
             </div>
         </div>
     </div>
-</div>
 
-<!-- 文件预览模态框 (File Preview Modal) -->
-<div class="modal fade" id="previewModal" tabindex="-1" aria-hidden="true" data-bs-backdrop="false">
-    <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
-        <div class="modal-content" style="background-color: var(--llama-bg); border: 1px solid var(--llama-border); color: var(--llama-text-main); height: 80vh;">
-            <div class="modal-header border-secondary py-2">
-                <h6 class="modal-title" id="previewModalTitle">文件预览</h6>
-                <button type="button" class="btn btn-llama p-1" data-bs-dismiss="modal" aria-label="Close">
-                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" style="width: 20px; height: 20px;">
-                      <path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" />
-                    </svg>
-                </button>
-            </div>
-            <div class="modal-body p-0">
-                <pre class="m-0 p-3 h-100" style="white-space: pre-wrap; font-family: monospace; font-size: 0.9rem; color: var(--llama-text-sub);" id="previewModalContent">正在加载...</pre>
-            </div>
-            <div class="modal-footer border-secondary justify-content-end p-2">
-                <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-dismiss="modal">关闭</button>
+    <!-- 文件预览模态框 (File Preview Modal) -->
+    <div class="modal fade" id="previewModal" tabindex="-1" aria-hidden="true" data-bs-backdrop="false">
+        <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
+            <div class="modal-content"
+                style="background-color: var(--llama-bg); border: 1px solid var(--llama-border); color: var(--llama-text-main); height: 80vh;">
+                <div class="modal-header border-secondary py-2">
+                    <h6 class="modal-title" id="previewModalTitle">文件预览</h6>
+                    <button type="button" class="btn btn-llama p-1" data-bs-dismiss="modal" aria-label="Close">
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5"
+                            stroke="currentColor" style="width: 20px; height: 20px;">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" />
+                        </svg>
+                    </button>
+                </div>
+                <div class="modal-body p-0">
+                    <pre class="m-0 p-3 h-100"
+                        style="white-space: pre-wrap; font-family: monospace; font-size: 0.9rem; color: var(--llama-text-sub);"
+                        id="previewModalContent">正在加载...</pre>
+                </div>
+                <div class="modal-footer border-secondary justify-content-end p-2">
+                    <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-dismiss="modal">关闭</button>
+                </div>
             </div>
         </div>
     </div>
-</div>
 
-<!-- 确认重置模态框 (Reset Confirmation Modal) -->
-<div class="modal fade" id="resetConfirmModal" tabindex="-1" aria-hidden="true" data-bs-backdrop="false">
-    <div class="modal-dialog modal-dialog-centered modal-sm">
-        <div class="modal-content" style="background-color: var(--llama-bg); border: 1px solid var(--llama-border); color: var(--llama-text-main);">
-            <div class="modal-header border-secondary py-2">
-                <h6 class="modal-title">确认操作</h6>
-                <button type="button" class="btn btn-llama p-1" data-bs-dismiss="modal" aria-label="Close">
-                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" style="width: 20px; height: 20px;">
-                      <path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" />
-                    </svg>
-                </button>
-            </div>
-            <div class="modal-body text-center py-4">
-                <p class="mb-0 small">确定要恢复默认参数设置吗？</p>
-            </div>
-            <div class="modal-footer border-secondary justify-content-center p-2">
-                <button type="button" class="btn btn-sm btn-outline-secondary border-0" data-bs-dismiss="modal">取消</button>
-                <button type="button" class="btn btn-sm btn-primary px-3" onclick="confirmReset()">确定</button>
+    <!-- 确认重置模态框 (Reset Confirmation Modal) -->
+    <div class="modal fade" id="resetConfirmModal" tabindex="-1" aria-hidden="true" data-bs-backdrop="false">
+        <div class="modal-dialog modal-dialog-centered modal-sm">
+            <div class="modal-content"
+                style="background-color: var(--llama-bg); border: 1px solid var(--llama-border); color: var(--llama-text-main);">
+                <div class="modal-header border-secondary py-2">
+                    <h6 class="modal-title">确认操作</h6>
+                    <button type="button" class="btn btn-llama p-1" data-bs-dismiss="modal" aria-label="Close">
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5"
+                            stroke="currentColor" style="width: 20px; height: 20px;">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" />
+                        </svg>
+                    </button>
+                </div>
+                <div class="modal-body text-center py-4">
+                    <p class="mb-0 small">确定要恢复默认参数设置吗？</p>
+                </div>
+                <div class="modal-footer border-secondary justify-content-center p-2">
+                    <button type="button" class="btn btn-sm btn-outline-secondary border-0"
+                        data-bs-dismiss="modal">取消</button>
+                    <button type="button" class="btn btn-sm btn-primary px-3" onclick="confirmReset()">确定</button>
+                </div>
             </div>
         </div>
     </div>
-</div>
 
-<!-- 未检测到更改提示模态框 (No Changes Modal) -->
-<div class="modal fade" id="noChangesModal" tabindex="-1" aria-hidden="true" data-bs-backdrop="false">
-    <div class="modal-dialog modal-dialog-centered modal-sm">
-        <div class="modal-content" style="background-color: var(--llama-bg); border: 1px solid var(--llama-border); color: var(--llama-text-main);">
-            <div class="modal-header border-secondary py-2">
-                <h6 class="modal-title">提示</h6>
-                <button type="button" class="btn btn-llama p-1" data-bs-dismiss="modal" aria-label="Close">
-                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" style="width: 20px; height: 20px;">
-                      <path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" />
-                    </svg>
-                </button>
-            </div>
-            <div class="modal-body text-center py-4">
-                <p class="mb-0 small">当前设置未发生改变</p>
-            </div>
-            <div class="modal-footer border-secondary justify-content-center p-2">
-                <button type="button" class="btn btn-sm btn-primary px-3" data-bs-dismiss="modal">确定</button>
+    <!-- 未检测到更改提示模态框 (No Changes Modal) -->
+    <div class="modal fade" id="noChangesModal" tabindex="-1" aria-hidden="true" data-bs-backdrop="false">
+        <div class="modal-dialog modal-dialog-centered modal-sm">
+            <div class="modal-content"
+                style="background-color: var(--llama-bg); border: 1px solid var(--llama-border); color: var(--llama-text-main);">
+                <div class="modal-header border-secondary py-2">
+                    <h6 class="modal-title">提示</h6>
+                    <button type="button" class="btn btn-llama p-1" data-bs-dismiss="modal" aria-label="Close">
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5"
+                            stroke="currentColor" style="width: 20px; height: 20px;">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" />
+                        </svg>
+                    </button>
+                </div>
+                <div class="modal-body text-center py-4">
+                    <p class="mb-0 small">当前设置未发生改变</p>
+                </div>
+                <div class="modal-footer border-secondary justify-content-center p-2">
+                    <button type="button" class="btn btn-sm btn-primary px-3" data-bs-dismiss="modal">确定</button>
+                </div>
             </div>
         </div>
     </div>
-</div>
 
-<!-- 删除会话确认模态框 (Delete Session Confirmation Modal) -->
-<div class="modal fade" id="deleteSessionModal" tabindex="-1" aria-hidden="true" data-bs-backdrop="false">
-    <div class="modal-dialog modal-dialog-centered modal-sm">
-        <div class="modal-content" style="background-color: var(--llama-bg); border: 1px solid var(--llama-border); color: var(--llama-text-main);">
-            <div class="modal-header border-secondary py-2">
-                <h6 class="modal-title"><i class="bi bi-trash me-2"></i>确认删除</h6>
-                <button type="button" class="btn btn-llama p-1" data-bs-dismiss="modal" aria-label="Close">
-                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" style="width: 20px; height: 20px;">
-                      <path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" />
-                    </svg>
-                </button>
-            </div>
-            <div class="modal-body text-center py-4">
-                <p class="mb-0 small">确定要删除这个会话吗？<br>此操作无法撤销。</p>
-            </div>
-            <div class="modal-footer border-secondary justify-content-center p-2">
-                <button type="button" class="btn btn-sm btn-outline-secondary border-0" data-bs-dismiss="modal">取消</button>
-                <button type="button" class="btn btn-sm btn-danger px-3" id="confirmDeleteBtn">删除</button>
+    <!-- 删除会话确认模态框 (Delete Session Confirmation Modal) -->
+    <div class="modal fade" id="deleteSessionModal" tabindex="-1" aria-hidden="true" data-bs-backdrop="false">
+        <div class="modal-dialog modal-dialog-centered modal-sm">
+            <div class="modal-content"
+                style="background-color: var(--llama-bg); border: 1px solid var(--llama-border); color: var(--llama-text-main);">
+                <div class="modal-header border-secondary py-2">
+                    <h6 class="modal-title"><i class="bi bi-trash me-2"></i>确认删除</h6>
+                    <button type="button" class="btn btn-llama p-1" data-bs-dismiss="modal" aria-label="Close">
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5"
+                            stroke="currentColor" style="width: 20px; height: 20px;">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" />
+                        </svg>
+                    </button>
+                </div>
+                <div class="modal-body text-center py-4">
+                    <p class="mb-0 small">确定要删除这个会话吗？<br>此操作无法撤销。</p>
+                </div>
+                <div class="modal-footer border-secondary justify-content-center p-2">
+                    <button type="button" class="btn btn-sm btn-outline-secondary border-0"
+                        data-bs-dismiss="modal">取消</button>
+                    <button type="button" class="btn btn-sm btn-danger px-3" id="confirmDeleteBtn">删除</button>
+                </div>
             </div>
         </div>
     </div>
-</div>
 
-<!-- 测试结果弹窗 (Test Connection Result Modal) -->
-<div class="modal fade" id="testResultModal" tabindex="-1" aria-hidden="true" data-bs-backdrop="false">
-    <div class="modal-dialog modal-dialog-centered modal-sm">
-        <div class="modal-content" style="background-color: var(--llama-bg); border: 1px solid var(--llama-border); color: var(--llama-text-main);">
-            <div class="modal-header border-secondary py-2">
-                <h6 class="modal-title" id="testResultTitle"><i class="bi bi-lightning me-2"></i>测试结果</h6>
-                <button type="button" class="btn btn-llama p-1" data-bs-dismiss="modal" aria-label="Close">
-                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" style="width: 20px; height: 20px;">
-                      <path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" />
-                    </svg>
-                </button>
-            </div>
-            <div class="modal-body text-center py-4" id="testResultBody">
-                <!-- 动态内容 -->
-            </div>
-            <div class="modal-footer border-secondary justify-content-center p-2">
-                <button type="button" class="btn btn-sm btn-primary px-3" data-bs-dismiss="modal">确定</button>
+    <!-- 测试结果弹窗 (Test Connection Result Modal) -->
+    <div class="modal fade" id="testResultModal" tabindex="-1" aria-hidden="true" data-bs-backdrop="false">
+        <div class="modal-dialog modal-dialog-centered modal-sm">
+            <div class="modal-content"
+                style="background-color: var(--llama-bg); border: 1px solid var(--llama-border); color: var(--llama-text-main);">
+                <div class="modal-header border-secondary py-2">
+                    <h6 class="modal-title" id="testResultTitle"><i class="bi bi-lightning me-2"></i>测试结果</h6>
+                    <button type="button" class="btn btn-llama p-1" data-bs-dismiss="modal" aria-label="Close">
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5"
+                            stroke="currentColor" style="width: 20px; height: 20px;">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" />
+                        </svg>
+                    </button>
+                </div>
+                <div class="modal-body text-center py-4" id="testResultBody">
+                    <!-- 动态内容 -->
+                </div>
+                <div class="modal-footer border-secondary justify-content-center p-2">
+                    <button type="button" class="btn btn-sm btn-primary px-3" data-bs-dismiss="modal">确定</button>
+                </div>
             </div>
         </div>
     </div>
-</div>
 
-<!-- 引入自定义 JS -->
-<script src="static/js/main.js"></script>
+    <!-- 引入自定义 JS -->
+    <script src="static/js/main.js"></script>
 
 </body>
+
 </html>

@@ -16,7 +16,9 @@ def mock_scanner():
     # Note: config.getlist might need to be mocked to return a list
     config.getlist.return_value = ['pdf', 'doc', 'docx', 'txt', 'md']
     config.getint.return_value = 10
-    
+    # 配置 config.get 返回字符串，防止生成 MagicMock 目录
+    config.get.return_value = './data'
+
     scanner = FileScanner(config)
     # Mock config access inside FileScanner if it uses direct access or other methods
     return scanner

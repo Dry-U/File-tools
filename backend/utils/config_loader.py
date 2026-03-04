@@ -13,6 +13,7 @@ import hashlib
 import base64
 
 # 尝试导入加密库，如果不存在则使用简单的 base64 混淆
+
 try:
     from cryptography.fernet import Fernet
     from cryptography.hazmat.primitives import hashes
@@ -20,6 +21,7 @@ try:
     CRYPTO_AVAILABLE = True
 except ImportError:
     CRYPTO_AVAILABLE = False
+    import logging
     logging.warning("cryptography 库未安装，敏感信息将使用简单混淆存储")
 
 logger = logging.getLogger(__name__)
@@ -64,10 +66,18 @@ class ConfigLoader:
             return
         self._initialized = True
 
-        # 默认配置路径，如果未指定则使用当前目录下的config.yaml
-        default_path = Path('config.yaml')
-        self.config_path = Path(config_path).resolve(
-        ) if config_path is not None else default_path.resolve()
+        # 初始化路径管理器
+        from backend.utils.app_paths import get_app_paths
+        self.app_paths = get_app_paths()
+        self.app_paths.init_user_data()
+
+        # 设置配置路径
+        if config_path is not None:
+            self.config_path = Path(config_path).resolve()
+        else:
+            # 使用用户数据目录的配置
+            self.config_path = self.app_paths.config_path
+
         self.config: Dict[str, Any] = {}  # 初始化空配置
 
         # 尝试加载配置文件，如果不存在则创建默认配置
@@ -138,7 +148,8 @@ class ConfigLoader:
             else:
                 # 降级方案：简单的 base64 混淆
                 # 注意：这不是真正的加密，只是防止明文存储
-                obfuscated = base64.b64encode(value.encode('utf-8')).decode('utf-8')
+                obfuscated = base64.b64encode(
+                    value.encode('utf-8')).decode('utf-8')
                 return f"enc:b64:{obfuscated}"
         except Exception as e:
             logger.warning(f"加密失败: {e}")
@@ -213,16 +224,28 @@ class ConfigLoader:
         config_dir = self.config_path.parent
         config_dir.mkdir(parents=True, exist_ok=True)
 
+        # 使用路径管理器获取数据目录路径
+        data_dir = self.app_paths.data_dir
+        cache_dir = self.app_paths.cache_dir
+        log_dir = self.app_paths.log_dir
+
+        # 转换为相对路径（基于用户数据目录）
+        def to_rel(path: Path) -> str:
+            try:
+                return str(path.relative_to(self.app_paths.user_data_dir))
+            except ValueError:
+                return str(path)
+
         # 默认配置
         default_config = {
             'system': {
                 'app_name': '智能文件检索与问答系统',
                 'version': '1.0.0',
-                'data_dir': './data',
+                'data_dir': to_rel(data_dir),
                 'log_level': 'INFO',
-                'index_dir': './data/index',
-                'cache_dir': './data/cache',
-                'temp_dir': './data/temp',
+                'log_dir': to_rel(log_dir),
+                'cache_dir': to_rel(cache_dir),
+                'temp_dir': 'data/temp',
                 'log_backup_count': 5,
                 'log_max_size': 10,
                 'log_rotation': 'midnight',
@@ -570,10 +593,14 @@ class ConfigLoader:
 
         # 验证枚举值
         enum_configs = [
-            ('system', 'log_level', ['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'], 'INFO'),
-            ('system', 'log_rotation', ['midnight', 'daily', 'weekly', 'monthly'], 'midnight'),
-            ('system', 'log_format', ['structured', 'simple', 'detailed'], 'structured'),
-            ('embedding', 'provider', ['fastembed', 'sentence_transformers', 'modelscope'], 'fastembed'),
+            ('system', 'log_level', ['DEBUG', 'INFO',
+             'WARNING', 'ERROR', 'CRITICAL'], 'INFO'),
+            ('system', 'log_rotation', [
+             'midnight', 'daily', 'weekly', 'monthly'], 'midnight'),
+            ('system', 'log_format', ['structured',
+             'simple', 'detailed'], 'structured'),
+            ('embedding', 'provider', [
+             'fastembed', 'sentence_transformers', 'modelscope'], 'fastembed'),
         ]
 
         for section, key, allowed_values, default_val in enum_configs:
