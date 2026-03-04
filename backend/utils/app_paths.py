@@ -1,22 +1,20 @@
-"""
+r"""
 应用路径管理模块
 
 负责管理应用的各种路径：
 - 用户数据目录（配置、日志、索引等）
 - 应用资源目录（打包后的静态文件）
 - 确保目录存在并可写
-
-这使得应用成为真正的便携式应用：
-- Windows: %APPDATA%\FileTools
-- macOS: ~/Library/Application Support/FileTools
-- Linux: ~/.config/FileTools
 """
 
 import os
 import sys
 import shutil
+import logging
 from pathlib import Path
 from typing import Optional
+
+logger = logging.getLogger(__name__)
 
 
 class AppPaths:
@@ -49,7 +47,7 @@ class AppPaths:
 
     @property
     def user_data_dir(self) -> Path:
-        """
+        r"""
         获取用户数据目录
 
         平台路径：
@@ -193,10 +191,10 @@ class AppPaths:
         if not self.config_path.exists():
             self._create_default_config(default_config_path)
 
-        print(f"[AppPaths] 用户数据目录: {self.user_data_dir}")
-        print(f"[AppPaths] 配置文件: {self.config_path}")
-        print(f"[AppPaths] 日志目录: {self.log_dir}")
-        print(f"[AppPaths] 数据目录: {self.data_dir}")
+        logger.info(f"[AppPaths] 用户数据目录: {self.user_data_dir}")
+        logger.info(f"[AppPaths] 配置文件: {self.config_path}")
+        logger.info(f"[AppPaths] 日志目录: {self.log_dir}")
+        logger.info(f"[AppPaths] 数据目录: {self.data_dir}")
 
     def _create_default_config(self, template_path: Optional[Path] = None) -> None:
         """创建默认配置文件"""
@@ -281,11 +279,11 @@ def get_app_paths() -> AppPaths:
 if __name__ == '__main__':
     # 测试
     paths = AppPaths()
-    print(f"应用目录: {paths.app_dir}")
-    print(f"用户数据目录: {paths.user_data_dir}")
-    print(f"配置文件: {paths.config_path}")
-    print(f"日志目录: {paths.log_dir}")
-    print(f"数据目录: {paths.data_dir}")
-    print(f"缓存目录: {paths.cache_dir}")
-    print(f"前端目录: {paths.frontend_dir}")
-    print(f"是否打包: {paths.is_frozen}")
+    logger.info(f"应用目录: {paths.app_dir}")
+    logger.info(f"用户数据目录: {paths.user_data_dir}")
+    logger.info(f"配置文件: {paths.config_path}")
+    logger.info(f"日志目录: {paths.log_dir}")
+    logger.info(f"数据目录: {paths.data_dir}")
+    logger.info(f"缓存目录: {paths.cache_dir}")
+    logger.info(f"前端目录: {paths.frontend_dir}")
+    logger.info(f"是否打包: {paths.is_frozen}")

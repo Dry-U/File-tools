@@ -266,7 +266,14 @@ class EnterpriseLogger:
         handlers = []
 
         # 创建控制台处理器
-        console_handler = logging.StreamHandler()
+        # 在 Windows 上设置编码为 utf-8 以避免中文乱码
+        if sys.platform == 'win32':
+            import io
+            console_handler = logging.StreamHandler(
+                stream=io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
+            )
+        else:
+            console_handler = logging.StreamHandler()
         console_handler.setFormatter(formatter)
         handlers.append(console_handler)
 

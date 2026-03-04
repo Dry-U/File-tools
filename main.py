@@ -6,6 +6,12 @@
 """
 import sys
 import os
+
+# 修复 Windows 控制台编码问题
+if sys.platform == 'win32':
+    import io
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
+    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8')
 import psutil
 import requests
 import time
@@ -99,7 +105,7 @@ def wait_for_server_ready(url, max_wait=60):
 def start_fastapi_server(port):
     """启动 FastAPI 服务器"""
     import uvicorn
-    from backend.api.api import app
+    from backend.api.main import app
 
     config = uvicorn.Config(
         app,

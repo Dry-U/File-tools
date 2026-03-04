@@ -14,15 +14,29 @@ import base64
 
 # 尝试导入加密库，如果不存在则使用简单的 base64 混淆
 
-try:
-    from cryptography.fernet import Fernet
-    from cryptography.hazmat.primitives import hashes
-    from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2
-    CRYPTO_AVAILABLE = True
-except ImportError:
-    CRYPTO_AVAILABLE = False
-    import logging
-    logging.warning("cryptography 库未安装，敏感信息将使用简单混淆存储")
+def _check_crypto():
+    """检查 cryptography 是否可用"""
+    try:
+        from cryptography.fernet import Fernet
+        from cryptography.hazmat.primitives import hashes
+        from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2
+        return True
+    except ImportError:
+        return False
+
+# 延迟检查：只在实际需要时检查并显示警告
+_CRYPTO_CHECKED = False
+CRYPTO_AVAILABLE = None
+
+def _ensure_crypto_check():
+    """确保已检查 cryptography 可用性，并在首次检查时记录日志"""
+    global _CRYPTO_CHECKED, CRYPTO_AVAILABLE
+    if not _CRYPTO_CHECKED:
+        CRYPTO_AVAILABLE = _check_crypto()
+        _CRYPTO_CHECKED = True
+        if not CRYPTO_AVAILABLE:
+            logger.warning("cryptography 库未安装，敏感信息将使用简单混淆存储")
+    return CRYPTO_AVAILABLE
 
 logger = logging.getLogger(__name__)
 
@@ -113,7 +127,7 @@ class ConfigLoader:
         # 创建稳定的密钥派生输入
         key_material = '|'.join(machine_info).encode('utf-8')
 
-        if CRYPTO_AVAILABLE:
+        if _ensure_crypto_check():
             # 使用 PBKDF2 派生密钥
             kdf = PBKDF2(
                 algorithm=hashes.SHA256(),
@@ -141,7 +155,7 @@ class ConfigLoader:
         try:
             key = self._get_encryption_key()
 
-            if CRYPTO_AVAILABLE:
+            if _ensure_crypto_check():
                 f = Fernet(key)
                 encrypted = f.encrypt(value.encode('utf-8'))
                 return f"enc:{encrypted.decode('utf-8')}"
@@ -173,7 +187,7 @@ class ConfigLoader:
                 obfuscated = encrypted_data[4:]
                 return base64.b64decode(obfuscated).decode('utf-8')
 
-            if CRYPTO_AVAILABLE:
+            if _ensure_crypto_check():
                 f = Fernet(key)
                 decrypted = f.decrypt(encrypted_data.encode('utf-8'))
                 return decrypted.decode('utf-8')
