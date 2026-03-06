@@ -4,23 +4,36 @@
 Web API 端点测试
 """
 import pytest
-import sys
-import os
 from pathlib import Path
 from unittest.mock import Mock, patch, MagicMock
 from fastapi.testclient import TestClient
 
-# 添加项目根目录到Python路径
-project_root = Path(__file__).parent.parent
-sys.path.insert(0, str(project_root))
-
 # 在导入 app 之前先 mock 相关组件
-with patch('backend.utils.config_loader.ConfigLoader') as mock_config:
-    with patch('backend.core.index_manager.IndexManager'):
-        with patch('backend.core.search_engine.SearchEngine'):
-            with patch('backend.core.file_scanner.FileScanner'):
-                with patch('backend.core.file_monitor.FileMonitor'):
-                    from backend.api.api import app, get_rate_limiter, RateLimiter
+# 配置 mock 返回值，支持链式调用
+def mock_get(section, key=None, default=None):
+    defaults = {
+        ('system', 'data_dir'): './data',
+        ('system', 'log_level'): 'INFO',
+        ('system', 'log_max_size'): '10485760',
+        ('system', 'log_backup_count'): '5',
+    }
+    # 处理 config.get('system') 返回整个 section 的情况
+    if key is None or isinstance(key, dict):
+        return {'data_dir': './data', 'log_level': 'INFO', 'log_max_size': '10485760', 'log_backup_count': '5'}
+    return defaults.get((section, key), default)
+
+mock_config_instance = Mock()
+mock_config_instance.get.side_effect = mock_get
+mock_config_instance.getboolean.return_value = False
+mock_config_instance.getint.return_value = 100
+mock_config_instance.getfloat.return_value = 0.5
+
+with patch('backend.utils.config_loader.ConfigLoader', return_value=mock_config_instance), \
+     patch('backend.core.index_manager.IndexManager'), \
+     patch('backend.core.search_engine.SearchEngine'), \
+     patch('backend.core.file_scanner.FileScanner'), \
+     patch('backend.core.file_monitor.FileMonitor'):
+    from backend.api.main import app, get_rate_limiter, RateLimiter
 
 
 @pytest.fixture

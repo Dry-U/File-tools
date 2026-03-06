@@ -118,6 +118,19 @@ def start_fastapi_server(port):
     server.run()
 
 
+class WebViewAPI:
+    """暴露给前端 JavaScript 调用的 API"""
+
+    def open_external_link(self, url):
+        """在外部浏览器打开链接"""
+        import webbrowser
+        try:
+            webbrowser.open(url)
+            return {"success": True, "message": "已在外部浏览器打开链接"}
+        except Exception as e:
+            return {"success": False, "message": f"打开链接失败: {e}"}
+
+
 def run_desktop_app():
     """运行桌面应用"""
     import webview
@@ -177,6 +190,7 @@ def run_desktop_app():
     else:
         logger.warning("服务启动超时，继续尝试")
 
+    api = WebViewAPI()
     window = webview.create_window(
         title='File Tools',
         url=url,
@@ -184,6 +198,7 @@ def run_desktop_app():
         height=800,
         min_size=(900, 600),
         text_select=True,
+        js_api=api,
     )
     window_ref['window'] = window
 

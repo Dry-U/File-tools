@@ -1,10 +1,9 @@
 import tempfile
 import os
-import sys
 from pathlib import Path
 
-# 添加项目根目录到Python路径
-sys.path.insert(0, str(Path(__file__).parent.parent))
+import pytest
+import yaml
 
 from backend.utils.config_loader import ConfigLoader
 
@@ -25,8 +24,7 @@ def test_config_loader_initialization():
                 'max_file_size': 50
             }
         }
-        
-        import yaml
+
         with open(config_path, 'w', encoding='utf-8') as f:
             yaml.dump(test_config, f, allow_unicode=True, default_flow_style=False)
         
@@ -58,8 +56,7 @@ def test_config_loader_update():
                 'data_dir': './initial_data'
             }
         }
-        
-        import yaml
+
         with open(config_path, 'w', encoding='utf-8') as f:
             yaml.dump(initial_config, f, allow_unicode=True, default_flow_style=False)
         
@@ -78,10 +75,3 @@ def test_config_loader_update():
         
         assert config_loader.get('system', 'app_name') == 'Updated App'
         assert config_loader.get('system', 'log_level') == 'DEBUG'
-
-
-if __name__ == "__main__":
-    test_config_loader_initialization()
-    test_config_loader_defaults()
-    test_config_loader_update()
-    print("所有配置加载器测试通过!")

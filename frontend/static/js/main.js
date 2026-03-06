@@ -30,7 +30,15 @@ function openExternalLink(url, event) {
     // 优先尝试使用 pywebview API（桌面应用）
     if (window.pywebview && window.pywebview.api && window.pywebview.api.open_external_link) {
         try {
-            window.pywebview.api.open_external_link(url);
+            window.pywebview.api.open_external_link(url).then(result => {
+                if (result && result.success) {
+                    showToast('已在浏览器中打开链接', 'info');
+                } else if (result && result.message) {
+                    showToast(result.message, 'warning');
+                }
+            }).catch(e => {
+                console.warn('pywebview API call failed:', e);
+            });
             return false;
         } catch (e) {
             console.warn('pywebview API call failed, falling back to window.open:', e);

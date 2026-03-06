@@ -1,15 +1,16 @@
-# tests/test_rag_workflow.py
-import pytest
-import tempfile
+"""RAG工作流集成测试"""
 import os
+import tempfile
 from pathlib import Path
-from unittest.mock import Mock, patch, MagicMock
+from unittest.mock import Mock, patch
+
+import pytest
+
+from backend.core.rag_pipeline import RAGPipeline
 
 
 def test_rag_workflow_basic():
     """测试RAG工作流的基本功能"""
-    # For now, just test that the module can be imported
-    from backend.core.rag_pipeline import RAGPipeline
     assert RAGPipeline is not None
 
 
@@ -42,23 +43,23 @@ class TestRAGWorkflowIntegration:
 
     def test_end_to_end_search_workflow(self, temp_test_dir, mock_config):
         """测试端到端搜索工作流"""
-        with patch('backend.core.index_manager.IndexManager'):
-            with patch('backend.core.search_engine.SearchEngine') as mock_se:
-                # 配置模拟搜索引擎
-                search_engine = Mock()
-                search_engine.search.return_value = [
-                    {
-                        'path': os.path.join(temp_test_dir, 'test_doc.txt'),
-                        'filename': 'test_doc.txt',
-                        'content': 'Python is a programming language',
-                        'score': 0.95
-                    }
-                ]
+        with patch('backend.core.index_manager.IndexManager'), \
+             patch('backend.core.search_engine.SearchEngine') as mock_se:
+            # 配置模拟搜索引擎
+            search_engine = Mock()
+            search_engine.search.return_value = [
+                {
+                    'path': os.path.join(temp_test_dir, 'test_doc.txt'),
+                    'filename': 'test_doc.txt',
+                    'content': 'Python is a programming language',
+                    'score': 0.95
+                }
+            ]
 
-                # 测试搜索
-                results = search_engine.search('python')
-                assert len(results) == 1
-                assert 'python' in results[0]['content'].lower()
+            # 测试搜索
+            results = search_engine.search('python')
+            assert len(results) == 1
+            assert 'python' in results[0]['content'].lower()
 
     def test_file_scan_to_index_workflow(self, temp_test_dir, mock_config):
         """测试文件扫描到索引工作流"""
@@ -79,23 +80,23 @@ class TestRAGWorkflowIntegration:
 
     def test_chat_with_context_workflow(self, mock_config):
         """测试带上下文的聊天工作流"""
-        with patch('backend.core.rag_pipeline.RAGPipeline') as mock_rag_class:
-            with patch('backend.core.model_manager.ModelManager'):
-                with patch('backend.core.search_engine.SearchEngine'):
-                    # 配置模拟RAG管道
-                    rag = Mock()
-                    rag.query.return_value = {
-                        'answer': 'Python is a programming language widely used for web development.',
-                        'sources': ['/test/doc.txt']
-                    }
-                    mock_rag_class.return_value = rag
+        with patch('backend.core.rag_pipeline.RAGPipeline') as mock_rag_class, \
+             patch('backend.core.model_manager.ModelManager'), \
+             patch('backend.core.search_engine.SearchEngine'):
+            # 配置模拟RAG管道
+            rag = Mock()
+            rag.query.return_value = {
+                'answer': 'Python is a programming language widely used for web development.',
+                'sources': ['/test/doc.txt']
+            }
+            mock_rag_class.return_value = rag
 
-                    # 测试查询
-                    result = rag.query('What is Python?', session_id='test_session')
+            # 测试查询
+            result = rag.query('What is Python?', session_id='test_session')
 
-                    assert 'answer' in result
-                    assert 'sources' in result
-                    assert 'Python' in result['answer']
+            assert 'answer' in result
+            assert 'sources' in result
+            assert 'Python' in result['answer']
 
 
 class TestFileProcessingIntegration:
@@ -208,41 +209,41 @@ class TestSearchAndRAGIntegration:
 
     def test_search_results_feed_to_rag(self):
         """测试搜索结果输入RAG"""
-        with patch('backend.core.search_engine.SearchEngine') as mock_se:
-            with patch('backend.core.rag_pipeline.RAGPipeline') as mock_rag:
-                # 模拟搜索结果
-                search_results = [
-                    {
-                        'path': '/doc1.txt',
-                        'content': 'Python programming guide',
-                        'score': 0.9
-                    },
-                    {
-                        'path': '/doc2.txt',
-                        'content': 'Advanced Python topics',
-                        'score': 0.8
-                    }
-                ]
-
-                search_engine = Mock()
-                search_engine.search.return_value = search_results
-
-                # 模拟RAG使用搜索结果
-                rag = Mock()
-                rag._collect_documents.return_value = search_results
-                rag.query.return_value = {
-                    'answer': 'Based on the documents, Python is...',
-                    'sources': ['/doc1.txt', '/doc2.txt']
+        with patch('backend.core.search_engine.SearchEngine') as mock_se, \
+             patch('backend.core.rag_pipeline.RAGPipeline') as mock_rag:
+            # 模拟搜索结果
+            search_results = [
+                {
+                    'path': '/doc1.txt',
+                    'content': 'Python programming guide',
+                    'score': 0.9
+                },
+                {
+                    'path': '/doc2.txt',
+                    'content': 'Advanced Python topics',
+                    'score': 0.8
                 }
+            ]
 
-                # 执行搜索
-                results = search_engine.search('python')
-                assert len(results) == 2
+            search_engine = Mock()
+            search_engine.search.return_value = search_results
 
-                # 使用搜索结果进行RAG
-                answer = rag.query('Tell me about Python')
-                assert 'sources' in answer
-                assert len(answer['sources']) == 2
+            # 模拟RAG使用搜索结果
+            rag = Mock()
+            rag._collect_documents.return_value = search_results
+            rag.query.return_value = {
+                'answer': 'Based on the documents, Python is...',
+                'sources': ['/doc1.txt', '/doc2.txt']
+            }
+
+            # 执行搜索
+            results = search_engine.search('python')
+            assert len(results) == 2
+
+            # 使用搜索结果进行RAG
+            answer = rag.query('Tell me about Python')
+            assert 'sources' in answer
+            assert len(answer['sources']) == 2
 
 
 class TestConfigurationIntegration:
