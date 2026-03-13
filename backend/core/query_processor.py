@@ -279,9 +279,10 @@ class QueryProcessor:
         synonyms = self._expand_synonyms(query)
         queries.extend(synonyms)
 
-        # 文件名变体
-        filename_variants = self._generate_filename_variants(query)
-        queries.extend(filename_variants)
+        # 文件名变体：仅在疑似文件名查询时扩展，减少噪音并提升检索性能
+        if self.is_likely_filename_query(query):
+            filename_variants = self._generate_filename_variants(query)
+            queries.extend(filename_variants)
 
         # 清理和去重
         queries = self._clean_and_deduplicate(queries)
