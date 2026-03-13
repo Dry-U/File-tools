@@ -1,17 +1,17 @@
 # src/core/file_scanner.py
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-"""文件扫描器模块 - 负责扫描文件系统并识别可索引文件"""
+"""文件扫描器模块 - 负责扫描文件系统并识别可索引文件（支持同步和异步操作）"""
 import os
 import re
 import platform
 import time
+import asyncio
 from datetime import datetime
 from pathlib import Path
-from typing import List, Dict, Set, Optional, Any, Tuple
+from typing import List, Dict, Set, Optional, Any, Tuple, Callable
 import logging
 import fnmatch
-import hashlib
 import mimetypes
 import tantivy
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -21,17 +21,37 @@ import threading
 from backend.utils.config_loader import ConfigLoader
 from backend.core.index_manager import IndexManager
 from backend.core.document_parser import DocumentParser
+from backend.core.constants import (
+    DEFAULT_MAX_WORKERS,
+    DEFAULT_BATCH_SIZE,
+    LOG_FREQUENCY,
+    PROGRESS_FREQUENCY,
+)
+
+# 异步支持（可选依赖）
+try:
+    import aiofiles
+    AIOFILES_AVAILABLE = True
+except ImportError:
+    AIOFILES_AVAILABLE = False
 
 class FileScanner:
     """文件扫描器类，负责扫描文件系统并识别可索引文件（支持多线程并行处理）"""
 
-    # 默认配置
-    DEFAULT_MAX_WORKERS = 4  # 默认并行工作线程数
-    DEFAULT_BATCH_SIZE = 50  # 默认批处理大小
+    # 默认配置（从 constants 模块导入）
+    DEFAULT_MAX_WORKERS = DEFAULT_MAX_WORKERS  # type: ignore  # 默认并行工作线程数
+    DEFAULT_BATCH_SIZE = DEFAULT_BATCH_SIZE  # type: ignore  # 默认批处理大小
+    _LOG_FREQUENCY = LOG_FREQUENCY  # type: ignore
+    _PROGRESS_FREQUENCY = PROGRESS_FREQUENCY  # type: ignore
 
-    def __init__(self, config_loader, document_parser=None, index_manager=None):
-        self.config_loader = config_loader
-        self.logger = logging.getLogger(__name__)
+    def __init__(
+        self,
+        config_loader: ConfigLoader,
+        document_parser: Optional[DocumentParser] = None,
+        index_manager: Optional[IndexManager] = None
+    ) -> None:
+        self.config_loader: ConfigLoader = config_loader
+        self.logger: logging.Logger = logging.getLogger(__name__)
 
         # 配置参数
         self.scan_paths: List[str] = self._get_scan_paths()
@@ -66,19 +86,19 @@ class FileScanner:
             self._cache_max_size = 10000
 
         # 依赖组件
-        self.document_parser = document_parser or DocumentParser(config_loader)
-        self.index_manager = index_manager
+        self.document_parser: DocumentParser = document_parser or DocumentParser(config_loader)
+        self.index_manager: Optional[IndexManager] = index_manager
 
         # 进度回调
-        self.progress_callback = None
+        self.progress_callback: Optional[Callable[[int], None]] = None
 
         # 扫描控制标志
-        self._stop_flag = False
-        self._stop_lock = threading.Lock()
+        self._stop_flag: bool = False
+        self._stop_lock: threading.Lock = threading.Lock()
 
         # 扫描统计信息（线程安全）
-        self._stats_lock = threading.Lock()
-        self.scan_stats = {
+        self._stats_lock: threading.Lock = threading.Lock()
+        self.scan_stats: Dict[str, Any] = {
             'total_files_scanned': 0,
             'total_files_indexed': 0,
             'total_files_skipped': 0,
@@ -88,14 +108,15 @@ class FileScanner:
         }
 
         # 文件哈希缓存（避免重复处理未变更文件）
-        self._file_hash_cache: Dict[str, Tuple[str, float]] = {}
-        self._cache_lock = threading.Lock()
+        # value: (quick_key(size:mtime), md5_hash, last_access_time)
+        self._file_hash_cache: Dict[str, Tuple[str, str, float]] = {}
+        self._cache_lock: threading.Lock = threading.Lock()
 
         self.logger.info(f"文件扫描器初始化完成，配置: 扫描路径 {len(self.scan_paths)} 个, "
                         f"排除模式 {len(self.exclude_patterns)} 个, 并行线程: {self.max_workers}, "
                         f"哈希缓存大小: {self._cache_max_size}")
-        
-    def set_progress_callback(self, callback):
+
+    def set_progress_callback(self, callback: Callable[[int], None]) -> 'FileScanner':
         """设置进度回调函数"""
         self.progress_callback = callback
         return self
@@ -105,50 +126,51 @@ class FileScanner:
         with self._stop_lock:
             return self._stop_flag
 
-    def _increment_stat(self, stat_name: str, value: int = 1):
+    def _increment_stat(self, stat_name: str, value: int = 1) -> None:
         """线程安全地增加统计值"""
         with self._stats_lock:
             self.scan_stats[stat_name] += value
 
-    def _get_file_hash(self, file_path: str) -> Optional[str]:
-        """计算文件哈希（用于检测文件是否变更）"""
-        try:
-            # 使用文件大小和修改时间作为快速哈希
-            stat = os.stat(file_path)
-            hash_input = f"{file_path}:{stat.st_size}:{stat.st_mtime}"
-            return hashlib.md5(hash_input.encode()).hexdigest()
-        except Exception:
-            return None
+    def _get_file_hash(self, file_path: str, quick_key: str) -> str:
+        """
+        获取文件标识（用于检测文件是否变更）
+
+        直接使用 quick_key（size:mtime）作为变更标识，避免不必要的 MD5 计算。
+        文件大小和修改时间的组合足以检测文件变更。
+        """
+        return quick_key
 
     def _is_file_changed(self, file_path: str) -> bool:
         """检查文件是否自上次扫描以来已变更（线程安全，使用双检锁模式）"""
+        try:
+            stat = os.stat(file_path)
+            quick_key = f"{stat.st_size}:{stat.st_mtime}"
+        except Exception:
+            return True  # 无法获取文件状态，假设已变更
+
         # 第一重检查：无锁快速路径
         with self._cache_lock:
             cached = self._file_hash_cache.get(file_path)
             if cached:
-                # 先比较时间戳，如果修改时间相同则跳过哈希计算
-                try:
-                    stat = os.stat(file_path)
-                    # 使用文件大小+修改时间作为快速比较键
-                    quick_key = f"{stat.st_size}:{stat.st_mtime}"
-                    if cached[0].endswith(quick_key):
-                        return False  # 文件未变更
-                except Exception:
-                    pass  # 无法获取文件状态，继续计算哈希
+                cached_quick_key, cached_hash, _ = cached
+                if cached_quick_key == quick_key:
+                    return False  # 文件未变更
 
         # 计算哈希（在锁外部）
-        current_hash = self._get_file_hash(file_path)
+        current_hash = self._get_file_hash(file_path, quick_key)
         if not current_hash:
             return True  # 无法计算哈希，假设已变更
 
         # 第二重检查：加锁确认和更新
         with self._cache_lock:
             cached = self._file_hash_cache.get(file_path)
-            if cached and cached[0] == current_hash:
-                return False  # 文件未变更（另一个线程可能已更新）
+            if cached:
+                cached_quick_key, cached_hash, _ = cached
+                if cached_quick_key == quick_key and cached_hash == current_hash:
+                    return False  # 文件未变更（另一个线程可能已更新）
 
             # 更新缓存
-            self._file_hash_cache[file_path] = (current_hash, time.time())
+            self._file_hash_cache[file_path] = (quick_key, current_hash, time.time())
 
             # 限制缓存大小
             if len(self._file_hash_cache) > self._cache_max_size:
@@ -165,7 +187,7 @@ class FileScanner:
         # 按访问时间排序
         sorted_items = sorted(
             self._file_hash_cache.items(),
-            key=lambda x: x[1][1]
+            key=lambda x: x[1][2]
         )
 
         # 移除最旧的20%
@@ -194,7 +216,8 @@ class FileScanner:
         scan_paths_value = ""
         try:
             scan_paths_value = self.config_loader.get('file_scanner', 'scan_paths', "")
-            self.logger.info(f"配置的扫描路径原始值: {scan_paths_value} (类型: {type(scan_paths_value).__name__})")
+            # 避免在大规模扫描时刷屏 info 日志
+            self.logger.debug(f"配置的扫描路径原始值: {scan_paths_value} (类型: {type(scan_paths_value).__name__})")
         except Exception as e:
             self.logger.error(f"获取扫描路径配置失败: {str(e)}")
             scan_paths_value = ""
@@ -242,6 +265,20 @@ class FileScanner:
         
         self.logger.info(f"最终扫描路径列表: {valid_paths}")
         return valid_paths
+
+    @staticmethod
+    def _match_exclude(pattern: str, text: str) -> bool:
+        """排除规则匹配：同时兼容 regex 与 glob。"""
+        if not pattern:
+            return False
+        try:
+            # 含 glob 通配符时按 glob 匹配，否则按正则匹配
+            if any(ch in pattern for ch in ('*', '?', '[')):
+                return fnmatch.fnmatch(text, pattern)
+            return re.search(pattern, text) is not None
+        except re.error:
+            # 正则非法时回退为子串包含
+            return pattern in text
     
     def _get_exclude_patterns(self) -> List[str]:
         """从配置中获取排除模式"""
@@ -461,7 +498,7 @@ class FileScanner:
                 # 过滤排除的目录
                 dirs[:] = [
                     d for d in dirs
-                    if not any(pattern in d for pattern in self.exclude_patterns)
+                    if not any(self._match_exclude(pattern, d) for pattern in self.exclude_patterns)
                 ]
 
                 for file_name in files:
@@ -615,7 +652,7 @@ class FileScanner:
             if file_size > self.max_file_size:
                 self.logger.info(f"跳过过大文件: {path}, 大小: {file_size}, 限制: {self.max_file_size}")
                 return False
-            self.logger.info(f"文件大小检查通过: {path}, 大小: {file_size}")
+            self.logger.debug(f"文件大小检查通过: {path}, 大小: {file_size}")
         except Exception as e:
             self.logger.warning(f"获取文件大小失败 {path}: {str(e)}")
             return False
@@ -630,27 +667,24 @@ class FileScanner:
              self.logger.info(f"强制跳过媒体文件: {path}")
              return False
 
-        self.logger.info(f"检查文件扩展名: {path}, 扩展名: {file_ext}")
+        self.logger.debug(f"检查文件扩展名: {path}, 扩展名: {file_ext}")
         # 使用 set 进行 O(1) 查找
         if file_ext not in self.all_extensions:
-            self.logger.info(f"跳过不支持的文件类型: {path}")
+            self.logger.debug(f"跳过不支持的文件类型: {path}")
             return False
-        self.logger.info(f"文件扩展名检查通过: {path}")
+        self.logger.debug(f"文件扩展名检查通过: {path}")
         
         # 检查排除模式
-        self.logger.info(f"检查排除模式: {path}, 排除模式: {self.exclude_patterns}")
-        if any(re.search(pattern, path) for pattern in self.exclude_patterns):
-            self.logger.info(f"跳过匹配排除模式的文件: {path}")
+        if any(self._match_exclude(pattern, path) for pattern in self.exclude_patterns):
+            self.logger.debug(f"跳过匹配排除模式的文件: {path}")
             return False
-        self.logger.info(f"排除模式检查通过: {path}")
+        self.logger.debug(f"排除模式检查通过: {path}")
         
         # 检查是否为系统文件
         if self._is_system_file(path):
-            self.logger.info(f"跳过系统文件: {path}")
+            self.logger.debug(f"跳过系统文件: {path}")
             return False
-        self.logger.info(f"系统文件检查通过: {path}")
-        
-        self.logger.info(f"文件应被索引: {path}")
+        self.logger.debug(f"文件应被索引: {path}")
         return True
     
     def _is_system_file(self, path: str) -> bool:
@@ -928,10 +962,10 @@ class FileScanner:
         """使用过滤器扫描文件"""
         if filters is None:
             filters = {}
-        
+
         # 保存原始统计信息
         original_stats = self.scan_stats.copy()
-        
+
         # 重置统计信息
         self.scan_stats = {
             'total_files_scanned': 0,
@@ -941,22 +975,316 @@ class FileScanner:
             'scan_time': 0,
             'last_scan_time': None
         }
-        
+
         start_time = time.time()
-        
+
         # 根据过滤器执行扫描
         scan_paths = filters.get('scan_paths', self.scan_paths)
         file_types = filters.get('file_types', None)
-        
+
         for path in scan_paths:
             if self._stop_flag:
                 break
             self._scan_directory(Path(path), 0)  # 这里简化处理，不计算预估总数
-        
+
         self.scan_stats['scan_time'] = time.time() - start_time
         self.scan_stats['last_scan_time'] = time.time()
-        
+
         return self.scan_stats
+
+    # ==================== 异步扫描支持 ====================
+
+    async def scan_and_index_async(self, progress_callback: Optional[Callable[[int], None]] = None) -> Dict:
+        """
+        异步扫描并索引文件
+
+        使用 asyncio 和 aiofiles 进行异步文件 I/O，提高 I/O 密集型任务的性能。
+
+        Args:
+            progress_callback: 进度回调函数，接收 0-100 的进度值
+
+        Returns:
+            扫描统计信息字典
+        """
+        if not AIOFILES_AVAILABLE:
+            self.logger.warning("aiofiles 未安装，回退到同步扫描模式")
+            if progress_callback:
+                self.set_progress_callback(progress_callback)
+            return self.scan_and_index()
+
+        start_time = time.time()
+        self.logger.info("开始异步扫描并索引文件")
+
+        # 重置停止标志和统计信息
+        with self._stop_lock:
+            self._stop_flag = False
+
+        with self._stats_lock:
+            self.scan_stats = {
+                'total_files_scanned': 0,
+                'total_files_indexed': 0,
+                'total_files_skipped': 0,
+                'total_size_scanned': 0,
+                'scan_time': 0,
+                'last_scan_time': None
+            }
+
+        # 初始化进度
+        if progress_callback:
+            try:
+                progress_callback(0)
+            except Exception as e:
+                self.logger.warning(f"初始化进度回调失败: {str(e)}")
+
+        # 启动索引批量模式
+        if self.index_manager:
+            try:
+                self.index_manager.start_batch_mode()
+                self.logger.info("启动索引批量模式")
+            except Exception as e:
+                self.logger.warning(f"启动批量模式失败: {e}")
+
+        try:
+            # 异步收集所有待扫描文件
+            all_files = await self._collect_files_async()
+            total_files = len(all_files)
+            self.logger.info(f"共收集到 {total_files} 个待扫描文件")
+
+            if total_files == 0:
+                self.logger.warning("没有找到需要扫描的文件")
+                return self.scan_stats
+
+            # 使用信号量限制并发数
+            semaphore = asyncio.Semaphore(self.max_workers)
+            processed_count = 0
+            last_progress_update = 0
+
+            async def process_with_semaphore(file_path: Path):
+                async with semaphore:
+                    return await self._process_file_async(file_path)
+
+            # 分批处理文件
+            batch_size = self.batch_size * self.max_workers
+            for batch_start in range(0, total_files, batch_size):
+                if self._is_stop_requested():
+                    self.logger.info("扫描已被停止")
+                    break
+
+                batch_end = min(batch_start + batch_size, total_files)
+                current_batch = all_files[batch_start:batch_end]
+
+                # 并发处理当前批次
+                tasks = [process_with_semaphore(fp) for fp in current_batch]
+                results = await asyncio.gather(*tasks, return_exceptions=True)
+
+                # 处理结果
+                for result in results:
+                    processed_count += 1
+                    if isinstance(result, Exception):
+                        self.logger.debug(f"处理文件失败: {result}")
+
+                    # 更新进度
+                    progress = int((processed_count / total_files) * 100)
+                    if progress > last_progress_update or processed_count - last_progress_update >= 100:
+                        if progress_callback:
+                            try:
+                                progress_callback(min(99, progress))
+                            except Exception as e:
+                                self.logger.debug(f"更新进度回调失败: {e}")
+                        last_progress_update = processed_count
+
+                self.logger.debug(f"批次完成: {batch_start}-{batch_end}")
+
+            # 设置完成进度
+            if progress_callback:
+                try:
+                    progress_callback(100)
+                except Exception as e:
+                    self.logger.warning(f"完成进度回调失败: {str(e)}")
+
+        finally:
+            # 结束索引批量模式
+            if self.index_manager:
+                try:
+                    self.index_manager.end_batch_mode(commit=True)
+                    self.logger.info("批量模式结束，索引已提交")
+                except Exception as e:
+                    self.logger.error(f"结束批量模式失败: {e}")
+
+        # 计算扫描时间
+        with self._stats_lock:
+            self.scan_stats['scan_time'] = time.time() - start_time
+            self.scan_stats['last_scan_time'] = time.time()
+            stats = self.scan_stats.copy()
+
+        self.logger.info(f"异步扫描完成，统计: 扫描文件 {stats['total_files_scanned']} 个, "
+                        f"索引文件 {stats['total_files_indexed']} 个, "
+                        f"跳过文件 {stats['total_files_skipped']} 个, "
+                        f"耗时 {stats['scan_time']:.2f} 秒")
+
+        return stats
+
+    async def _collect_files_async(self) -> List[Path]:
+        """异步收集所有需要扫描的文件路径"""
+        all_files = []
+        for path in self.scan_paths:
+            if self._is_stop_requested():
+                break
+            try:
+                await self._collect_files_from_dir_async(Path(path), all_files)
+            except Exception as e:
+                self.logger.error(f"异步收集文件失败 {path}: {e}")
+        return all_files
+
+    async def _collect_files_from_dir_async(self, dir_path: Path, files_list: List[Path]):
+        """异步从目录收集文件（递归）"""
+        if not dir_path.exists() or not dir_path.is_dir():
+            return
+
+        loop = asyncio.get_event_loop()
+
+        try:
+            # 使用线程池执行 os.walk（因为 os.walk 没有异步版本）
+            def walk_directory():
+                result = []
+                for root, dirs, files in os.walk(dir_path):
+                    if self._is_stop_requested():
+                        break
+
+                    # 过滤排除的目录
+                    dirs[:] = [
+                        d for d in dirs
+                        if not any(self._match_exclude(pattern, d) for pattern in self.exclude_patterns)
+                    ]
+
+                    for file_name in files:
+                        if self._is_stop_requested():
+                            break
+                        file_path = Path(root) / file_name
+                        if self._should_index(str(file_path)):
+                            result.append(file_path)
+                return result
+
+            # 在线程池中执行同步的 os.walk
+            files = await loop.run_in_executor(None, walk_directory)
+            files_list.extend(files)
+
+        except PermissionError:
+            self.logger.warning(f"无权限访问目录: {dir_path}")
+        except Exception as e:
+            self.logger.error(f"异步收集文件失败 {dir_path}: {e}")
+
+    async def _process_file_async(self, file_path: Path) -> bool:
+        """异步处理单个文件"""
+        file_path_str = str(file_path)
+
+        # 检查文件是否变更（同步操作，使用锁保护）
+        if not self._is_file_changed(file_path_str):
+            self._increment_stat('total_files_scanned')
+            return False
+
+        self._increment_stat('total_files_scanned')
+
+        # 检查是否应索引该文件
+        if self._should_index(file_path_str):
+            try:
+                # 使用 aiofiles 异步读取文件
+                success = await self._index_file_async(file_path_str)
+                if success:
+                    self._increment_stat('total_files_indexed')
+                    return True
+                else:
+                    self._increment_stat('total_files_skipped')
+                    return False
+            except Exception as e:
+                self.logger.debug(f"异步处理文件失败 {file_path}: {e}")
+                self._increment_stat('total_files_skipped')
+                return False
+        else:
+            self._increment_stat('total_files_skipped')
+            return False
+
+    async def _index_file_async(self, file_path: str) -> bool:
+        """异步索引单个文件"""
+        if not self.index_manager:
+            self.logger.error("索引管理器未初始化")
+            return False
+
+        try:
+            file_path_obj = Path(file_path)
+
+            # 获取文件基本信息（同步操作）
+            stat_info = file_path_obj.stat()
+            file_size = stat_info.st_size
+            created_time = datetime.fromtimestamp(stat_info.st_ctime)
+            modified_time = datetime.fromtimestamp(stat_info.st_mtime)
+
+            # 获取文件类型
+            file_ext = file_path_obj.suffix.lower()
+            file_type = 'unknown'
+            for type_name, extensions in self.target_extensions.items():
+                if file_ext in extensions:
+                    file_type = type_name
+                    break
+
+            # 异步读取文件内容
+            content = await self._read_file_content_async(file_path, file_ext)
+
+            # 构建文档字典
+            document = {
+                'path': str(file_path),
+                'filename': file_path_obj.name,
+                'content': content,
+                'file_type': file_type,
+                'size': file_size,
+                'created': created_time,
+                'modified': modified_time,
+                'keywords': ''
+            }
+
+            # 调用索引管理器更新文档（同步操作，在线程池中执行）
+            loop = asyncio.get_event_loop()
+            await loop.run_in_executor(None, self.index_manager.update_document, document)
+
+            self.logger.debug(f"已异步索引文件: {file_path}")
+            return True
+
+        except Exception as e:
+            self.logger.error(f"异步索引文件失败 {file_path}: {str(e)}")
+            return False
+
+    async def _read_file_content_async(self, file_path: str, file_ext: str) -> str:
+        """异步读取文件内容"""
+        try:
+            # 优先使用文档解析器
+            if self.document_parser:
+                try:
+                    # 文档解析器通常是同步的，在线程池中执行
+                    loop = asyncio.get_event_loop()
+                    parsed = await loop.run_in_executor(
+                        None, self.document_parser.extract_text, file_path
+                    )
+                    if isinstance(parsed, str) and parsed.strip():
+                        return parsed
+                except Exception:
+                    pass
+
+            # 对于文本类文件，使用 aiofiles 异步读取
+            if file_ext in ['.txt', '.md', '.json', '.xml', '.csv', '.log', '.py', '.js', '.java', '.cpp', '.c', '.h']:
+                try:
+                    async with aiofiles.open(file_path, 'r', encoding='utf-8') as f:
+                        return await f.read()
+                except UnicodeDecodeError:
+                    # 尝试其他编码
+                    async with aiofiles.open(file_path, 'r', encoding='gbk', errors='ignore') as f:
+                        return await f.read()
+
+            # 对于其他类型，返回文件名作为内容
+            return Path(file_path).name
+
+        except Exception as e:
+            self.logger.warning(f"异步读取文件内容失败 {file_path}: {str(e)}")
+            return Path(file_path).name
 
 # 示例用法
 if __name__ == "__main__":

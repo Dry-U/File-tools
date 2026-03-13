@@ -19,12 +19,23 @@ def timeout(seconds=30):
         @wraps(func)
         def wrapper(*args, **kwargs):
             # 使用线程池实现超时控制
-            with ThreadPoolExecutor(max_workers=1) as executor:
-                future = executor.submit(func, *args, **kwargs)
+            executor = ThreadPoolExecutor(max_workers=1)
+            future = executor.submit(func, *args, **kwargs)
+            try:
+                return future.result(timeout=seconds)
+            except FutureTimeoutError:
+                # 关键：不能在这里等待线程池 shutdown(wait=True)，否则会把“超时”变成假超时
                 try:
-                    return future.result(timeout=seconds)
-                except FutureTimeoutError:
-                    raise TimeoutError(f"文档解析超时（{seconds}秒）")
+                    future.cancel()
+                except Exception:
+                    pass
+                raise TimeoutError(f"文档解析超时（{seconds}秒）")
+            finally:
+                try:
+                    executor.shutdown(wait=False, cancel_futures=True)
+                except TypeError:
+                    # 兼容旧 Python：没有 cancel_futures 参数
+                    executor.shutdown(wait=False)
         return wrapper
     return decorator
 import pypdf

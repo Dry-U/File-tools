@@ -109,14 +109,40 @@ class ConfigLoader:
         # 解密敏感字段
         self._decrypt_sensitive_fields()
 
-    def _get_encryption_key(self) -> bytes:
-        """
-        生成基于机器标识的加密密钥
+    def _get_or_create_salt(self) -> bytes:
+        """获取或创建盐值（存储在用户数据目录中）"""
+        from backend.utils.app_paths import get_app_paths
+        app_paths = get_app_paths()
+        salt_path = app_paths.user_data_dir / '.salt'
 
-        使用机器特定的信息（如机器名、用户名等）派生密钥，
-        这样配置只能在同一台机器上解密。
+        if salt_path.exists():
+            try:
+                with open(salt_path, 'rb') as f:
+                    return f.read()
+            except Exception:
+                pass
+
+        # 生成新盐值
+        import secrets
+        salt = secrets.token_bytes(32)
+        try:
+            salt_path.parent.mkdir(parents=True, exist_ok=True)
+            with open(salt_path, 'wb') as f:
+                f.write(salt)
+            # 设置权限（仅Windows）
+            if os.name == 'posix':
+                os.chmod(salt_path, 0o600)
+        except Exception as e:
+            logger.warning(f"保存盐值失败: {e}")
+        return salt
+
+    def _get_machine_fingerprint(self) -> List[str]:
         """
-        # 收集机器特定信息
+        收集机器指纹信息用于密钥派生
+
+        Returns:
+            机器标识信息列表
+        """
         machine_info = [
             os.environ.get('COMPUTERNAME', ''),
             os.environ.get('USERDOMAIN', ''),
@@ -124,24 +150,111 @@ class ConfigLoader:
             str(Path.home()),
         ]
 
+        # 添加平台信息
+        try:
+            import platform
+            machine_info.extend([
+                platform.node() or '',           # 机器名
+                platform.machine() or '',        # 架构 (x86_64, AMD64等)
+                platform.processor() or '',      # 处理器信息
+                platform.release() or '',        # 系统版本
+            ])
+        except Exception:
+            pass
+
+        # 添加MAC地址
+        try:
+            import uuid
+            node = uuid.getnode()
+            if node:
+                machine_info.append(str(node))
+                # 添加MAC地址的十六进制表示
+                mac = uuid.UUID(int=node).hex[-12:]
+                machine_info.append(mac)
+        except Exception:
+            pass
+
+        # Windows特有的机器标识
+        if os.name == 'nt':
+            try:
+                import winreg
+                # 尝试读取系统UUID
+                with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE,
+                                    r"SOFTWARE\Microsoft\Cryptography") as key:
+                    machine_guid, _ = winreg.QueryValueEx(key, "MachineGuid")
+                    if machine_guid:
+                        machine_info.append(machine_guid)
+            except Exception:
+                pass
+
+            # 尝试获取主板序列号
+            try:
+                import subprocess
+                result = subprocess.run(
+                    ["wmic", "baseboard", "get", "SerialNumber"],
+                    capture_output=True, text=True, timeout=5
+                )
+                if result.returncode == 0:
+                    lines = [l.strip() for l in result.stdout.strip().split('\n') if l.strip()]
+                    if len(lines) > 1 and lines[1] != "None":
+                        machine_info.append(lines[1])
+            except Exception:
+                pass
+
+        # Linux特有的机器标识
+        elif os.name == 'posix':
+            try:
+                # 尝试读取机器ID
+                for path in ['/etc/machine-id', '/var/lib/dbus/machine-id']:
+                    if os.path.exists(path):
+                        with open(path, 'r') as f:
+                            machine_id = f.read().strip()
+                            if machine_id:
+                                machine_info.append(machine_id)
+                                break
+            except Exception:
+                pass
+
+        # 过滤空值并返回
+        return [info for info in machine_info if info]
+
+    def _get_encryption_key(self) -> bytes:
+        """
+        生成基于机器标识的加密密钥
+
+        使用机器特定的信息（如机器名、用户名等）派生密钥，
+        结合随机盐值，提高安全性。
+        """
+        # 收集机器特定信息
+        machine_info = self._get_machine_fingerprint()
+
+        # 如果没有获取到任何机器信息，使用默认值（降级方案）
+        if not machine_info:
+            logger.warning("无法获取机器指纹信息，使用降级方案")
+            machine_info = ['default', 'fallback']
+
         # 创建稳定的密钥派生输入
         key_material = '|'.join(machine_info).encode('utf-8')
 
+        # 获取盐值（随机生成或从文件读取）
+        salt = self._get_or_create_salt()
+
         if _ensure_crypto_check():
-            # 使用 PBKDF2 派生密钥
+            # 使用 PBKDF2 派生密钥，符合 OWASP 2023 推荐
             kdf = PBKDF2(
                 algorithm=hashes.SHA256(),
                 length=32,
-                salt=b'file_tools_salt_v1',  # 固定盐值，确保同一台机器密钥一致
-                iterations=100000,
+                salt=salt,  # 使用随机盐值
+                iterations=480000,  # OWASP 2023 推荐
             )
             key = base64.urlsafe_b64encode(kdf.derive(key_material))
             return key
         else:
-            # 降级方案：使用简单的哈希
-            return base64.urlsafe_b64encode(
-                hashlib.sha256(key_material).digest()
-            )
+            # 降级方案：使用简单的哈希，但结合盐值
+            h = hashlib.sha256()
+            h.update(salt)
+            h.update(key_material)
+            return base64.urlsafe_b64encode(h.digest())
 
     def _encrypt_value(self, value: str) -> str:
         """加密单个值"""
@@ -786,7 +899,7 @@ class ConfigLoader:
             logger.error(f"清理旧备份失败: {str(e)}")
 
     def save(self) -> bool:
-        """保存配置到文件 (线程安全)"""
+        """保存配置到文件 (线程安全，使用原子写入防止配置损坏)"""
         try:
             # 在保存前加密敏感字段
             self._encrypt_sensitive_fields()
@@ -795,14 +908,41 @@ class ConfigLoader:
             config_dir = self.config_path.parent
             config_dir.mkdir(parents=True, exist_ok=True)
 
+            # 创建临时文件路径
+            temp_path = config_dir / f"{self.config_path.stem}.tmp"
+            backup_path = config_dir / f"{self.config_path.stem}.bak"
+
             with self._file_lock:
-                with open(self.config_path, 'w', encoding='utf-8') as f:
+                # 步骤1: 写入临时文件
+                with open(temp_path, 'w', encoding='utf-8') as f:
                     yaml.dump(self.config, f, allow_unicode=True,
                               default_flow_style=False)
+                    f.flush()
+                    os.fsync(f.fileno())  # 确保数据写入磁盘
 
-                # 确保配置文件有正确的权限
+                # 步骤2: 如果原配置存在，创建备份
+                if self.config_path.exists():
+                    try:
+                        backup_path.unlink(missing_ok=True)
+                        os.replace(self.config_path, backup_path)
+                    except Exception as e:
+                        logger.warning(f"创建配置备份失败: {e}")
+
+                # 步骤3: 原子重命名临时文件到目标文件
+                os.replace(temp_path, self.config_path)
+
+                # 步骤4: 确保配置文件有正确的权限
                 if os.name == 'posix':  # Unix-like systems
                     os.chmod(self.config_path, 0o600)  # 只有所有者可读写
+
+                # 步骤5: 成功写入后删除备份
+                if backup_path.exists():
+                    try:
+                        backup_path.unlink()
+                    except Exception:
+                        pass
+
+            logger.debug(f"配置已保存: {self.config_path}")
 
             # 保存后解密敏感字段，以便内存中保持明文
             self._decrypt_sensitive_fields()
@@ -812,6 +952,15 @@ class ConfigLoader:
             logger.error(f"保存配置文件失败: {str(e)}")
             # 保存失败时也尝试解密，避免配置被锁在加密状态
             self._decrypt_sensitive_fields()
+
+            # 尝试恢复备份
+            try:
+                if backup_path and backup_path.exists() and temp_path.exists():
+                    os.replace(backup_path, self.config_path)
+                    logger.info("已从备份恢复配置文件")
+            except Exception as restore_error:
+                logger.error(f"恢复配置备份失败: {restore_error}")
+
             return False
 
     def get_path(self, section: str, key: str, default: str = '') -> Path:

@@ -2,6 +2,8 @@
 依赖注入函数 - 线程安全的组件访问
 """
 
+import os
+import urllib.parse
 from pathlib import Path
 from fastapi import Depends
 from backend.utils.config_loader import ConfigLoader
@@ -120,28 +122,74 @@ def is_path_allowed(path: str, config_loader: ConfigLoader) -> bool:
     1. 使用 Path.resolve() 解析符号链接和相对路径
     2. 使用 Path.relative_to() 确保路径在允许目录内
     3. 检查非法字符和路径遍历模式
+    4. 检查空字节注入攻击
+    5. 检查 URL 编码的路径遍历
+    6. 检查符号链接
     """
     if not path or not isinstance(path, str):
+        return False
+
+    # 检查空字节注入攻击
+    if '\x00' in path:
+        logger.warning(f"路径包含空字节: {path[:50]}...")
+        return False
+
+    # URL 解码检查 - 防止编码的路径遍历攻击
+    try:
+        decoded_path = urllib.parse.unquote(path)
+        double_decoded = urllib.parse.unquote(decoded_path)
+        # 检查解码后的路径是否包含遍历模式
+        for decoded in [decoded_path, double_decoded]:
+            if ".." in decoded or "//" in decoded or "/./" in decoded:
+                logger.warning(f"路径包含编码的遍历模式: {path[:50]}...")
+                return False
+    except Exception as e:
+        logger.warning(f"URL 解码失败: {path[:50]}... - {e}")
         return False
 
     # 标准化路径 - 去除引号
     path = path.strip('"').strip("'")
 
-    # 检查明显的路径遍历模式
+    # 检查明显的路径遍历模式（在解码后再次检查）
     if ".." in path or path.startswith("//"):
-        logger.warning(f"路径包含遍历模式: {path}")
+        logger.warning(f"路径包含遍历模式: {path[:50]}...")
+        return False
+
+    # 检查绝对路径下的路径遍历模式（如 C:\Windows\..\secret.txt）
+    normalized_check = os.path.normpath(path)
+    if ".." in normalized_check:
+        logger.warning(f"路径包含规范化后的遍历模式: {path[:50]}...")
         return False
 
     try:
         # 使用 resolve() 解析符号链接和相对路径，获取真实绝对路径
-        file_path = Path(path).resolve()
+        # resolve() 会跟随符号链接，所以我们可以直接检查是否为符号链接
+        original_path = Path(path)
 
-        # 确保路径存在且是文件或目录
-        if not file_path.exists():
-            logger.warning(f"路径不存在，拒绝访问: {file_path}")
-            return False
+        # 检查是否为符号链接（在 resolve 之前检查）
+        try:
+            if original_path.is_symlink():
+                logger.warning(f"路径是符号链接，拒绝访问: {path[:50]}...")
+                return False
+        except (OSError, ValueError):
+            # 如果无法检查符号链接状态，继续处理
+            pass
+
+        file_path = original_path.resolve()
+
+        # 再次检查 resolve 后的路径是否为符号链接
+        # 这可以捕获指向符号链接的快捷方式
+        try:
+            if file_path.is_symlink():
+                logger.warning(f"解析后的路径是符号链接，拒绝访问: {file_path}")
+                return False
+        except (OSError, ValueError):
+            pass
+
+        # 注意：不在这里检查 exists() 以避免 TOCTOU 竞态条件
+        # 让后续的文件操作自己处理不存在的情况
     except (OSError, ValueError) as e:
-        logger.warning(f"路径解析失败: {path} - {e}")
+        logger.warning(f"路径解析失败: {path[:50]}... - {e}")
         return False
 
     # 获取允许的扫描路径
@@ -184,5 +232,7 @@ def is_path_allowed(path: str, config_loader: ConfigLoader) -> bool:
             # 路径不在此允许目录内，继续检查下一个
             continue
 
-    logger.warning(f"路径不在允许范围内: {file_path}")
+    # 安全日志：不泄露完整路径
+    safe_path_name = file_path.name if len(file_path.parts) > 0 else "unknown"
+    logger.warning(f"路径不在允许范围内: ...{safe_path_name}")
     return False

@@ -1367,6 +1367,56 @@ class IndexManager:
             self.logger.error(f"索引完整性验证失败: {str(e)}")
             return False
 
+    def warm_up(self, limit: int = 1000) -> Dict[str, Any]:
+        """
+        预热索引 - 将热数据加载到内存
+
+        Args:
+            limit: 预热的文档数量限制
+
+        Returns:
+            预热统计信息
+        """
+        try:
+            stats = {
+                'tantivy_warmed': 0,
+                'vector_warmed': 0,
+                'duration_ms': 0
+            }
+
+            start_time = time.time()
+
+            # 预热 Tantivy 索引
+            try:
+                searcher = self.tantivy_index.searcher()
+                # 执行一个简单查询来加载索引数据
+                from tantivy import Query
+                query = self.tantivy_index.parse_query("*", ["content"])
+                _ = searcher.search(query, limit)
+                stats['tantivy_warmed'] = limit
+                self.logger.info(f"Tantivy索引预热完成，加载 {limit} 个文档")
+            except Exception as e:
+                self.logger.warning(f"Tantivy索引预热失败: {e}")
+
+            # 预热向量索引
+            try:
+                if self.hnsw is not None:
+                    # HNSW 在第一次查询时会加载，这里我们执行一个虚拟查询
+                    dummy_vector = np.zeros(self.embedding_dim, dtype=np.float32)
+                    labels, distances = self.hnsw.knn_query(dummy_vector, k=1)
+                    stats['vector_warmed'] = 1
+                    self.logger.info("向量索引预热完成")
+            except Exception as e:
+                self.logger.warning(f"向量索引预热失败: {e}")
+
+            stats['duration_ms'] = int((time.time() - start_time) * 1000)
+            self.logger.info(f"索引预热完成，耗时 {stats['duration_ms']}ms")
+
+            return stats
+        except Exception as e:
+            self.logger.error(f"索引预热失败: {e}")
+            return {'error': str(e)}
+
     def close(self):
         """关闭索引管理器，释放资源"""
         try:

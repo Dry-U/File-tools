@@ -75,15 +75,34 @@ async def health_check(
                 "error": str(e)
             }
 
-        # 检查RAG管道
+        # 检查RAG管道（支持优雅降级状态）
         try:
-            rag = getattr(app.state, 'rag_pipeline', None)
-            if rag:
-                components['rag_pipeline'] = {"status": "ready"}
+            rag_status = getattr(app.state, 'rag_status', 'unknown')
+            rag_error = getattr(app.state, 'rag_error', None)
+
+            if rag_status == "ready":
+                components['rag_pipeline'] = {
+                    "status": "ready",
+                    "enabled": True
+                }
+            elif rag_status == "error":
+                components['rag_pipeline'] = {
+                    "status": "error",
+                    "enabled": True,
+                    "error": rag_error or "未知错误",
+                    "message": "AI功能暂时不可用，其他功能正常"
+                }
             elif getattr(app.state, 'rag_initializing', False):
-                components['rag_pipeline'] = {"status": "initializing"}
+                components['rag_pipeline'] = {
+                    "status": "initializing",
+                    "enabled": True
+                }
             else:
-                components['rag_pipeline'] = {"status": "disabled"}
+                enabled = config_loader.getboolean('ai_model', 'enabled', False)
+                components['rag_pipeline'] = {
+                    "status": "disabled",
+                    "enabled": enabled
+                }
         except Exception as e:
             components['rag_pipeline'] = {
                 "status": "error",

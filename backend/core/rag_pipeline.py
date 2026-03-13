@@ -96,6 +96,7 @@ class RAGPipeline:
 
         # Use SQLite for chat history persistence
         self.chat_db = ChatHistoryDB()
+        self._warned_no_sklearn = False
 
         # 会话清理配置
         self._max_session_age_days = int(rag_config.get('max_session_age_days', 30))
@@ -461,7 +462,10 @@ class RAGPipeline:
                     max_allowed_chars = self.vram_manager.adjust_context_size(self.max_context_chars)
                     if len(processed_content) > max_allowed_chars:
                         if any(keyword in query.lower() for keyword in ['摘要', '概述', '总结', '概要', '总结', 'abstract', 'summary', 'overview']):
-                            processed_content = self._generate_document_summary(processed_content, max_chars=max_allowed_chars)
+                            processed_content = self._generate_document_summary(
+                                processed_content,
+                                max_summary_chars=max_allowed_chars
+                            )
                         else:
                             processed_content = self._extract_relevant_fragments(processed_content, query, max_allowed_chars)
 
@@ -619,7 +623,9 @@ class RAGPipeline:
                         # 转换为百分制
                         return float(similarity * 100.0)
                     else:
-                        logger.warning("sklearn not available, falling back to Jaccard similarity")
+                        if not self._warned_no_sklearn:
+                            logger.warning("sklearn not available, falling back to Jaccard similarity")
+                            self._warned_no_sklearn = True
 
         except Exception as e:
             # 如果嵌入模型不可用，则回退到Jaccard相似度计算
@@ -1081,13 +1087,23 @@ class RAGPipeline:
                         return {'chunks': result_chunks, 'completed': False, 'error': e}
 
                 # 使用 ThreadPoolExecutor 执行生成任务
-                with ThreadPoolExecutor(max_workers=1) as executor:
-                    future = executor.submit(generate_content)
+                executor = ThreadPoolExecutor(max_workers=1)
+                future = executor.submit(generate_content)
+                try:
+                    result = future.result(timeout=float(timeout))
+                except FutureTimeoutError:
+                    result = {'chunks': [], 'completed': False, 'error': 'timeout'}
+                    logger.warning(f"生成超时({timeout}s): {query[:50]}...")
                     try:
-                        result = future.result(timeout=float(timeout))
-                    except FutureTimeoutError:
-                        result = {'chunks': [], 'completed': False, 'error': 'timeout'}
-                        logger.warning(f"生成超时({timeout}s): {query[:50]}...")
+                        future.cancel()
+                    except Exception:
+                        pass
+                finally:
+                    # 关键：不要 wait=True，否则会把超时“卡回去”
+                    try:
+                        executor.shutdown(wait=False, cancel_futures=True)
+                    except TypeError:
+                        executor.shutdown(wait=False)
 
                 if not result['completed']:
                     partial_answer = ''.join(result['chunks']).strip()

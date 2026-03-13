@@ -21,25 +21,17 @@ ai_model:
       chunk_size: 2000
       max_docs: 10
       min_doc_score: 0.4
-  api.api_key: ''
-  api.api_url: https://api.siliconflow.cn/v1/chat/completions
-  api.model_name: deepseek-ai/DeepSeek-V2.5
-  api.provider: siliconflow
   enabled: true
   local:
     api_url: http://localhost:8000/v1/chat/completions
     max_context: 4096
     max_tokens: 512
     model_name: local
-  local.api_url: http://localhost:8000/v1/chat/completions
   mode: api
   penalties:
     frequency_penalty: 0
     presence_penalty: 0
     repeat_penalty: 1.1
-  penalties.frequency_penalty: 0
-  penalties.presence_penalty: 0
-  penalties.repeat_penalty: 1.1
   sampling:
     max_tokens: 2048
     min_p: 0.05
@@ -47,19 +39,10 @@ ai_model:
     temperature: 0.7
     top_k: 40
     top_p: 0.9
-  sampling.max_tokens: 2048
-  sampling.min_p: 0.05
-  sampling.seed: -1
-  sampling.temperature: 0.7
-  sampling.top_k: 40
-  sampling.top_p: 0.75
   security:
     retry_count: 2
     timeout: 120
     verify_ssl: true
-  security.retry_count: 2
-  security.timeout: 120
-  security.verify_ssl: true
   system_prompt: '你是一名专业的中文文档助理。请根据下方的【文档集合】回答用户的【问题】。
 
     规则：
@@ -158,9 +141,6 @@ rag:
   max_history_chars: 1000
   max_history_turns: 3
   max_output_tokens: 2048
-  max_tokens: 2048
-  min_p: 0.05
-  presence_penalty: 0
   prompt_template: '你是一名专业的中文文档分析助理。请基于【文档集合】中的内容，对用户的【问题】提供一个连贯、流畅、总结性的回答。
 
 
@@ -196,7 +176,6 @@ rag:
     请提供一个连贯、总结性的回答：
 
     '
-  repeat_penalty: 1.1
   repetition_penalty: 1.1
   reset_commands:
   - 重置
@@ -204,10 +183,6 @@ rag:
   - reset
   - restart
   reset_response: 已清空上下文，可以重新开始提问。
-  seed: -1
-  temperature: 0.7
-  top_k: 40
-  top_p: 0.9
 search:
   bm25_b: 0.75
   bm25_k1: 1.5
@@ -218,6 +193,11 @@ search:
   keyword_boost: 1.2
   max_results: 50
   min_score: 0.3
+  rerank_base_weight: 0.3
+  rerank_filename_weight: 0.4
+  rerank_keyword_weight: 0.15
+  rerank_length_weight: 0.05
+  rerank_recency_weight: 0.1
   result_boost: true
   semantic_score_high_threshold: 60.0
   semantic_score_low_threshold: 30.0
@@ -233,6 +213,7 @@ security:
     rebuild_window: 600
     search_limit: 20
     search_window: 60
+  trust_proxy: false  # 设置为 true 时才信任 X-Forwarded-For 等代理头
 system:
   app_name: 智能文件检索与问答系统
   cache_dir: ./data/cache

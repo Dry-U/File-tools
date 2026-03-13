@@ -120,11 +120,45 @@ app = FastAPI(
 )
 
 
+# 安全响应头中间件
+@app.middleware("http")
+async def add_security_headers(request, call_next):
+    """添加安全响应头"""
+    response = await call_next(request)
+
+    # 防止 MIME 类型嗅探
+    response.headers["X-Content-Type-Options"] = "nosniff"
+
+    # 防止点击劫持
+    response.headers["X-Frame-Options"] = "DENY"
+
+    # 内容安全策略
+    response.headers["Content-Security-Policy"] = (
+        "default-src 'self'; "
+        "script-src 'self' https://cdn.jsdelivr.net; "
+        "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; "
+        "font-src 'self' https://cdn.jsdelivr.net; "
+        "img-src 'self' data:; "
+        "connect-src 'self'"
+    )
+
+    # XSS 保护（对旧版浏览器）
+    response.headers["X-XSS-Protection"] = "1; mode=block"
+
+    # Referrer 策略
+    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+
+    return response
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """应用启动时初始化核心组件（优化启动速度）"""
     import asyncio
     from concurrent.futures import ThreadPoolExecutor
+
+    # 存储主事件循环，供后台线程回调使用
+    app.state.main_loop = asyncio.get_event_loop()
 
     try:
         start_time = time.time()
@@ -164,9 +198,24 @@ async def lifespan(app: FastAPI):
             return app.state.file_scanner
 
         # 第1阶段：并行初始化核心索引组件（这些组件相互依赖）
-        index_manager = init_index_manager()
-        init_search_engine()
-        file_scanner = init_file_scanner()
+        # 使用 try-except 包装每个初始化，实现优雅降级
+        try:
+            index_manager = init_index_manager()
+        except Exception as e:
+            logger.error(f"索引管理器初始化失败: {e}")
+            raise  # 索引是核心组件，失败时不能继续
+
+        try:
+            init_search_engine()
+        except Exception as e:
+            logger.error(f"搜索引擎初始化失败: {e}")
+            raise  # 搜索是核心功能，失败时不能继续
+
+        try:
+            file_scanner = init_file_scanner()
+        except Exception as e:
+            logger.error(f"文件扫描器初始化失败: {e}")
+            raise  # 文件扫描是核心功能，失败时不能继续
 
         # 初始化文件监控器
         if not hasattr(app.state, 'file_monitor'):
@@ -181,9 +230,10 @@ async def lifespan(app: FastAPI):
         # 这样应用可以更快启动，RAG功能在需要时才完全就绪
         app.state.rag_pipeline = None
         app.state.rag_initializing = False
+        app.state.rag_ready_event = asyncio.Event()
 
         def init_rag_pipeline():
-            """后台初始化RAG管道"""
+            """后台初始化RAG管道（支持优雅降级）"""
             try:
                 app.state.rag_initializing = True
                 from backend.core.model_manager import ModelManager
@@ -191,11 +241,24 @@ async def lifespan(app: FastAPI):
                 model_manager = ModelManager(config_loader)
                 app.state.rag_pipeline = RAGPipeline(
                     model_manager, config_loader, app.state.search_engine)
+                app.state.rag_status = "ready"
+                app.state.rag_error = None
                 logger.info("RAG管道后台初始化完成")
+                # 通知等待的协程RAG已就绪
+                asyncio.run_coroutine_threadsafe(
+                    _set_rag_ready(), app.state.main_loop
+                )
             except Exception as e:
                 logger.error(f"RAG管道初始化失败: {e}")
+                app.state.rag_pipeline = None
+                app.state.rag_status = "error"
+                app.state.rag_error = str(e)
             finally:
                 app.state.rag_initializing = False
+
+        async def _set_rag_ready():
+            """设置RAG就绪事件"""
+            app.state.rag_ready_event.set()
 
         # 如果AI功能启用，在后台线程初始化RAG
         if config_loader.getboolean('ai_model', 'enabled', False):

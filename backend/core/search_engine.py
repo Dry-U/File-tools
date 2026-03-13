@@ -4,17 +4,51 @@
 import os
 import re
 import time
+import json
+import hashlib
+import fnmatch
 import logging
+import traceback
 from datetime import datetime
-from typing import List, Dict, Any
+from collections import OrderedDict
+from typing import List, Dict, Any, Optional
 import numpy as np
+from threading import RLock
+
+from backend.core.constants import (
+    DEFAULT_MAX_RESULTS,
+    DEFAULT_TEXT_WEIGHT,
+    DEFAULT_VECTOR_WEIGHT,
+    DEFAULT_CACHE_TTL,
+    DEFAULT_CACHE_SIZE,
+    DEFAULT_RERANK_BASE_WEIGHT,
+    DEFAULT_RERANK_FILENAME_WEIGHT,
+    DEFAULT_RERANK_KEYWORD_WEIGHT,
+    DEFAULT_RERANK_RECENCY_WEIGHT,
+    DEFAULT_RERANK_LENGTH_WEIGHT,
+    FILENAME_VARIANT_KEYWORDS,
+    KEYWORD_SCORE_MAX,
+    LENGTH_PENALTY_THRESHOLD_HIGH,
+    LENGTH_PENALTY_THRESHOLD_LOW,
+)
+from backend.core.sharded_cache import ShardedCache
 
 class SearchEngine:
     """搜索引擎类，负责执行文件搜索和结果排序"""
-    def __init__(self, index_manager, config_loader):
-        self.index_manager = index_manager
-        self.config_loader = config_loader
-        self.logger = logging.getLogger(__name__)
+    def __init__(
+        self,
+        index_manager: Any,
+        config_loader: Any
+    ) -> None:
+        self.index_manager: Any = index_manager
+        self.config_loader: Any = config_loader
+        self.logger: logging.Logger = logging.getLogger(__name__)
+
+        # 搜索配置 - 使用ConfigLoader获取配置
+        search_config: Dict[str, Any] = config_loader.get('search') or {}
+        self.text_weight: float = float(search_config.get('text_weight', 0.6))
+        self.vector_weight: float = float(search_config.get('vector_weight', 0.4))
+        self.max_results: int = int(search_config.get('max_results', 50))
 
         # 搜索配置 - 使用ConfigLoader获取配置
         search_config = config_loader.get('search')
@@ -35,10 +69,19 @@ class SearchEngine:
         self.semantic_score_high_threshold = float(search_config.get('semantic_score_high_threshold', 60.0))
         self.semantic_score_low_threshold = float(search_config.get('semantic_score_low_threshold', 30.0))
 
+        # 重排权重配置（从配置读取，使用常量作为默认值）
+        self.rerank_weights = {
+            'base': config_loader.getfloat('search', 'rerank_base_weight', DEFAULT_RERANK_BASE_WEIGHT),
+            'filename': config_loader.getfloat('search', 'rerank_filename_weight', DEFAULT_RERANK_FILENAME_WEIGHT),
+            'keyword': config_loader.getfloat('search', 'rerank_keyword_weight', DEFAULT_RERANK_KEYWORD_WEIGHT),
+            'recency': config_loader.getfloat('search', 'rerank_recency_weight', DEFAULT_RERANK_RECENCY_WEIGHT),
+            'length': config_loader.getfloat('search', 'rerank_length_weight', DEFAULT_RERANK_LENGTH_WEIGHT),
+        }
+
         # 缓存配置
         self.enable_cache = bool(search_config.get('enable_cache', True))
-        self.cache_ttl = int(search_config.get('cache_ttl', 3600))  # 默认1小时
-        self.cache_size = int(search_config.get('cache_size', 1000))  # 默认缓存1000个查询
+        self.cache_ttl = int(search_config.get('cache_ttl', DEFAULT_CACHE_TTL))
+        self.cache_size = int(search_config.get('cache_size', DEFAULT_CACHE_SIZE))
 
         # 确保权重之和为1，但如果其中一个为0，则另一个为1
         if self.text_weight == 0 and self.vector_weight == 0:
@@ -57,30 +100,20 @@ class SearchEngine:
             self.text_weight /= total_weight
             self.vector_weight /= total_weight
 
-        # 初始化缓存
+        # 初始化缓存（使用分片缓存提高并发性能）
         if self.enable_cache:
-            from collections import OrderedDict
-            import time
-            import threading
-            self.cache = OrderedDict()
-            self.cache_timestamps = {}
-            self._cache_lock = threading.RLock()  # 线程安全的缓存锁
-            self.logger.info(f"搜索引擎初始化完成，文本权重: {self.text_weight}, 向量权重: {self.vector_weight}, 缓存已启用")
+            self.cache = ShardedCache(max_size=self.cache_size)
+            self.cache.set_ttl(self.cache_ttl)
+            self.logger.info(f"搜索引擎初始化完成，文本权重: {self.text_weight}, 向量权重: {self.vector_weight}, 分片缓存已启用")
         else:
             self.cache = None
-            self.cache_timestamps = None
-            self._cache_lock = None
             self.logger.info(f"搜索引擎初始化完成，文本权重: {self.text_weight}, 向量权重: {self.vector_weight}, 缓存已禁用")
 
-    def _get_cache_key(self, query, filters=None):
+    def _get_cache_key(self, query, filters=None) -> str:
         """生成缓存键"""
         if filters is None:
             filters = {}
-        # 使用 json.dumps 确保缓存键稳定（处理嵌套字典等复杂对象）
-        import json
-        import hashlib
         try:
-            # 对 filters 进行标准化处理，确保相同的过滤器产生相同的键
             normalized_filters = {}
             for k, v in sorted(filters.items()):
                 if isinstance(v, (list, tuple)):
@@ -91,55 +124,23 @@ class SearchEngine:
                     normalized_filters[k] = str(v)
             cache_str = f"{query}:{json.dumps(normalized_filters, sort_keys=True, ensure_ascii=True)}"
         except (TypeError, ValueError):
-            # 如果标准化失败，使用简单的字符串表示
             cache_str = f"{query}:{str(sorted(filters.items()))}"
         return hashlib.md5(cache_str.encode()).hexdigest()
 
-    def _is_cache_valid(self, key):
-        """检查缓存是否有效"""
-        if not self.enable_cache or key not in self.cache_timestamps:
-            return False
-        # 检查是否过期
-        if time.time() - self.cache_timestamps[key] > self.cache_ttl:
-            # 删除过期缓存（使用锁确保线程安全）
-            with self._cache_lock:
-                if key in self.cache:
-                    del self.cache[key]
-                if key in self.cache_timestamps:
-                    del self.cache_timestamps[key]
-            return False
-        return True
 
-    def _get_from_cache(self, key):
+    def _get_from_cache(self, key: str) -> Optional[Any]:
         """从缓存获取结果"""
-        if not self.enable_cache:
+        if not self.enable_cache or self.cache is None:
             return None
-        if self._is_cache_valid(key):
-            # 将访问的项移到末尾（LRU）- 使用锁确保线程安全
-            with self._cache_lock:
-                result = self.cache.pop(key)
-                self.cache[key] = result
-            return result
-        return None
+        return self.cache.get(key)
 
-    def _put_in_cache(self, key, result):
+    def _put_in_cache(self, key: str, result: Any) -> None:
         """将结果放入缓存"""
-        if not self.enable_cache:
+        if not self.enable_cache or self.cache is None:
             return
-        with self._cache_lock:
-            # 检查缓存大小，如果超过限制则删除最久未使用的项
-            if len(self.cache) >= self.cache_size:
-                # 删除第一个项（最久未使用的）
-                oldest_key = next(iter(self.cache))
-                del self.cache[oldest_key]
-                if oldest_key in self.cache_timestamps:
-                    del self.cache_timestamps[oldest_key]
-
-            # 添加新项
-            self.cache[key] = result
-            self.cache_timestamps[key] = time.time()
+        self.cache.put(key, result)
     
-    def search(self, query, filters=None):
+    def search(self, query: str, filters: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
         """执行搜索，整合文本搜索和向量搜索结果"""
         start_time = time.time()
         self.logger.info(f"执行搜索: {query}, 过滤器: {filters}")
@@ -290,7 +291,6 @@ class SearchEngine:
             return results
         except Exception as e:
             self.logger.error(f"文本搜索失败: {str(e)}")
-            import traceback
             self.logger.error(f"详细错误信息: {traceback.format_exc()}")
             return []
 
@@ -308,157 +308,189 @@ class SearchEngine:
             return results
         except Exception as e:
             self.logger.error(f"向量搜索失败: {str(e)}")
-            import traceback
             self.logger.error(f"详细错误信息: {traceback.format_exc()}")
             return []
 
-    def _combine_results(self, text_results, vector_results):
-        """合并文本搜索和向量搜索结果 - 优化版本，改进相似度计算和去重算法"""
-        # 使用字典来跟踪每个文件路径的最佳结果
+    def _merge_text_results(self, text_results: List[Dict]) -> tuple[Dict, float]:
+        """
+        合并文本搜索结果，去重并记录最大分数
+
+        Returns:
+            tuple: (合并后的结果字典, 最大文本分数)
+        """
         combined = {}
         max_text_score = 0.0
 
-        # 添加文本搜索结果
         for result in text_results:
             path = result['path']
             if path not in combined:
                 combined[path] = result.copy()
-                # 确保文本搜索结果有search_type字段
                 if 'search_type' not in combined[path]:
                     combined[path]['search_type'] = 'text'
-                # 记录原始分数
                 combined[path]['text_score'] = result['score']
                 combined[path]['vector_score'] = 0.0
                 if result['score'] > max_text_score:
                     max_text_score = result['score']
             else:
-                # 如果路径已存在，检查是否需要更新
-                # 用分数更高的结果替换
+                # 保留更高分的结果
                 if result['score'] > combined[path]['score']:
-                    # 保留之前的向量分数（如果有的话）
                     prev_vector_score = combined[path]['vector_score']
                     combined[path] = result.copy()
                     combined[path]['search_type'] = result['search_type']
                     combined[path]['text_score'] = result['score']
-                    combined[path]['vector_score'] = prev_vector_score  # 保持之前的向量分数
+                    combined[path]['vector_score'] = prev_vector_score
                 else:
-                    # 仅更新文本分数
                     combined[path]['text_score'] = max(combined[path]['text_score'], result['score'])
+
                 if result['score'] > max_text_score:
                     max_text_score = result['score']
 
-        # 添加向量搜索结果，并根据权重调整分数
+        return combined, max_text_score
+
+    def _merge_vector_results(self, vector_results: List[Dict], combined: Dict, max_text_score: float) -> Dict:
+        """
+        合并向量搜索结果，计算混合分数
+
+        Args:
+            vector_results: 向量搜索结果列表
+            combined: 已合并的文本结果字典
+            max_text_score: 最大文本分数，用于归一化
+
+        Returns:
+            更新后的合并结果字典
+        """
         for result in vector_results:
             path = result['path']
             if path in combined:
-                # 如果文件路径已经存在，记录向量分数
+                # 已存在，计算混合分数
                 prev_text_score = combined[path]['text_score']
                 combined[path]['vector_score'] = result['score']
 
-                # 更精确的混合分数计算 - 使用归一化分数的加权平均
-                # 文本分数归一化：相对于最大文本分数
-                text_norm = 0.0
-                if max_text_score > 0:
-                    text_norm = min(prev_text_score / max_text_score, 1.0)
-                
-                # 向量分数通常已经是0-100或0-1，这里假设是0-100
+                # 归一化并计算加权分数
+                text_norm = min(prev_text_score / max_text_score, 1.0) if max_text_score > 0 else 0.0
                 vector_norm = min(result['score'], 100.0) / 100.0
 
-                # 使用加权平均
                 combined_score = (text_norm * self.text_weight + vector_norm * self.vector_weight) * 100.0
-
-                # 确保分数不超过100
-                combined_score = min(combined_score, 100.0)
-                combined[path]['score'] = combined_score
+                combined[path]['score'] = min(combined_score, 100.0)
                 combined[path]['search_type'] = 'hybrid'
             else:
-                # 如果是新文件路径，直接添加
+                # 新路径，直接添加
                 combined[path] = result.copy()
                 combined[path]['text_score'] = 0.0
                 combined[path]['vector_score'] = result['score']
-                # 确保向量搜索结果有search_type字段
                 if 'search_type' not in combined[path]:
                     combined[path]['search_type'] = 'vector'
 
-        # 重新计算所有结果的最终分数，确保文本搜索结果也能得到正确归一化
-        # 特别是那些只在文本搜索中出现的结果
+        return combined
+
+    def _calculate_normalized_scores(self, combined: Dict, max_text_score: float) -> None:
+        """
+        为纯文本和纯向量结果计算归一化分数
+
+        Args:
+            combined: 合并结果字典（就地修改）
+            max_text_score: 最大文本分数
+        """
         if max_text_score <= 0:
             max_text_score = 1.0
 
-        for path, result in combined.items():
-            # 如果已经计算过混合分数，跳过
+        for result in combined.values():
             if result.get('search_type') == 'hybrid':
                 continue
-            
-            # 处理纯文本结果
+
             if result.get('search_type') == 'text':
                 ts = float(result.get('text_score', 0.0))
-                # 归一化文本分数 (0.0 - 1.0)
-                norm_score = (ts / max_text_score)
-                # 应用文本权重，确保与混合搜索的分数尺度一致
-                # 这样混合搜索结果（通常有文本+向量贡献）会自然高于纯文本结果
+                norm_score = ts / max_text_score
                 result['score'] = (norm_score * self.text_weight) * 100.0
-            
-            # 处理纯向量结果
             elif result.get('search_type') == 'vector':
-                # 向量结果分数通常是 0-100
                 vs = float(result.get('vector_score', 0.0))
                 vector_norm = vs / 100.0
-                # 应用向量权重
                 result['score'] = (vector_norm * self.vector_weight) * 100.0
 
-        # 应用额外的质量评估标准
-        for path, result in combined.items():
-            original_score = result['score']
+    def _apply_snippet_boost(self, result: Dict) -> None:
+        """
+        应用关键词命中增强（摘要高亮加分）
+        """
+        snippet = result.get('snippet', '')
+        if 'text-danger' not in snippet:
+            return
 
-            # 关键词命中增强 (Snippet Boost)
-            # 如果摘要中包含高亮关键词，给予显著加分
-            snippet = result.get('snippet', '')
-            if 'text-danger' in snippet:
-                # 这是一个强信号，说明内容中确实包含关键词
-                # 给予 20 分的基础加分
-                result['score'] = min(result['score'] + 20.0, 100.0)
-                
-                # 如果是纯文本匹配且有高亮，确保分数至少及格
-                # 考虑到权重可能导致分数较低（如 0.6 * 100 = 60），这里给予一个合理的保底
-                if result.get('search_type') == 'text':
-                    result['score'] = max(result['score'], 60.0)
+        # 高亮关键词加分
+        result['score'] = min(result['score'] + 20.0, 100.0)
 
-            # 混合结果增强（如果启用）
-            if self.result_boost and result['search_type'] == 'hybrid':
-                result['score'] *= self.hybrid_boost
+        # 纯文本匹配保底分数
+        if result.get('search_type') == 'text':
+            result['score'] = max(result['score'], 60.0)
 
-            # 文件名匹配增强
-            query_words = self._get_query_words()
-            if query_words:
-                filename = os.path.basename(path).lower()
-                query_match_count = 0
-                
-                # 检查完整查询是否在文件名中 (最高优先级)
-                if self.current_query and self.current_query.lower() in filename:
-                    # 如果完整查询字符串直接出现在文件名中，给予巨大加分
-                    # 这确保了精确文件名匹配几乎总是排在最前面
-                    result['score'] = max(result['score'], 95.0)
-                else:
-                    # 单词匹配
-                    for word in query_words:
-                        word_lower = word.lower()
-                        if word_lower in filename:
-                            query_match_count += 1
+    def _apply_hybrid_boost(self, result: Dict) -> None:
+        """
+        应用混合结果增强
+        """
+        if self.result_boost and result.get('search_type') == 'hybrid':
+            result['score'] *= self.hybrid_boost
 
-                    if query_match_count > 0:
-                        # 基于匹配词数给予加分
-                        # 增加加分权重，从5.0增加到15.0
-                        filename_bonus = query_match_count * 15.0
-                        result['score'] = min(result['score'] + filename_bonus, 100.0)
+    def _apply_filename_boost(self, result: Dict) -> None:
+        """
+        应用文件名匹配增强
+        """
+        query_words = self._get_query_words()
+        if not query_words:
+            return
+
+        filename = os.path.basename(result.get('path', '')).lower()
+        query_match_count = 0
+
+        # 完整查询匹配（最高优先级）
+        if self.current_query and self.current_query.lower() in filename:
+            result['score'] = max(result['score'], 95.0)
+            return
+
+        # 单词匹配
+        for word in query_words:
+            if word.lower() in filename:
+                query_match_count += 1
+
+        if query_match_count > 0:
+            filename_bonus = query_match_count * 15.0
+            result['score'] = min(result['score'] + filename_bonus, 100.0)
+
+    def _apply_boosts(self, combined: Dict) -> None:
+        """
+        应用所有boost因子
+        """
+        for result in combined.values():
+            self._apply_snippet_boost(result)
+            self._apply_hybrid_boost(result)
+            self._apply_filename_boost(result)
 
             # 确保分数在合理范围内
             result['score'] = min(max(result['score'], 0.0), 100.0)
 
-        # 转换为列表并按分数降序排序
-        sorted_results = sorted(combined.values(), key=lambda x: x['score'], reverse=True)
+    def _combine_results(self, text_results: List[Dict], vector_results: List[Dict]) -> List[Dict]:
+        """
+        合并文本搜索和向量搜索结果
 
-        return sorted_results
+        处理流程：
+        1. 合并文本结果去重
+        2. 合并向量结果，计算混合分数
+        3. 计算归一化分数
+        4. 应用各种boost因子
+        5. 排序返回
+        """
+        # 步骤1: 合并文本结果
+        combined, max_text_score = self._merge_text_results(text_results)
+
+        # 步骤2: 合并向量结果
+        combined = self._merge_vector_results(vector_results, combined, max_text_score)
+
+        # 步骤3: 计算归一化分数
+        self._calculate_normalized_scores(combined, max_text_score)
+
+        # 步骤4: 应用boost因子
+        self._apply_boosts(combined)
+
+        # 步骤5: 排序并返回
+        return sorted(combined.values(), key=lambda x: x['score'], reverse=True)
     
     def _apply_filters(self, results, filters):
         """应用过滤器"""
@@ -561,9 +593,7 @@ class SearchEngine:
     
     def _match_path_pattern(self, path, pattern):
         """简单的路径模式匹配"""
-        # 这是一个简化的实现，实际应用中可能需要使用更复杂的模式匹配库
-        # 例如，可以使用fnmatch模块或正则表达式
-        import fnmatch
+        # 使用 fnmatch 模块进行模式匹配
         return fnmatch.fnmatch(path.lower(), pattern.lower())
     
     def get_suggestions(self, query, limit=5):
@@ -616,9 +646,7 @@ class SearchEngine:
     def _get_query_words(self):
         """从当前的搜索查询中提取查询词"""
         if hasattr(self, 'current_query') and self.current_query:
-            # 简单的分词处理
-            import re
-            # 按空格和常见分隔符分割
+            # 简单的分词处理，按空格和常见分隔符分割
             words = re.findall(r'\w+', self.current_query)
             return words
         return []
@@ -627,12 +655,12 @@ class SearchEngine:
         """
         对搜索结果进行重排序
 
-        评分因素：
-        1. 基础搜索得分 (30%)
-        2. 文件名匹配度 (40%) - 大幅提高文件名权重
-        3. 关键词密度 (15%)
-        4. 时效性 - 文档新旧 (10%)
-        5. 文档长度惩罚（避免过长文档）(5%)
+        评分因素（可配置）：
+        1. 基础搜索得分 (rerank_weights['base'])
+        2. 文件名匹配度 (rerank_weights['filename'])
+        3. 关键词密度 (rerank_weights['keyword'])
+        4. 时效性 - 文档新旧 (rerank_weights['recency'])
+        5. 文档长度惩罚（避免过长文档）(rerank_weights['length'])
         """
         if not results:
             return results
@@ -640,14 +668,17 @@ class SearchEngine:
         query_lower = query.lower()
         query_words = set(re.findall(r'\w+', query_lower))
 
+        # 获取权重配置
+        w = self.rerank_weights
+
         for result in results:
             original_score = result.get('score', 0)
             new_score = 0.0
 
-            # 1. 基础搜索得分 (30%)
-            new_score += original_score * 0.3
+            # 1. 基础搜索得分
+            new_score += original_score * w['base']
 
-            # 2. 文件名匹配度 (40%) - 大幅提高权重
+            # 2. 文件名匹配度
             filename = os.path.basename(result.get('path', '')).lower()
             filename_score = 0.0
 
@@ -660,24 +691,24 @@ class SearchEngine:
                 if matched_words > 0:
                     filename_score = (matched_words / max(len(query_words), 1)) * 80.0
 
-                # 文件名变体匹配（如"rcp说明"匹配"rcp"）
-                for variant in ['说明', '文档', '指南', '手册', '介绍', '简介']:
+                # 文件名变体匹配（使用常量）
+                for variant in FILENAME_VARIANT_KEYWORDS:
                     if query_lower + variant in filename or variant + query_lower in filename:
                         filename_score = max(filename_score, 90.0)
                         break
 
-            new_score += filename_score * 0.4
+            new_score += filename_score * w['filename']
 
-            # 3. 关键词密度 (15%)
+            # 3. 关键词密度
             content = (result.get('content', '') or result.get('snippet', '')).lower()
             keyword_count = content.count(query_lower)
             for word in query_words:
                 keyword_count += content.count(word)
 
-            keyword_score = min(keyword_count * 2, 30)  # 上限30分
-            new_score += keyword_score * 0.15
+            keyword_score = min(keyword_count * 2, KEYWORD_SCORE_MAX)
+            new_score += keyword_score * w['keyword']
 
-            # 4. 时效性 (10%) - 越新越好
+            # 4. 时效性 - 越新越好
             time_score = 0.0
             try:
                 modified_time = result.get('modified')
@@ -685,25 +716,25 @@ class SearchEngine:
                     if isinstance(modified_time, str):
                         modified_time = datetime.strptime(modified_time, '%Y-%m-%d %H:%M:%S')
                     days_old = (datetime.now() - modified_time).days
-                    time_score = max(0, 20 - days_old * 0.1)  # 新文档加分，每天减0.1分
+                    time_score = max(0, 20 - days_old * 0.1)
             except Exception:
                 pass
 
-            new_score += time_score * 0.1
+            new_score += time_score * w['recency']
 
-            # 5. 文档长度惩罚 (5%) - 避免过长文档
+            # 5. 文档长度惩罚 - 避免过长文档
             length_penalty = 0.0
             content_length = len(content)
-            if content_length > 10000:
+            if content_length > LENGTH_PENALTY_THRESHOLD_HIGH:
                 length_penalty = -5.0
-            elif content_length > 5000:
+            elif content_length > LENGTH_PENALTY_THRESHOLD_LOW:
                 length_penalty = -2.0
 
-            new_score += length_penalty * 0.05
+            new_score += length_penalty * w['length']
 
             # 确保分数在合理范围内
             result['score'] = min(max(new_score, 0.0), 100.0)
-            result['original_score'] = original_score  # 保留原始分数用于调试
+            result['original_score'] = original_score
 
         # 按新分数排序
         return sorted(results, key=lambda x: x['score'], reverse=True)
@@ -712,31 +743,23 @@ class SearchEngine:
         """清空搜索缓存"""
         if self.enable_cache and self.cache is not None:
             self.cache.clear()
-            self.cache_timestamps.clear()
             self.logger.info("搜索缓存已清空")
 
     def get_cache_stats(self):
         """获取缓存统计信息"""
-        if not self.enable_cache:
+        if not self.enable_cache or self.cache is None:
             return {'enabled': False}
-        
-        current_time = time.time()
-        valid_items = 0
-        expired_items = 0
-        
-        for key, timestamp in self.cache_timestamps.items():
-            if current_time - timestamp <= self.cache_ttl:
-                valid_items += 1
-            else:
-                expired_items += 1
-        
+
+        stats = self.cache.get_stats()
         return {
             'enabled': True,
-            'size': len(self.cache),
-            'max_size': self.cache_size,
+            'size': stats.get('total_size', 0),
+            'max_size': stats.get('max_size', 0),
             'ttl_seconds': self.cache_ttl,
-            'valid_items': valid_items,
-            'expired_items': expired_items
+            'num_shards': stats.get('num_shards', 1),
+            'hits': stats.get('hits', 0),
+            'misses': stats.get('misses', 0),
+            'hit_rate': stats.get('hit_rate', 0.0),
         }
 
     def search_with_detailed_stats(self, query, filters=None):

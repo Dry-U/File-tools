@@ -7,6 +7,7 @@ from fastapi import APIRouter, HTTPException, Request, Depends
 from backend.api.models import ChatRequest, ChatResponse
 from backend.utils.config_loader import ConfigLoader
 from backend.utils.logger import get_logger
+from backend.utils.network import get_client_ip, is_valid_ip
 from backend.api.dependencies import get_rag_pipeline, get_config_loader, get_rate_limiter
 from backend.api.main import app
 
@@ -35,8 +36,8 @@ async def chat(
     # 限流检查
     limiter = get_rate_limiter()
     if config_loader.getboolean('security', 'rate_limiter.enabled', True):
-        # 获取客户端IP
-        client_ip = http_request.client.host if http_request.client else "unknown"
+        # 获取客户端IP（使用安全方式）
+        client_ip = get_client_ip(http_request, config_loader)
         max_req = config_loader.getint(
             'security', 'rate_limiter.chat_limit', 10)
         window = config_loader.getint(
@@ -49,18 +50,23 @@ async def chat(
         if not config_loader.getboolean('ai_model', 'enabled', False):
             return {"answer": "AI问答功能未启用。请在配置文件中设置 ai_model.enabled = true。", "sources": []}
 
-        # 如果正在后台初始化，等待最多10秒
+        # 如果正在后台初始化，使用 asyncio.Event 等待
         if getattr(app.state, 'rag_initializing', False):
             import asyncio
-            wait_time = 0
-            while getattr(app.state, 'rag_initializing', False) and wait_time < 10:
-                await asyncio.sleep(0.5)
-                wait_time += 0.5
-            if app.state.rag_pipeline:
-                rag_pipeline = app.state.rag_pipeline
-            else:
+            try:
+                # 使用事件等待，最多10秒
+                await asyncio.wait_for(
+                    getattr(app.state, 'rag_ready_event', asyncio.Event()).wait(),
+                    timeout=10.0
+                )
+                if app.state.rag_pipeline:
+                    rag_pipeline = app.state.rag_pipeline
+                else:
+                    raise HTTPException(
+                        status_code=503, detail="RAG管道初始化失败")
+            except asyncio.TimeoutError:
                 raise HTTPException(
-                    status_code=503, detail="RAG管道正在初始化中，请稍后再试")
+                    status_code=503, detail="RAG管道初始化超时，请稍后再试")
         else:
             raise HTTPException(status_code=500, detail="RAG管道未初始化")
 
