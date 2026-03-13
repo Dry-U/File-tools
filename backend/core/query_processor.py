@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """查询预处理模块 - 扩展查询、同义词、缩写展开"""
 import re
-from typing import List, Dict, Set
+from typing import List
 import logging
 
 logger = logging.getLogger(__name__)
@@ -33,7 +33,6 @@ class QueryProcessor:
         # 组织和标准
         'ieee': ['institute of electrical and electronics engineers', '电气电子工程师学会'],
         'iso': ['international organization for standardization', '国际标准化组织'],
-        'ieee': ['institute of electrical and electronics engineers'],
 
         # 通用缩写
         'doc': ['document', '文档'],
@@ -161,7 +160,7 @@ class QueryProcessor:
         '统计': ['计算', '分析', 'statistics', 'count'],
         '分析': ['统计', '研究', 'analysis', 'analyze'],
         '显示': ['展示', '呈现', 'display', 'show'],
-        '隐藏': [' conceal', '隐藏', 'hide'],
+        '隐藏': ['conceal', 'hide'],
         '展开': ['扩展', '展开', 'expand'],
         '折叠': ['收起', '压缩', 'collapse'],
         '启用': ['激活', '开启', 'enable', 'activate'],
@@ -228,6 +227,28 @@ class QueryProcessor:
         '{query}定制',
         '{query}个性化',
     ]
+
+    FILENAME_STOPWORDS = frozenset({
+        '的', '了', '在', '是', '我', '有', '和', '就', '不', '人',
+        '都', '一', '一个', '上', '也', '很', '到', '说', '要', '去',
+        '你', '会', '着', '没有', '看', '好', '自己', '这', '那',
+        '什么', '怎么', '为什么', '哪里', '谁', '多少', '几',
+        'the', 'a', 'an', 'is', 'are', 'was', 'were', 'be', 'been',
+        'being', 'have', 'has', 'had', 'do', 'does', 'did', 'will',
+        'would', 'could', 'should', 'may', 'might', 'must', 'shall',
+        'can', 'need', 'dare', 'ought', 'used', 'to', 'of', 'in',
+        'for', 'on', 'with', 'at', 'by', 'from', 'as', 'into',
+        'through', 'during', 'before', 'after', 'above', 'below',
+        'between', 'under', 'and', 'but', 'or', 'yet', 'so'
+    })
+
+    KEYWORD_STOPWORDS = frozenset({
+        '的', '了', '在', '是', '我', '有', '和', '就', '不', '人',
+        '都', '一', '一个', '上', '也', '很', '到', '说', '要', '去',
+        '你', '会', '着', '没有', '看', '好', '自己', '这', '那',
+        'the', 'a', 'an', 'is', 'are', 'was', 'were', 'be', 'been',
+        'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would'
+    })
 
     def __init__(self, config_loader=None):
         self.config_loader = config_loader
@@ -319,21 +340,8 @@ class QueryProcessor:
 
     def _clean_query_for_filename(self, query: str) -> str:
         """清理查询，去除停用词，适合用于文件名匹配"""
-        # 常见停用词
-        stopwords = {'的', '了', '在', '是', '我', '有', '和', '就', '不', '人',
-                     '都', '一', '一个', '上', '也', '很', '到', '说', '要', '去',
-                     '你', '会', '着', '没有', '看', '好', '自己', '这', '那',
-                     '什么', '怎么', '为什么', '哪里', '谁', '多少', '几',
-                     'the', 'a', 'an', 'is', 'are', 'was', 'were', 'be', 'been',
-                     'being', 'have', 'has', 'had', 'do', 'does', 'did', 'will',
-                     'would', 'could', 'should', 'may', 'might', 'must', 'shall',
-                     'can', 'need', 'dare', 'ought', 'used', 'to', 'of', 'in',
-                     'for', 'on', 'with', 'at', 'by', 'from', 'as', 'into',
-                     'through', 'during', 'before', 'after', 'above', 'below',
-                     'between', 'under', 'and', 'but', 'or', 'yet', 'so'}
-
         words = re.findall(r'\b\w+\b', query.lower())
-        cleaned_words = [w for w in words if w not in stopwords and len(w) > 1]
+        cleaned_words = [w for w in words if w not in self.FILENAME_STOPWORDS and len(w) > 1]
 
         return ' '.join(cleaned_words) if cleaned_words else query
 
@@ -361,13 +369,7 @@ class QueryProcessor:
         words = re.findall(r'\b\w+\b', query.lower())
 
         # 过滤停用词和短词
-        stopwords = {'的', '了', '在', '是', '我', '有', '和', '就', '不', '人',
-                     '都', '一', '一个', '上', '也', '很', '到', '说', '要', '去',
-                     '你', '会', '着', '没有', '看', '好', '自己', '这', '那',
-                     'the', 'a', 'an', 'is', 'are', 'was', 'were', 'be', 'been',
-                     'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would'}
-
-        keywords = [w for w in words if w not in stopwords and len(w) > 1]
+        keywords = [w for w in words if w not in self.KEYWORD_STOPWORDS and len(w) > 1]
 
         return keywords
 
