@@ -65,8 +65,11 @@ class FileMonitor:
         self._processed_count = 0
         self._dropped_count = 0
 
-        self.logger.info(f"文件监控器初始化完成，监控目录: {', '.join(self.monitored_dirs)}, "
-                        f"并行线程: {self.max_workers}, 缓冲超时: {self._buffer_timeout}s")
+        if self.monitored_dirs:
+            self.logger.info(f"文件监控器初始化完成，监控目录: {', '.join(self.monitored_dirs)}, "
+                            f"并行线程: {self.max_workers}, 缓冲超时: {self._buffer_timeout}s")
+        else:
+            self.logger.info("文件监控器初始化完成，未启用监控（无配置目录）")
     
     def _get_monitored_directories(self):
         """从配置中获取需要监控的目录"""
@@ -96,16 +99,11 @@ class FileMonitor:
                 if dir_path and os.path.exists(dir_path):
                     monitored_dirs.append(os.path.abspath(dir_path))
         
-        # 如果没有配置监控目录，默认只监控用户主目录
-        # 注意：出于安全和性能考虑，不再自动监控所有磁盘驱动器
+        # 如果没有配置监控目录，默认关闭监控
+        # 用户需要显式配置监控目录以启用此功能
         if not monitored_dirs:
-            default_dir = os.path.expanduser('~')
-            if os.path.exists(default_dir):
-                monitored_dirs.append(default_dir)
-                self.logger.warning(f"未配置监控目录，默认监控用户主目录: {default_dir}")
-            else:
-                self.logger.error("未配置监控目录，且默认用户主目录不存在")
-        
+            self.logger.info("未配置监控目录，文件监控功能已禁用。请在配置中显式指定监控目录以启用。")
+
         return monitored_dirs
     
     def _get_ignored_patterns(self):

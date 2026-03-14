@@ -364,52 +364,11 @@ pyinstaller file-tools.spec
 
 ## 开发指南
 
-### 项目结构
-```
-File-tools/
-├── backend/                # 后端服务
-│   ├── api/                # API接口层（模块化路由）
-│   │   ├── main.py         # FastAPI 主文件
-│   │   ├── models.py       # 数据模型
-│   │   ├── dependencies.py # 依赖注入
-│   │   └── routes/         # 路由模块
-│   ├── core/               # 核心业务逻辑
-│   └── utils/              # 工具模块
-├── frontend/               # 前端界面
-├── tests/                  # 测试代码（分层结构）
-│   ├── unit/               # 单元测试
-│   ├── integration/        # 集成测试
-│   ├── api/                # API 测试
-│   └── e2e/                # 端到端测试
-├── data/                   # 数据存储
-└── docs/                   # 项目文档
-```
-
-### 核心模块
-
-#### IndexManager (索引管理器)
-- 双重索引：Tantivy全文索引 + HNSWLib向量索引
-- 中文分词支持
-- 单字符检索能力
-
-#### SearchEngine (搜索引擎)
-- 混合检索：文本搜索 + 向量搜索
-- 智能排序：BM25算法 + 语义相似度
-- 结果增强：文件名匹配增强
-
-#### FileScanner (文件扫描器)
-- 多格式支持：PDF、Word、Excel、文本等
-- 智能过滤：排除系统文件、媒体文件
-- 增量索引：支持文件变化检测
-
-#### RAGPipeline (RAG问答管道)
-- 上下文管理：智能管理对话历史
-- 文档聚合：多文档信息提取和聚合
-- 智能回答：基于检索结果的AI回答生成
+开发相关文档（架构设计、模块说明、测试策略、打包部署）请参阅 [开发者文档](DEVELOPER_GUIDE.md)。
 
 ## 许可证
 
-MIT License - 详见 [LICENSE](LICENSE) 文件
+MIT License - 详见 [LICENSE](../LICENSE) 文件
 
 ## 贡献
 

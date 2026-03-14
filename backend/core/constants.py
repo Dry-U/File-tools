@@ -104,4 +104,6 @@ ALLOWED_MIME_TYPES = frozenset([
 # 日志相关常量
 # ============================================================================
 
+LOG_FREQUENCY = 50  # 每处理50个文件记录一次日志
+PROGRESS_FREQUENCY = 20  # 每20%报告一次进度
 LOG_SAFE_MAX_LENGTH = 50  # 安全日志中路径的最大长度

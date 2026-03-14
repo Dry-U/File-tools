@@ -2,7 +2,9 @@
 系统/健康检查相关路由
 """
 
+import os
 import time
+from pathlib import Path
 from typing import Dict, Any
 from fastapi import APIRouter, HTTPException, Request, Depends
 
@@ -16,6 +18,39 @@ from backend.api.models import HealthCheckResponse
 
 logger = get_logger(__name__)
 router = APIRouter()
+
+
+def get_version() -> str:
+    """获取应用版本号
+
+    优先级:
+    1. 环境变量 FILETOOLS_VERSION (CI构建时注入)
+    2. 包元数据 (importlib.metadata)
+    3. VERSION 文件
+    4. 默认版本 "0.1.0"
+    """
+    # 1. 检查环境变量 (CI构建时注入)
+    env_version = os.environ.get('FILETOOLS_VERSION')
+    if env_version:
+        return env_version.strip()
+
+    # 2. 尝试从包元数据读取
+    try:
+        from importlib.metadata import version as get_pkg_version
+        return get_pkg_version('file-tools')
+    except Exception:
+        pass
+
+    # 3. 尝试读取 VERSION 文件
+    try:
+        version_file = Path(__file__).parent.parent.parent.parent / 'VERSION'
+        if version_file.exists():
+            return version_file.read_text().strip()
+    except Exception:
+        pass
+
+    # 4. 默认版本
+    return "0.1.0"
 
 
 @router.post("/rebuild-index")
@@ -141,3 +176,13 @@ async def readiness_check():
 async def liveness_check():
     """存活检查 - 用于Kubernetes等环境的存活探针"""
     return {"alive": True}
+
+
+@router.get("/version")
+async def version_check():
+    """获取应用版本信息"""
+    return {
+        "version": get_version(),
+        "name": "file-tools",
+        "description": "智能文件检索与问答系统"
+    }

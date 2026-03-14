@@ -3,6 +3,7 @@
 """
 
 import os
+from pathlib import Path
 import numpy as np
 from typing import List
 from fastapi import APIRouter, HTTPException, Request, Depends
@@ -122,16 +123,19 @@ async def preview_file(
         path = body.get("path", "")
 
         if not path:
-            return {"content": "错误：未提供文件路径"}
+            raise HTTPException(
+                status_code=400,
+                detail={"error": {"code": "PATH_REQUIRED", "message": "未提供文件路径"}}
+            )
 
         # 验证路径是否在允许的目录内
-        # is_path_allowed 已经处理了路径标准化和安全检查
         if not is_path_allowed(path, config_loader):
-            # 注意：is_path_allowed 内部已经记录了安全警告
-            return {"content": "错误：文件路径超出允许范围"}
+            raise HTTPException(
+                status_code=403,
+                detail={"error": {"code": "PATH_NOT_ALLOWED", "message": "文件路径超出允许范围"}}
+            )
 
-        # 路径已经由 is_path_allowed 验证和标准化，无需再次标准化
-        # 但为了安全起见，我们使用 Path 对象
+        # 路径已经由 is_path_allowed 验证和标准化
         normalized_path = Path(path).resolve()
 
         # 安全日志：不记录完整路径
@@ -140,12 +144,18 @@ async def preview_file(
 
         # 检查路径是否为目录
         if normalized_path.is_dir():
-            return {"content": "错误：无法预览目录"}
+            raise HTTPException(
+                status_code=400,
+                detail={"error": {"code": "IS_DIRECTORY", "message": "无法预览目录"}}
+            )
 
         # 检查文件是否存在
         if not normalized_path.exists():
-            logger.warning(f"预览文件不存在")
-            return {"content": "错误：文件不存在"}
+            logger.warning("预览文件不存在")
+            raise HTTPException(
+                status_code=404,
+                detail={"error": {"code": "FILE_NOT_FOUND", "message": "文件不存在"}}
+            )
 
         # 检查文件大小以防止加载过大文件
         max_preview_size = config_loader.getint(
@@ -153,16 +163,26 @@ async def preview_file(
         try:
             file_size = normalized_path.stat().st_size
             if file_size > max_preview_size:
-                return {"content": f"文件过大（超过{max_preview_size/1024/1024:.0f}MB），无法预览"}
-        except (OSError, IOError):
-            return {"content": "错误：无法读取文件信息"}
+                raise HTTPException(
+                    status_code=413,
+                    detail={"error": {"code": "FILE_TOO_LARGE", "message": f"文件过大（超过{max_preview_size/1024/1024:.0f}MB），无法预览"}}
+                )
+        except (OSError, IOError) as e:
+            logger.error(f"无法读取文件信息: {e}")
+            raise HTTPException(
+                status_code=500,
+                detail={"error": {"code": "FILE_INFO_ERROR", "message": "无法读取文件信息"}}
+            )
 
         # MIME 类型检查
         import mimetypes
         mime_type, _ = mimetypes.guess_type(str(normalized_path))
         if mime_type and mime_type not in ALLOWED_MIME_TYPES:
             logger.warning(f"不支持的 MIME 类型: {mime_type}")
-            return {"content": f"错误：不支持的文件类型 ({mime_type})"}
+            raise HTTPException(
+                status_code=415,
+                detail={"error": {"code": "UNSUPPORTED_TYPE", "message": f"不支持的文件类型 ({mime_type})"}}
+            )
 
         # 首先尝试从索引管理器获取内容（支持PDF/DOCX等）
         try:
@@ -181,15 +201,29 @@ async def preview_file(
                     content = content[:MAX_PREVIEW_LENGTH] + f"\n\n[内容过长，仅显示前{MAX_PREVIEW_LENGTH}字符]"
                 return {"content": content}
         except UnicodeDecodeError:
-            return {"content": "无法预览：文件编码不支持或不是文本文件"}
+            raise HTTPException(
+                status_code=415,
+                detail={"error": {"code": "ENCODING_ERROR", "message": "文件编码不支持或不是文本文件"}}
+            )
         except PermissionError:
-            logger.warning(f"无权限读取文件")
-            return {"content": "错误：无权限读取文件"}
+            logger.warning("无权限读取文件")
+            raise HTTPException(
+                status_code=403,
+                detail={"error": {"code": "PERMISSION_DENIED", "message": "无权限读取文件"}}
+            )
         except Exception as e:
             # 安全日志：不泄露文件路径
             logger.error(f"读取文件失败: {e}")
-            return {"content": "错误：读取文件失败"}
+            raise HTTPException(
+                status_code=500,
+                detail={"error": {"code": "READ_ERROR", "message": "读取文件失败"}}
+            )
 
+    except HTTPException:
+        raise
     except Exception as e:
-        logger.error(f"预览文件时出错")
-        return {"content": "错误：预览处理失败"}
+        logger.error(f"预览文件时出错: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail={"error": {"code": "PREVIEW_ERROR", "message": "预览处理失败"}}
+        ) from e

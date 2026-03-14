@@ -17,41 +17,69 @@ File-tools/
 │   │       ├── directory.py# 目录管理路由
 │   │       └── system.py   # 系统/健康检查路由
 │   ├── core/               # 核心业务逻辑
-│   │   ├── document_parser.py      # 文档解析器
+│   │   ├── document_parser.py      # 文档解析器（PDF/Word/Excel/PPT/MD）
 │   │   ├── file_scanner.py         # 文件扫描器
-│   │   ├── file_monitor.py         # 文件监控器
-│   │   ├── index_manager.py        # 索引管理器
-│   │   ├── search_engine.py        # 搜索引擎
-│   │   ├── model_manager.py        # 模型管理器
+│   │   ├── file_monitor.py         # 文件监控器（watchdog）
+│   │   ├── index_manager.py        # 索引管理器（Tantivy + HNSWLib）
+│   │   ├── search_engine.py        # 搜索引擎（混合检索）
+│   │   ├── model_manager.py        # 模型管理器（LLM 接入）
 │   │   ├── rag_pipeline.py         # RAG 问答流水线
-│   │   └── vram_manager.py         # VRAM 管理器
+│   │   ├── chat_history_db.py      # 聊天历史持久化（SQLite）
+│   │   ├── query_processor.py      # 查询预处理与分词
+│   │   ├── privacy_guard.py        # 隐私保护（敏感路径过滤）
+│   │   ├── sharded_cache.py        # 分片内存缓存
+│   │   ├── vram_manager.py         # VRAM 感知的上下文管理
+│   │   ├── constants.py            # 全局常量定义
+│   │   └── exceptions.py           # 自定义异常体系
 │   └── utils/              # 工具模块
-│       ├── config_loader.py        # 配置加载
-│       └── logger.py               # 日志系统
+│       ├── config_loader.py        # 配置加载与类型安全访问
+│       ├── config_validator.py     # 配置值校验器
+│       ├── logger.py               # 企业级结构化日志系统
+│       ├── app_paths.py            # 路径解析与数据目录管理
+│       ├── metrics.py              # 性能指标采集（Prometheus 兼容）
+│       └── network.py              # 网络工具（端口检测等）
 ├── frontend/               # 前端界面
 │   ├── index.html          # 主页面
-│   └── static/             # 静态资源 (CSS/JS)
+│   └── static/             # 静态资源
+│       ├── css/style.css   # 样式表
+│       └── js/             # JS 功能模块
+│           ├── main.js     # 应用入口
+│           ├── flatpickr-zh.js  # 日期选择器中文化
+│           └── modules/    # 功能模块
+│               ├── chat.js         # 聊天功能
+│               ├── search.js       # 搜索功能
+│               ├── settings.js     # 设置面板
+│               ├── directory.js    # 目录管理
+│               ├── ui.js           # UI 交互
+│               └── utils.js        # 公共工具函数
 ├── tests/                  # 测试代码（分层结构）
 │   ├── unit/               # 单元测试
 │   ├── integration/        # 集成测试
-│   ├── api/                # API测试
-│   └── e2e/                # 端到端测试
-├── data/                   # 数据存储
-│   ├── tantivy_index/      # Tantivy 索引
-│   ├── hnsw_index/         # HNSWLib 索引
-│   ├── metadata/           # 元数据
-│   ├── models/             # 模型文件
-│   ├── cache/              # 缓存文件
-│   ├── temp/               # 临时文件
-│   └── logs/               # 日志文件
+│   ├── api/                # API 测试
+│   └── e2e/                # 端到端测试（Playwright）
+├── data/                   # 运行时数据（不纳入版本控制）
+│   ├── tantivy_index/      # Tantivy 索引文件
+│   ├── hnsw_index/         # HNSWLib 向量索引
+│   ├── metadata/           # 索引元数据（schema 版本等）
+│   ├── models/             # 嵌入模型文件
+│   ├── cache/              # 磁盘缓存
+│   └── temp/               # 临时文件
 ├── docs/                   # 项目文档
+│   ├── DEVELOPER_GUIDE.md  # 开发者文档
+│   └── USAGE_GUIDE.md      # 使用手册
+├── scripts/                # 辅助脚本
+│   └── version_manager.py  # 版本管理工具
 ├── config.yaml             # 配置文件
-├── main.py                 # 应用入口
-├── build_exe.bat           # 构建脚本
-└── pyproject.toml          # 项目配置
+├── main.py                 # 应用入口（Pywebview + FastAPI）
+├── build.bat               # Windows EXE 构建脚本
+├── file-tools.spec         # PyInstaller 打包配置
+├── pyproject.toml          # 项目配置与依赖管理
+└── uv.lock                 # 依赖锁定文件（请提交到版本控制）
 ```
 
 ## 核心模块详解
+
+> **说明**：以下为主要核心模块说明。完整的类/方法签名参见各模块源文件 docstring。
 
 ### 1. IndexManager (索引管理器)
 
@@ -149,6 +177,34 @@ File-tools/
 - 统一处理扫描路径和监控目录
 - 实时状态显示（存在性、扫描状态、监控状态、文件数）
 - 支持 Windows/Linux/macOS 文件对话框
+
+### 6. ChatHistoryDB (聊天历史数据库)
+
+#### 功能
+- 以 SQLite 持久化存储会话与消息历史
+- 多会话管理（创建、查询、删除）
+
+#### 设计要点
+- 数据库文件路径 `data/chat_history.db`，不纳入版本控制
+- 异步安全读写操作
+
+### 7. ShardedCache (分片缓存)
+
+#### 功能
+- 基于内存的高性能分片缓存，降低锁竞争
+- 支持 TTL 过期与容量限制
+
+### 8. QueryProcessor (查询处理器)
+
+#### 功能
+- 对输入查询进行预处理：中文分词（jieba）、关键词提取、停用词过滤
+- 为文本搜索和向量搜索生成最优查询表示
+
+### 9. PrivacyGuard (隐私保护)
+
+#### 功能
+- 过滤敏感文件路径（系统目录、私钥文件等）
+- 对扫描结果中的敏感信息进行脱敏处理
 
 ## API 接口设计
 

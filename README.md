@@ -54,31 +54,50 @@ File-tools/
 │   │   ├── search_engine.py        # 搜索引擎
 │   │   ├── model_manager.py        # 模型管理器
 │   │   ├── rag_pipeline.py         # RAG 问答流水线
-│   │   └── vram_manager.py         # VRAM 管理器
+│   │   ├── chat_history_db.py      # 聊天历史数据库
+│   │   ├── query_processor.py      # 查询处理器
+│   │   ├── privacy_guard.py        # 隐私保护
+│   │   ├── sharded_cache.py        # 分片缓存
+│   │   ├── vram_manager.py         # VRAM 管理器
+│   │   ├── constants.py            # 常量定义
+│   │   └── exceptions.py           # 自定义异常
 │   └── utils/              # 工具模块
 │       ├── config_loader.py        # 配置加载
-│       └── logger.py               # 日志系统
+│       ├── config_validator.py     # 配置验证
+│       ├── logger.py               # 日志系统
+│       ├── app_paths.py            # 路径管理
+│       ├── metrics.py              # 性能指标
+│       └── network.py              # 网络工具
 ├── frontend/               # 前端界面
 │   ├── index.html          # 主页面
-│   └── static/             # 静态资源 (CSS/JS)
+│   └── static/             # 静态资源
+│       ├── css/style.css   # 样式表
+│       └── js/             # JS模块
+│           ├── main.js     # 入口
+│           └── modules/    # 功能模块
 ├── tests/                  # 测试代码
 │   ├── unit/               # 单元测试
 │   ├── integration/        # 集成测试
 │   ├── api/                # API测试
 │   └── e2e/                # 端到端测试
-├── data/                   # 数据存储
+├── data/                   # 运行时数据（不纳入版本控制）
 │   ├── tantivy_index/      # Tantivy 索引
 │   ├── hnsw_index/         # HNSWLib 索引
 │   ├── metadata/           # 元数据
-│   ├── models/             # 模型文件
+│   ├── models/             # 嵌入模型文件
 │   ├── cache/              # 缓存文件
-│   ├── temp/               # 临时文件
-│   └── logs/               # 日志文件
+│   └── temp/               # 临时文件
 ├── docs/                   # 项目文档
+│   ├── DEVELOPER_GUIDE.md  # 开发者文档
+│   └── USAGE_GUIDE.md      # 使用手册
+├── scripts/                # 辅助脚本
+│   └── version_manager.py  # 版本管理
 ├── config.yaml             # 配置文件
 ├── main.py                 # 应用入口
-├── build_exe.bat           # 构建脚本
-└── pyproject.toml          # 项目配置
+├── build.bat               # 构建脚本（Windows EXE）
+├── file-tools.spec         # PyInstaller 配置
+├── pyproject.toml          # 项目配置与依赖
+└── uv.lock                 # 依赖锁定文件
 ```
 
 ## 快速开始

@@ -96,7 +96,7 @@ class ShardedCache:
     def _get_shard_index(self, key: str) -> int:
         """根据key计算分片索引"""
         # 使用MD5哈希保证均匀分布
-        hash_val = int(hashlib.md5(key.encode()).hexdigest(), 16)
+        hash_val = int(hashlib.md5(key.encode(), usedforsecurity=False).hexdigest(), 16)
         return hash_val % self.num_shards
 
     def get(self, key: str) -> Optional[Any]:

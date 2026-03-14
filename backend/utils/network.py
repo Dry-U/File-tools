@@ -1,6 +1,7 @@
 """
 网络工具函数 - 安全地获取和验证客户端 IP
 """
+import ipaddress
 import re
 from fastapi import Request
 
@@ -41,7 +42,10 @@ def get_client_ip(request: Request, config_loader) -> str:
 
 
 def is_valid_ip(ip: str) -> bool:
-    """验证 IP 地址格式是否有效"""
+    """验证 IP 地址格式是否有效
+
+    使用 Python 标准库 ipaddress 进行严格解析验证
+    """
     if not ip or not isinstance(ip, str):
         return False
 
@@ -53,16 +57,19 @@ def is_valid_ip(ip: str) -> bool:
     if any(c in ip for c in [';', '|', '&', '$', '`', ' ', '\t', '\n', '\r']):
         return False
 
-    # IPv4 验证
-    ipv4_pattern = re.compile(
-        r'^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$'
-    )
-    if ipv4_pattern.match(ip):
+    # 使用标准库进行严格验证
+    try:
+        # 尝试作为 IPv4 解析
+        ipaddress.IPv4Address(ip)
         return True
+    except ValueError:
+        pass
 
-    # IPv6 验证（简化版）
-    ipv6_pattern = re.compile(r'^([0-9a-fA-F:]+)$')
-    if ipv6_pattern.match(ip) and ':' in ip:
+    try:
+        # 尝试作为 IPv6 解析
+        ipaddress.IPv6Address(ip)
         return True
+    except ValueError:
+        pass
 
     return False

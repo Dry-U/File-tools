@@ -65,6 +65,13 @@ class TestQueryProcessor:
         assert any("test说明" in r for r in result)
         assert any("test文档" in r for r in result)
 
+    def test_process_skips_filename_variants_for_long_content_query(self, processor):
+        """长内容查询不应触发文件名模板扩展"""
+        query = "如何优化分布式系统中的缓存一致性与数据库事务"
+        result = processor.process(query)
+        assert query in result
+        assert not any(r.endswith("说明") and "缓存一致性" in r for r in result)
+
     def test_expand_abbreviations_exact_match(self, processor):
         """测试缩写精确匹配"""
         result = processor._expand_abbreviations("API")

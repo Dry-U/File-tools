@@ -26,6 +26,7 @@ class PrivacyGuard:
         # 使用OrderedDict实现O(1)的LRU操作
         self._mask_map: OrderedDict[str, str] = OrderedDict()
         self._max_map_size = max_map_size
+        self._access_order: List[str] = []
 
     def detect_sensitive(self, text: str) -> List[Tuple[str, str, str]]:
         """

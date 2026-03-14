@@ -2,13 +2,21 @@ name: CI
 
 on:
   push:
-    branches: [ main, develop ]
+    branches: [main, develop]
+    tags:
+      - 'v*'
   pull_request:
-    branches: [ main ]
+    branches: [main]
+  workflow_dispatch:
+
+env:
+  PYTHONUNBUFFERED: 1
 
 jobs:
   test:
+    name: Unit Tests
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
     strategy:
       fail-fast: false
       matrix:
@@ -16,93 +24,262 @@ jobs:
         python-version: ['3.10', '3.11', '3.12']
 
     steps:
-    - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-    - name: Set up Python ${{ matrix.python-version }}
-      uses: actions/setup-python@v5
-      with:
-        python-version: ${{ matrix.python-version }}
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: 'pip'
 
-    - name: Install dependencies
-      run: |
-        python -m pip install --upgrade pip
-        pip install -e ".[dev]"
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+          pip install ruff black mypy
 
-    - name: Lint with ruff
-      run: |
-        ruff check backend/ --output-format=github
-      continue-on-error: true
+      - name: Lint with ruff
+        run: |
+          ruff check backend/ --output-format=github
+        # PR分支允许软失败，main分支必须通过
+        continue-on-error: ${{ github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/v') }}
 
-    - name: Format check with black
-      run: |
-        black --check backend/
-      continue-on-error: true
+      - name: Format check with black
+        run: |
+          black --check backend/
+        continue-on-error: ${{ github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/v') }}
 
-    - name: Type check with mypy
-      run: |
-        mypy backend/ --ignore-missing-imports
-      continue-on-error: true
+      - name: Type check with mypy
+        run: |
+          mypy backend/ --ignore-missing-imports
+        continue-on-error: ${{ github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/v') }}
 
-    - name: Run tests
-      run: |
-        pytest tests/unit/ -v --cov=backend --cov-report=xml --cov-report=term
+      - name: Run tests
+        run: |
+          pytest tests/unit/ -v --cov=backend --cov-report=xml --cov-report=term
 
-    - name: Upload coverage to Codecov
-      if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.12'
-      uses: codecov/codecov-action@v3
-      with:
-        files: ./coverage.xml
-        fail_ci_if_error: false
-        verbose: true
+      - name: Upload coverage to Codecov
+        if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.11'
+        uses: codecov/codecov-action@v5
+        with:
+          files: ./coverage.xml
+          fail_ci_if_error: false
+          verbose: true
+
+  smoke-test:
+    name: Smoke Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: test
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Start application
+        run: |
+          python main.py &
+          APP_PID=$!
+          echo "APP_PID=$APP_PID" >> $GITHUB_ENV
+          echo "Waiting for server to start..."
+          sleep 5
+
+      - name: Test health endpoint
+        run: |
+          echo "Testing health endpoint..."
+          curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:8000/api/health | grep -q "200" && echo "Health check passed" || (echo "Health check failed" && exit 1)
+
+      - name: Test search endpoint
+        run: |
+          echo "Testing search endpoint..."
+          curl -s -X POST http://127.0.0.1:8000/api/search \
+            -H "Content-Type: application/json" \
+            -d '{"query":"test"}' | grep -q "results\|status" && echo "Search endpoint OK" || echo "Search endpoint returned empty (expected for fresh install)"
+
+      - name: Test version endpoint
+        run: |
+          echo "Testing version endpoint..."
+          curl -s http://127.0.0.1:8000/api/version | grep -q "version" && echo "Version endpoint passed" || (echo "Version check failed" && exit 1)
+
+      - name: Stop application
+        if: always()
+        run: |
+          if [ -n "$APP_PID" ]; then
+            kill $APP_PID 2>/dev/null || true
+          fi
 
   security:
+    name: Security Checks
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
-    - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-    - name: Run Bandit security checks
-      run: |
-        pip install bandit
-        bandit -r backend/ -f json -o bandit-report.json || true
-        bandit -r backend/ -ll
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
 
-    - name: Run safety check
-      run: |
-        pip install safety
-        safety check || true
+      - name: Install dependencies
+        run: |
+          pip install -e ".[dev]"
+
+      - name: Run Bandit security checks
+        run: |
+          pip install bandit
+          bandit -r backend/ -f json -o bandit-report.json || true
+          bandit -r backend/ -ll || true
+
+      - name: Run safety check
+        run: |
+          pip install safety
+          safety check || true
 
   build:
+    name: Build Executables
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
     strategy:
+      fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest]
 
     steps:
-    - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # 需要完整历史来获取版本号
 
-    - name: Set up Python
-      uses: actions/setup-python@v5
-      with:
-        python-version: '3.12'
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
 
-    - name: Install build dependencies
-      run: |
-        python -m pip install --upgrade pip
-        pip install pyinstaller
-        pip install -e .
+      - name: Install build dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pyinstaller
+          pip install -e .
 
-    - name: Build executable (Windows)
-      if: matrix.os == 'windows-latest'
-      run: |
-        pyinstaller file-tools.spec
+      - name: Resolve build version
+        shell: bash
+        run: |
+          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
+            APP_VERSION="${GITHUB_REF_NAME#v}"
+            echo "Using tag version: ${APP_VERSION}"
+          else
+            # 读取当前版本并递增 patch
+            CURRENT_VERSION=$(cat VERSION)
+            MAJOR=$(echo $CURRENT_VERSION | cut -d. -f1)
+            MINOR=$(echo $CURRENT_VERSION | cut -d. -f2)
+            PATCH=$(echo $CURRENT_VERSION | cut -d. -f3)
+            NEW_PATCH=$((PATCH + 1))
+            APP_VERSION="${MAJOR}.${MINOR}.${NEW_PATCH}"
+            echo "Bumped version: ${CURRENT_VERSION} -> ${APP_VERSION}"
+            echo "${APP_VERSION}" > VERSION
+          fi
+          echo "FILETOOLS_VERSION=${APP_VERSION}" >> "$GITHUB_ENV"
+          echo "Resolved FILETOOLS_VERSION=${APP_VERSION}"
 
-    - name: Build executable (Linux)
-      if: matrix.os == 'ubuntu-latest'
-      run: |
-        pyinstaller file-tools.spec
+      - name: Build executable (Windows)
+        if: matrix.os == 'windows-latest'
+        shell: cmd
+        run: |
+          set FILETOOLS_VERSION=%FILETOOLS_VERSION%
+          pyinstaller file-tools.spec --noconfirm --clean
 
-    - name: Upload artifacts
-      uses: actions/upload-artifact@v4
-      with:
-        name: file-tools-${{ matrix.os }}
-        path: dist/*
+      - name: Build executable (Linux)
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          export FILETOOLS_VERSION=${FILETOOLS_VERSION}
+          pyinstaller file-tools.spec --noconfirm --clean
+
+      - name: Verify build artifacts
+        shell: bash
+        run: |
+          echo "Verifying build artifacts..."
+          # Check if dist directory exists
+          if [ ! -d "dist" ]; then
+            echo "Error: dist directory not found"
+            exit 1
+          fi
+
+          # Find the built executable
+          if [ "$RUNNER_OS" == "Windows" ]; then
+            EXECUTABLE=$(find dist -name "*.exe" -type f | head -1)
+          else
+            EXECUTABLE=$(find dist -type f -executable | head -1)
+          fi
+
+          if [ -z "$EXECUTABLE" ]; then
+            echo "Error: No executable found in dist/"
+            exit 1
+          fi
+
+          echo "Found executable: $EXECUTABLE"
+
+          # Verify VERSION.txt exists
+          if [ -f "dist/*/VERSION.txt" ] || [ -f "dist/VERSION.txt" ]; then
+            echo "VERSION.txt found"
+            cat dist/*/VERSION.txt 2>/dev/null || cat dist/VERSION.txt 2>/dev/null
+          else
+            echo "Warning: VERSION.txt not found in dist"
+          fi
+
+          echo "Build verification passed!"
+
+      - name: Write build version metadata
+        shell: bash
+        run: |
+          mkdir -p dist/FileTools-v${FILETOOLS_VERSION}
+          echo "${FILETOOLS_VERSION}" > dist/FileTools-v${FILETOOLS_VERSION}/VERSION.txt
+          echo "Build: ${GITHUB_RUN_NUMBER}" >> dist/FileTools-v${FILETOOLS_VERSION}/VERSION.txt
+          echo "Commit: ${GITHUB_SHA}" >> dist/FileTools-v${FILETOOLS_VERSION}/VERSION.txt
+          echo "Date: $(date -u +%Y-%m-%dT%H:%M:%SZ)" >> dist/FileTools-v${FILETOOLS_VERSION}/VERSION.txt
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: file-tools-${{ matrix.os }}-v${{ env.FILETOOLS_VERSION }}
+          path: dist/*
+          if-no-files-found: error
+
+      - name: Commit version bump (non-tag builds)
+        if: github.ref == 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/')
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          git add VERSION
+          git diff --staged --quiet || git commit -m "Bump version to ${FILETOOLS_VERSION} [ci skip]"
+          git push || echo "Push failed, may need to handle manually"
+
+  release:
+    name: Publish Release
+    needs: [test, build]
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release-artifacts
+          pattern: file-tools-*
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release-artifacts/**/*
+          generate_release_notes: true

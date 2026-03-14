@@ -15,6 +15,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi import Request
 
 from backend.utils.logger import get_logger
+from backend.api.routes.system import get_version
 
 logger = get_logger(__name__)
 
@@ -32,6 +33,9 @@ class RateLimiter:
         self._max_entries = max_entries or self.DEFAULT_MAX_ENTRIES
         self._cleanup_interval = self.DEFAULT_CLEANUP_INTERVAL
         self._last_cleanup = time.time()
+        # 限流器指标统计
+        self._allowed_count = 0
+        self._rejected_count = 0
 
     def is_allowed(self, key: str, max_requests: int = 10, window: int = 60) -> bool:
         """检查是否允许请求"""
@@ -55,9 +59,11 @@ class RateLimiter:
 
         # 检查是否超过限制
         if len(self._requests[key]) >= max_requests:
+            self._rejected_count += 1
             return False
 
         self._requests[key].append(now)
+        self._allowed_count += 1
         return True
 
     def _cleanup_expired(self, now: float, window: int):
@@ -92,6 +98,18 @@ class RateLimiter:
         for i in range(keys_to_remove):
             del self._requests[key_last_access[i][0]]
 
+    def get_metrics(self) -> dict:
+        """获取限流器指标"""
+        total = self._allowed_count + self._rejected_count
+        return {
+            'allowed': self._allowed_count,
+            'rejected': self._rejected_count,
+            'total': total,
+            'hit_rate': self._allowed_count / total if total > 0 else 1.0,
+            'current_entries': len(self._requests),
+            'max_entries': self._max_entries,
+        }
+
 
 # 全局限流器实例（将在应用启动时根据配置初始化）
 rate_limiter: Optional[RateLimiter] = None
@@ -116,7 +134,7 @@ def get_rate_limiter(config_loader=None):
 app = FastAPI(
     title="智能文件检索与问答系统 - Web API",
     description="基于Python和FastAPI的文件智能管理工具Web接口",
-    version="1.0.0"
+    version=get_version()
 )
 
 

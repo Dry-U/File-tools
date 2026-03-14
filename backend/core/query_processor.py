@@ -33,7 +33,6 @@ class QueryProcessor:
         # 组织和标准
         'ieee': ['institute of electrical and electronics engineers', '电气电子工程师学会'],
         'iso': ['international organization for standardization', '国际标准化组织'],
-        'ieee': ['institute of electrical and electronics engineers'],
 
         # 通用缩写
         'doc': ['document', '文档'],
@@ -161,7 +160,7 @@ class QueryProcessor:
         '统计': ['计算', '分析', 'statistics', 'count'],
         '分析': ['统计', '研究', 'analysis', 'analyze'],
         '显示': ['展示', '呈现', 'display', 'show'],
-        '隐藏': [' conceal', '隐藏', 'hide'],
+        '隐藏': ['conceal', 'hide'],
         '展开': ['扩展', '展开', 'expand'],
         '折叠': ['收起', '压缩', 'collapse'],
         '启用': ['激活', '开启', 'enable', 'activate'],
@@ -229,6 +228,30 @@ class QueryProcessor:
         '{query}个性化',
     ]
 
+    # 文件名匹配停用词（更完整）
+    FILENAME_STOPWORDS = frozenset({
+        '的', '了', '在', '是', '我', '有', '和', '就', '不', '人',
+        '都', '一', '一个', '上', '也', '很', '到', '说', '要', '去',
+        '你', '会', '着', '没有', '看', '好', '自己', '这', '那',
+        '什么', '怎么', '为什么', '哪里', '谁', '多少', '几',
+        'the', 'a', 'an', 'is', 'are', 'was', 'were', 'be', 'been',
+        'being', 'have', 'has', 'had', 'do', 'does', 'did', 'will',
+        'would', 'could', 'should', 'may', 'might', 'must', 'shall',
+        'can', 'need', 'dare', 'ought', 'used', 'to', 'of', 'in',
+        'for', 'on', 'with', 'at', 'by', 'from', 'as', 'into',
+        'through', 'during', 'before', 'after', 'above', 'below',
+        'between', 'under', 'and', 'but', 'or', 'yet', 'so'
+    })
+
+    # 关键词提取停用词（更精简）
+    KEYWORD_STOPWORDS = frozenset({
+        '的', '了', '在', '是', '我', '有', '和', '就', '不', '人',
+        '都', '一', '一个', '上', '也', '很', '到', '说', '要', '去',
+        '你', '会', '着', '没有', '看', '好', '自己', '这', '那',
+        'the', 'a', 'an', 'is', 'are', 'was', 'were', 'be', 'been',
+        'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would'
+    })
+
     def __init__(self, config_loader=None):
         self.config_loader = config_loader
         self.logger = logging.getLogger(__name__)
@@ -258,9 +281,10 @@ class QueryProcessor:
         synonyms = self._expand_synonyms(query)
         queries.extend(synonyms)
 
-        # 文件名变体
-        filename_variants = self._generate_filename_variants(query)
-        queries.extend(filename_variants)
+        # 文件名变体：仅在疑似文件名查询时扩展，减少噪音并提升检索性能
+        if self.is_likely_filename_query(query):
+            filename_variants = self._generate_filename_variants(query)
+            queries.extend(filename_variants)
 
         # 清理和去重
         queries = self._clean_and_deduplicate(queries)
@@ -286,20 +310,31 @@ class QueryProcessor:
         return expanded
 
     def _expand_synonyms(self, query: str) -> List[str]:
-        """扩展同义词"""
+        """扩展同义词 - 使用词边界检测避免子串误替换"""
         expanded = []
         query_lower = query.lower()
 
         # 检查查询中的每个词是否有同义词
         for key, synonyms in self.SYNONYMS.items():
-            if key in query_lower:
+            # 使用词边界正则表达式匹配完整词
+            # 对于中文，使用前后不是中文字符的边界
+            if any('\u4e00' <= c <= '\u9fff' for c in key):
+                # 包含中文字符，使用更宽松的匹配
+                pattern = re.compile(re.escape(key))
+            else:
+                # 纯英文/数字，使用词边界
+                pattern = re.compile(r'\b' + re.escape(key) + r'\b')
+
+            if pattern.search(query_lower):
                 # 为每个同义词创建一个变体查询
                 for synonym in synonyms:
-                    variant = query_lower.replace(key, synonym)
+                    variant = pattern.sub(synonym, query_lower)
                     if variant != query_lower:
                         expanded.append(variant)
 
         return expanded
+
+    MAX_FILENAME_VARIANTS = 10  # 最大文件名变体数量
 
     def _generate_filename_variants(self, query: str) -> List[str]:
         """生成文件名匹配变体"""
@@ -310,8 +345,8 @@ class QueryProcessor:
         if not cleaned_query:
             return variants
 
-        # 生成文件名变体
-        for pattern in self.FILENAME_VARIANTS:
+        # 生成文件名变体，限制最大数量
+        for pattern in self.FILENAME_VARIANTS[:self.MAX_FILENAME_VARIANTS]:
             variant = pattern.format(query=cleaned_query)
             variants.append(variant)
 
@@ -319,21 +354,8 @@ class QueryProcessor:
 
     def _clean_query_for_filename(self, query: str) -> str:
         """清理查询，去除停用词，适合用于文件名匹配"""
-        # 常见停用词
-        stopwords = {'的', '了', '在', '是', '我', '有', '和', '就', '不', '人',
-                     '都', '一', '一个', '上', '也', '很', '到', '说', '要', '去',
-                     '你', '会', '着', '没有', '看', '好', '自己', '这', '那',
-                     '什么', '怎么', '为什么', '哪里', '谁', '多少', '几',
-                     'the', 'a', 'an', 'is', 'are', 'was', 'were', 'be', 'been',
-                     'being', 'have', 'has', 'had', 'do', 'does', 'did', 'will',
-                     'would', 'could', 'should', 'may', 'might', 'must', 'shall',
-                     'can', 'need', 'dare', 'ought', 'used', 'to', 'of', 'in',
-                     'for', 'on', 'with', 'at', 'by', 'from', 'as', 'into',
-                     'through', 'during', 'before', 'after', 'above', 'below',
-                     'between', 'under', 'and', 'but', 'or', 'yet', 'so'}
-
         words = re.findall(r'\b\w+\b', query.lower())
-        cleaned_words = [w for w in words if w not in stopwords and len(w) > 1]
+        cleaned_words = [w for w in words if w not in self.FILENAME_STOPWORDS and len(w) > 1]
 
         return ' '.join(cleaned_words) if cleaned_words else query
 
@@ -361,36 +383,52 @@ class QueryProcessor:
         words = re.findall(r'\b\w+\b', query.lower())
 
         # 过滤停用词和短词
-        stopwords = {'的', '了', '在', '是', '我', '有', '和', '就', '不', '人',
-                     '都', '一', '一个', '上', '也', '很', '到', '说', '要', '去',
-                     '你', '会', '着', '没有', '看', '好', '自己', '这', '那',
-                     'the', 'a', 'an', 'is', 'are', 'was', 'were', 'be', 'been',
-                     'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would'}
-
-        keywords = [w for w in words if w not in stopwords and len(w) > 1]
+        keywords = [w for w in words if w not in self.KEYWORD_STOPWORDS and len(w) > 1]
 
         return keywords
 
     def is_likely_filename_query(self, query: str) -> bool:
-        """判断查询是否可能是针对文件名的搜索"""
+        """判断查询是否可能是针对文件名的搜索
+
+        使用多信号加权判断：
+        - 含路径符号 (+40分)
+        - 含扩展名 (+30分)
+        - 不含空格的中文查询 (+20分)
+        - 长度 < 20字符 (+10分)
+        - 包含文件类型关键词 (+15分)
+
+        阈值：50分以上判定为文件名查询
+        最大扩展数量：10个变体
+        """
         if not query:
             return False
 
-        # 如果查询包含文件扩展名，很可能是文件名搜索
-        if re.search(r'\.\w{2,5}$', query.lower()):
-            return True
+        score = 0
+        query_lower = query.lower().strip()
 
-        # 如果查询很短（1-3个词），可能是文件名搜索
-        words = query.split()
-        if len(words) <= 3:
-            return True
+        # 信号1: 包含路径符号
+        if re.search(r'[\/]', query):
+            score += 40
 
-        # 如果查询包含特定文件名关键词
+        # 信号2: 包含文件扩展名 (.pdf, .docx 等)
+        if re.search(r'\.\w{2,5}$', query_lower):
+            score += 30
+
+        # 信号3: 不含空格的中文查询
+        if any('\u4e00' <= c <= '\u9fff' for c in query) and ' ' not in query:
+            score += 20
+
+        # 信号4: 长度 < 20字符
+        if len(query) < 20:
+            score += 10
+
+        # 信号5: 包含文件类型关键词
         filename_indicators = ['文件', '文档', 'doc', 'file', 'pdf', 'word',
                                'excel', 'ppt', 'txt', 'md', '文件名']
-        query_lower = query.lower()
         for indicator in filename_indicators:
             if indicator in query_lower:
-                return True
+                score += 15
+                break
 
-        return False
+        # 阈值判断
+        return score >= 50

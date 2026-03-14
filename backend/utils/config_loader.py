@@ -129,7 +129,7 @@ class ConfigLoader:
             salt_path.parent.mkdir(parents=True, exist_ok=True)
             with open(salt_path, 'wb') as f:
                 f.write(salt)
-            # 设置权限（仅Windows）
+            # 设置权限（仅 POSIX 系统：Linux/macOS）
             if os.name == 'posix':
                 os.chmod(salt_path, 0o600)
         except Exception as e:

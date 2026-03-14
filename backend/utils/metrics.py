@@ -206,6 +206,11 @@ class MetricsCollector:
             "tokens_generated_total",
             "Total number of tokens generated"
         )
+        self.rag_queries = Counter(
+            "rag_queries_total",
+            "Total number of RAG queries",
+            labels=["status"]
+        )
 
         # 系统指标
         self.active_sessions = Gauge(
@@ -263,6 +268,21 @@ class MetricsCollector:
         total = hits + misses
         return hits / total if total > 0 else 0.0
 
+    def get_summary(self) -> Dict[str, Any]:
+        """获取指标摘要"""
+        return {
+            "search_results": self.search_results.get(),
+            "files_indexed": self.files_indexed.get(),
+            "cache_hit_rate": self.get_cache_hit_rate(),
+            "cache_hits": self.search_cache_hits.get(),
+            "cache_misses": self.search_cache_misses.get(),
+            "rag_queries": self.rag_queries.get(),
+            "chat_requests": self.chat_requests.get(),
+            "timestamps": {
+                "collected_at": time.time()
+            }
+        }
+
     def get_all_metrics(self) -> Dict[str, Any]:
         """获取所有指标"""
         return {
@@ -319,8 +339,16 @@ def get_metrics() -> MetricsCollector:
     return _metrics_collector
 
 
-def timed(metric_name: str, **labels):
-    """装饰器：计时函数执行"""
+def timed(metric_or_name, **default_labels):
+    """装饰器：计时函数执行
+
+    Args:
+        metric_or_name: Histogram 对象或指标名称字符串
+        **default_labels: 默认标签（可通过 status_label 覆盖状态键名）
+    """
+    # 检查是否指定了状态标签键名
+    status_key = default_labels.pop('status_key', 'status')
+
     def decorator(func: Callable) -> Callable:
         @wraps(func)
         def wrapper(*args, **kwargs):
@@ -335,9 +363,13 @@ def timed(metric_name: str, **labels):
                 raise
             finally:
                 duration = time.time() - start
-                # 根据 metric_name 找到对应的 histogram
-                if hasattr(metrics, metric_name):
-                    getattr(metrics, metric_name).observe(duration, status=status, **labels)
+                labels = {**default_labels, status_key: status}
+                # 如果传入的是 Histogram 对象，直接使用
+                if isinstance(metric_or_name, Histogram):
+                    metric_or_name.observe(duration, **labels)
+                # 否则按名称从 metrics 获取
+                elif hasattr(metrics, metric_or_name):
+                    getattr(metrics, metric_or_name).observe(duration, **labels)
         return wrapper
     return decorator
 

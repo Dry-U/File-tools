@@ -528,31 +528,36 @@ class TestPathSecurity:
 
     def test_is_path_allowed_valid(self):
         """测试有效路径"""
-        from backend.api.api import is_path_allowed
+        from backend.api.dependencies import is_path_allowed
+        from pathlib import Path
         config = Mock()
         config.get.return_value = "/allowed/path"
-        with patch('os.path.isdir', return_value=True):
-            with patch('os.path.abspath', side_effect=lambda x: x):
-                result = is_path_allowed("/allowed/path/file.txt", config)
-                assert result == True
+
+        # Mock Path methods for pathlib-based implementation
+        with patch.object(Path, 'resolve', return_value=Path("/allowed/path/file.txt")):
+            with patch.object(Path, 'is_symlink', return_value=False):
+                with patch.object(Path, 'exists', return_value=True):
+                    with patch.object(Path, 'is_dir', side_effect=lambda: True):
+                        result = is_path_allowed("/allowed/path/file.txt", config)
+                        assert result == True
 
     def test_is_path_allowed_traversal(self):
         """测试路径遍历攻击"""
-        from backend.api.api import is_path_allowed
+        from backend.api.dependencies import is_path_allowed
         config = Mock()
         result = is_path_allowed("../../../etc/passwd", config)
         assert result == False
 
     def test_is_path_allowed_empty(self):
         """测试空路径"""
-        from backend.api.api import is_path_allowed
+        from backend.api.dependencies import is_path_allowed
         config = Mock()
         result = is_path_allowed("", config)
         assert result == False
 
     def test_is_path_allowed_double_slash(self):
         """测试双斜杠路径"""
-        from backend.api.api import is_path_allowed
+        from backend.api.dependencies import is_path_allowed
         config = Mock()
         result = is_path_allowed("//etc/passwd", config)
         assert result == False
@@ -632,7 +637,7 @@ if __name__ == "__main__":
         import backend.api.api
         print("[OK] Web API模块导入成功")
 
-        from backend.api.api import app
+        from backend.api.main import app
         print("[OK] App导入成功")
 
         print("\n所有组件加载成功!")

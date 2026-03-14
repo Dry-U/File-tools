@@ -32,6 +32,7 @@ from backend.core.constants import (
     LENGTH_PENALTY_THRESHOLD_LOW,
 )
 from backend.core.sharded_cache import ShardedCache
+from backend.core.query_processor import QueryProcessor
 
 class SearchEngine:
     """搜索引擎类，负责执行文件搜索和结果排序"""
@@ -44,38 +45,44 @@ class SearchEngine:
         self.config_loader: Any = config_loader
         self.logger: logging.Logger = logging.getLogger(__name__)
 
-        # 搜索配置 - 使用ConfigLoader获取配置
+        # 搜索配置 - 使用ConfigLoader获取配置（只读取一次）
         search_config: Dict[str, Any] = config_loader.get('search') or {}
-        self.text_weight: float = float(search_config.get('text_weight', 0.6))
-        self.vector_weight: float = float(search_config.get('vector_weight', 0.4))
-        self.max_results: int = int(search_config.get('max_results', 50))
 
-        # 搜索配置 - 使用ConfigLoader获取配置
-        search_config = config_loader.get('search')
-        if search_config is None:
-            search_config = {}
-        self.text_weight = float(search_config.get('text_weight', 0.6))
-        self.vector_weight = float(search_config.get('vector_weight', 0.4))
-        self.max_results = int(search_config.get('max_results', 50))
+        # 辅助函数：从配置中安全获取数值
+        def get_config_float(key: str, default: float) -> float:
+            return float(search_config.get(key, default))
+
+        def get_config_int(key: str, default: int) -> int:
+            return int(search_config.get(key, default))
+
+        def get_config_bool(key: str, default: bool) -> bool:
+            val = search_config.get(key, default)
+            if isinstance(val, bool):
+                return val
+            return str(val).lower() in ('true', '1', 'yes', 'on')
+
+        self.text_weight: float = get_config_float('text_weight', 0.6)
+        self.vector_weight: float = get_config_float('vector_weight', 0.4)
+        self.max_results: int = get_config_int('max_results', 50)
 
         # 新增的高级搜索配置参数
-        self.bm25_k1 = float(search_config.get('bm25_k1', 1.5))
-        self.bm25_b = float(search_config.get('bm25_b', 0.75))
-        self.result_boost = bool(search_config.get('result_boost', True))
-        self.filename_boost = float(search_config.get('filename_boost', 1.5))
-        self.keyword_boost = float(search_config.get('keyword_boost', 1.2))
-        self.hybrid_boost = float(search_config.get('hybrid_boost', 1.1))
+        self.bm25_k1 = get_config_float('bm25_k1', 1.5)
+        self.bm25_b = get_config_float('bm25_b', 0.75)
+        self.result_boost = get_config_bool('result_boost', True)
+        self.filename_boost = get_config_float('filename_boost', 1.5)
+        self.keyword_boost = get_config_float('keyword_boost', 1.2)
+        self.hybrid_boost = get_config_float('hybrid_boost', 1.1)
         # 语义搜索结果阈值（从配置读取）
-        self.semantic_score_high_threshold = float(search_config.get('semantic_score_high_threshold', 60.0))
-        self.semantic_score_low_threshold = float(search_config.get('semantic_score_low_threshold', 30.0))
+        self.semantic_score_high_threshold = get_config_float('semantic_score_high_threshold', 60.0)
+        self.semantic_score_low_threshold = get_config_float('semantic_score_low_threshold', 30.0)
 
         # 重排权重配置（从配置读取，使用常量作为默认值）
         self.rerank_weights = {
-            'base': config_loader.getfloat('search', 'rerank_base_weight', DEFAULT_RERANK_BASE_WEIGHT),
-            'filename': config_loader.getfloat('search', 'rerank_filename_weight', DEFAULT_RERANK_FILENAME_WEIGHT),
-            'keyword': config_loader.getfloat('search', 'rerank_keyword_weight', DEFAULT_RERANK_KEYWORD_WEIGHT),
-            'recency': config_loader.getfloat('search', 'rerank_recency_weight', DEFAULT_RERANK_RECENCY_WEIGHT),
-            'length': config_loader.getfloat('search', 'rerank_length_weight', DEFAULT_RERANK_LENGTH_WEIGHT),
+            'base': get_config_float('rerank_base_weight', DEFAULT_RERANK_BASE_WEIGHT),
+            'filename': get_config_float('rerank_filename_weight', DEFAULT_RERANK_FILENAME_WEIGHT),
+            'keyword': get_config_float('rerank_keyword_weight', DEFAULT_RERANK_KEYWORD_WEIGHT),
+            'recency': get_config_float('rerank_recency_weight', DEFAULT_RERANK_RECENCY_WEIGHT),
+            'length': get_config_float('rerank_length_weight', DEFAULT_RERANK_LENGTH_WEIGHT),
         }
 
         # 缓存配置
@@ -125,7 +132,7 @@ class SearchEngine:
             cache_str = f"{query}:{json.dumps(normalized_filters, sort_keys=True, ensure_ascii=True)}"
         except (TypeError, ValueError):
             cache_str = f"{query}:{str(sorted(filters.items()))}"
-        return hashlib.md5(cache_str.encode()).hexdigest()
+        return hashlib.md5(cache_str.encode(), usedforsecurity=False).hexdigest()
 
 
     def _get_from_cache(self, key: str) -> Optional[Any]:
@@ -147,9 +154,7 @@ class SearchEngine:
 
         # 使用QueryProcessor扩展查询
         try:
-            from backend.core.query_processor import QueryProcessor
-            query_processor = QueryProcessor(self.config_loader)
-            expanded_queries = query_processor.process(query)
+            expanded_queries = QueryProcessor(self.config_loader).process(query)
             self.logger.info(f"查询扩展: {expanded_queries}")
         except Exception as e:
             self.logger.warning(f"查询扩展失败: {e}")

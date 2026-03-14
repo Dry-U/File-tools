@@ -236,10 +236,10 @@ class FileScanner:
             if path:
                 # 处理Windows路径
                 expanded_path = Path(path).expanduser()
-                self.logger.info(f"检查路径: {path} -> {expanded_path}")
+                self.logger.debug(f"检查路径: {path} -> {expanded_path}")
                 if expanded_path.exists() and expanded_path.is_dir():
                     valid_paths.append(str(expanded_path))
-                    self.logger.info(f"✓ 有效路径: {expanded_path}")
+                    self.logger.debug(f"✓ 有效路径: {expanded_path}")
                 else:
                     self.logger.warning(f"✗ 扫描路径不存在或不是目录: {path}")
         
@@ -254,7 +254,7 @@ class FileScanner:
             if not default_path.exists():
                 try:
                     default_path.mkdir(parents=True, exist_ok=True)
-                    self.logger.info(f"创建默认扫描路径: {default_path}")
+                    self.logger.debug(f"创建默认扫描路径: {default_path}")
                 except Exception as e:
                     self.logger.error(f"无法创建默认扫描路径: {default_path}, 错误: {e}")
                     # 如果无法创建路径，则使用用户主目录
@@ -355,7 +355,7 @@ class FileScanner:
         """扫描所有配置的路径并索引文件（使用并行处理优化性能）"""
         start_time = time.time()
         self.logger.info("开始扫描并索引文件")
-        self.logger.info(f"扫描路径列表: {self.scan_paths}, 并行线程: {self.max_workers}")
+        self.logger.info(f"开始扫描: {len(self.scan_paths)} 个路径, 并行线程: {self.max_workers}")
 
         # 重置停止标志
         with self._stop_lock:
@@ -650,7 +650,7 @@ class FileScanner:
         try:
             file_size = file_path.stat().st_size
             if file_size > self.max_file_size:
-                self.logger.info(f"跳过过大文件: {path}, 大小: {file_size}, 限制: {self.max_file_size}")
+                self.logger.debug(f"跳过过大文件: {os.path.basename(path)}, 大小: {file_size/1024/1024:.1f}MB")
                 return False
             self.logger.debug(f"文件大小检查通过: {path}, 大小: {file_size}")
         except Exception as e:
@@ -664,7 +664,7 @@ class FileScanner:
         if file_ext in ['.jpg', '.jpeg', '.png', '.gif', '.bmp', '.tiff', '.svg', '.webp', 
                        '.mp3', '.wav', '.flac', '.ogg', '.m4a',
                        '.mp4', '.avi', '.mov', '.mkv', '.wmv']:
-             self.logger.info(f"强制跳过媒体文件: {path}")
+             self.logger.debug(f"强制跳过媒体文件: {os.path.basename(path)}")
              return False
 
         self.logger.debug(f"检查文件扩展名: {path}, 扩展名: {file_ext}")
