@@ -8,7 +8,7 @@
 
 import os
 from pathlib import Path
-from typing import List, Dict, Any, Optional, Tuple
+from typing import List, Dict, Any, Optional
 from dataclasses import dataclass, field
 
 from backend.core.exceptions import ConfigValidationError
@@ -217,13 +217,15 @@ class ConfigValidator:
             return value.lower() in ('true', '1', 'yes', 'on')
         return bool(value)
 
-    def _getfloat(self, section: str, key: str, default=0.0):
+    def _getfloat(self, section: str, key: str, default: Optional[float] = 0.0):
         """获取浮点值"""
         value = self._get_value(section, key, default)
+        if value is None:
+            return default if default is not None else 0.0
         try:
             return float(value)
         except (ValueError, TypeError):
-            return default
+            return default if default is not None else 0.0
 
     def _validate_required_sections(self, result: ValidationResult) -> None:
         """验证必要的配置节是否存在"""
@@ -333,6 +335,9 @@ class ConfigValidator:
     def _validate_scan_paths_from_config(self, result: ValidationResult) -> None:
         """从配置验证扫描路径"""
         scan_paths = self._get_value('file_scanner', 'scan_paths', [])
+        # 确保是列表类型
+        if not isinstance(scan_paths, list):
+            scan_paths = [scan_paths] if scan_paths else []
         self._validate_scan_paths(scan_paths, result)
 
     def _validate_scan_paths(self, scan_paths: List[str], result: Optional[ValidationResult] = None) -> bool:
@@ -414,14 +419,19 @@ class ConfigValidator:
                 )
 
         # 检查依赖
-        try:
-            import requests
-        except ImportError:
-            result.add_error(
-                message='AI功能需要 requests 库: pip install requests',
-                section='ai_model.enabled',
-                code='MISSING_DEPENDENCY'
-            )
+        if not any('requests' in str(spec) for spec in globals()):
+            # 检查 requests 是否已导入（通过 importlib）
+            try:
+                import importlib.util
+                spec = importlib.util.find_spec('requests')
+                if spec is None:
+                    raise ImportError()
+            except (ImportError, ValueError):
+                result.add_error(
+                    message='AI功能需要 requests 库: pip install requests',
+                    section='ai_model.enabled',
+                    code='MISSING_DEPENDENCY'
+                )
 
     def _validate_permissions(self, result: ValidationResult) -> None:
         """验证运行权限"""
@@ -552,7 +562,7 @@ class ConfigValidator:
                     suggestion=f'pip install {module}'
                 )
 
-    def print_report(self, result: ValidationResult = None) -> None:
+    def print_report(self, result: Optional[ValidationResult] = None) -> None:
         """打印验证报告"""
         if result is None:
             # 向后兼容：使用旧版验证结果

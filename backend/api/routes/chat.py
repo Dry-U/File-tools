@@ -2,6 +2,7 @@
 聊天/对话相关路由
 """
 
+from typing import Any, Dict, List, Optional
 from fastapi import APIRouter, HTTPException, Request, Depends
 
 from backend.api.models import ChatRequest, ChatResponse

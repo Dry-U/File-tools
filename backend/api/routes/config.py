@@ -2,6 +2,7 @@
 配置管理相关路由
 """
 
+from typing import Any, Dict, List, Optional
 from fastapi import APIRouter, HTTPException, Request, Depends
 
 from backend.utils.config_loader import ConfigLoader
@@ -70,7 +71,9 @@ async def update_config(
         # 支持的配置节
         valid_sections = {
             'ai_model': {'flat': True},  # 使用扁平化键
-            'rag': {'flat': True}
+            'rag': {'flat': True},
+            'local_model': {'flat': True},
+            'search': {'flat': True}
         }
 
         # 更新配置
@@ -80,6 +83,10 @@ async def update_config(
                 # 扁平化嵌套对象
                 flattened = flatten_dict(values)
                 for key, value in flattened.items():
+                    # 特殊处理：保留完整的 keys 对象而非单独的键
+                    # 跳过单独的 api_key，只保存 keys.{provider}
+                    if key == 'api.api_key' and 'api.keys' in flattened:
+                        continue
                     config_loader.set(section, key, value)
                 updated_sections.append(section)
 
@@ -87,17 +94,22 @@ async def update_config(
         if updated_sections:
             success = config_loader.save()
             if success:
-                # 如果AI模型配置变更，触发RAGPipeline重新初始化
+                # 如果AI模型配置变更，异步触发RAGPipeline重新初始化
                 if 'ai_model' in updated_sections:
-                    try:
-                        if hasattr(app.state, 'rag_pipeline') and app.state.rag_pipeline:
-                            # 调用reload_model_manager强制重新创建ModelManager
-                            app.state.rag_pipeline.reload_model_manager()
-                            logger.info("RAGPipeline ModelManager已重新加载")
-                    except Exception as e:
-                        logger.warning(f"重新加载ModelManager时出错: {e}")
-                        # 出错时清除rag_pipeline，下次请求时会重新创建
-                        app.state.rag_pipeline = None
+                    import threading
+                    def reload_in_background():
+                        try:
+                            if hasattr(app.state, 'rag_pipeline') and app.state.rag_pipeline:
+                                app.state.rag_pipeline.reload_model_manager()
+                                logger.info("RAGPipeline ModelManager已重新加载")
+                        except Exception as e:
+                            logger.warning(f"重新加载ModelManager时出错: {e}")
+                            # 出错时清除rag_pipeline，下次请求时会重新创建
+                            app.state.rag_pipeline = None
+                    
+                    # 在后台线程中执行重新加载，不阻塞响应
+                    reload_thread = threading.Thread(target=reload_in_background, daemon=True)
+                    reload_thread.start()
 
                 return {
                     "status": "success",

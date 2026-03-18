@@ -139,7 +139,7 @@ const FileToolsUtils = (function() {
         toastEl.innerHTML = `
             <div class="d-flex">
                 <div class="toast-body">${escapeHtml(message)}</div>
-                <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast"></button>
+                <button type="button" class="btn btn-sm btn-outline-light border-0 me-2 m-auto py-0 px-1" data-bs-dismiss="toast"><i class="bi bi-x-lg"></i></button>
             </div>
         `;
         document.body.appendChild(toastEl);

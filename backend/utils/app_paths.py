@@ -144,11 +144,10 @@ class AppPaths:
         """
         if self.is_frozen:
             # PyInstaller 打包后的路径
-            if hasattr(sys, '_MEIPASS'):
+            meipass = getattr(sys, '_MEIPASS', None)
+            if meipass:
                 # 单文件模式：临时解压目录
-                meipass = Path(sys._MEIPASS)
-                # 检查 frontend 是否在 MEIPASS 中
-                frontend = meipass / 'frontend'
+                frontend = Path(meipass) / 'frontend'
                 if frontend.exists():
                     return frontend
 

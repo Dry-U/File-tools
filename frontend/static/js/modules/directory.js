@@ -48,16 +48,15 @@ const FileToolsDirectory = (function() {
             const iconClass = item.exists ? 'bi-folder-fill' : 'bi-folder-x';
             const fileCountText = item.exists ? `约 ${item.file_count} 个文件` : '路径不存在';
             const pathAttr = FileToolsUtils.escapeHtml(item.path).replace(/"/g, '&quot;');
-            const pathJs = JSON.stringify(item.path).slice(1, -1);
 
             return `
-                <div class="directory-item ${existsClass}">
+                <div class="directory-item ${existsClass}" data-path="${pathAttr}">
                     <i class="bi ${iconClass} directory-icon"></i>
                     <div class="directory-info">
                         <div class="directory-path" title="${pathAttr}">${FileToolsUtils.escapeHtml(item.path)}</div>
                         <div class="directory-meta">${FileToolsUtils.escapeHtml(fileCountText)}</div>
                     </div>
-                    <button class="directory-delete" onclick="FileToolsDirectory.removeDirectory('${pathJs}')" title="删除目录">
+                    <button class="directory-delete" data-path="${pathAttr}" title="删除目录">
                         <i class="bi bi-trash"></i>
                     </button>
                 </div>

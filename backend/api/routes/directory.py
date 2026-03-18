@@ -9,7 +9,7 @@ from pathlib import Path
 from fastapi import APIRouter, HTTPException, Depends
 
 from backend.api.models import (
-    DirectoryPath, DirectoryResponse, BrowseResponse, DirectoriesListResponse
+    DirectoryPath, DirectoryResponse, BrowseResponse, DirectoriesListResponse, DirectoryInfo
 )
 from backend.utils.config_loader import ConfigLoader
 from backend.utils.logger import get_logger
@@ -114,15 +114,15 @@ async def get_directories(
             is_monitoring = path in monitored_dirs
             file_count = _estimate_file_count(path) if exists else 0
 
-            directories.append({
-                "path": path,
-                "exists": exists,
-                "is_scanning": is_scanning,
-                "is_monitoring": is_monitoring,
-                "file_count": file_count
-            })
+            directories.append(DirectoryInfo(
+                path=path,
+                exists=exists,
+                is_scanning=is_scanning,
+                is_monitoring=is_monitoring,
+                file_count=file_count
+            ))
 
-        return {"directories": directories}
+        return DirectoriesListResponse(directories=directories)
     except HTTPException:
         raise
     except Exception as e:
@@ -160,12 +160,12 @@ async def add_directory(
             config_loader.get('file_scanner', 'scan_paths', []))
         existing_paths = scan_paths
         if expanded_path in existing_paths:
-            return {
-                "status": "success",
-                "message": "目录已在列表中",
-                "path": expanded_path,
-                "needs_rebuild": False
-            }
+            return DirectoryResponse(
+                status="success",
+                message="目录已在列表中",
+                path=expanded_path,
+                needs_rebuild=False
+            )
 
         # 添加到扫描路径
         config_loader.add_scan_path(expanded_path)
@@ -191,12 +191,12 @@ async def add_directory(
         # 保存配置
         config_loader.save()
 
-        return {
-            "status": "success",
-            "message": "目录已添加",
-            "path": expanded_path,
-            "needs_rebuild": True
-        }
+        return DirectoryResponse(
+            status="success",
+            message="目录已添加",
+            path=expanded_path,
+            needs_rebuild=True
+        )
     except HTTPException:
         raise
     except Exception as e:
@@ -236,12 +236,12 @@ async def remove_directory(
         # 保存配置
         config_loader.save()
 
-        return {
-            "status": "success",
-            "message": "目录已删除",
-            "path": expanded_path,
-            "needs_rebuild": False
-        }
+        return DirectoryResponse(
+            status="success",
+            message="目录已删除",
+            path=expanded_path,
+            needs_rebuild=False
+        )
     except HTTPException:
         raise
     except Exception as e:
@@ -282,16 +282,16 @@ async def browse_directory() -> BrowseResponse:
         selected_path = await loop.run_in_executor(None, _show_directory_dialog)
 
         if selected_path:
-            return {
-                "status": "success",
-                "path": os.path.abspath(selected_path),
-                "canceled": False
-            }
+            return BrowseResponse(
+                status="success",
+                path=os.path.abspath(selected_path),
+                canceled=False
+            )
         else:
-            return {
-                "status": "success",
-                "canceled": True
-            }
+            return BrowseResponse(
+                status="success",
+                canceled=True
+            )
     except Exception as e:
         logger.error(f"打开目录选择对话框错误: {str(e)}")
         raise HTTPException(status_code=500, detail="打开目录选择对话框失败，请稍后重试") from e

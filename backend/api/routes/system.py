@@ -13,7 +13,6 @@ from backend.utils.logger import get_logger
 from backend.api.dependencies import (
     get_config_loader, get_index_manager, get_file_scanner, get_rate_limiter
 )
-from backend.api.main import app
 from backend.api.models import HealthCheckResponse
 
 logger = get_logger(__name__)
@@ -89,6 +88,7 @@ async def rebuild_index(
 
 @router.get("/health")
 async def health_check(
+    request: Request,
     config_loader: ConfigLoader = Depends(get_config_loader),
     index_manager=Depends(get_index_manager)
 ) -> HealthCheckResponse:
@@ -112,8 +112,8 @@ async def health_check(
 
         # 检查RAG管道（支持优雅降级状态）
         try:
-            rag_status = getattr(app.state, 'rag_status', 'unknown')
-            rag_error = getattr(app.state, 'rag_error', None)
+            rag_status = getattr(request.app.state, 'rag_status', 'unknown')
+            rag_error = getattr(request.app.state, 'rag_error', None)
 
             if rag_status == "ready":
                 components['rag_pipeline'] = {
@@ -127,7 +127,7 @@ async def health_check(
                     "error": rag_error or "未知错误",
                     "message": "AI功能暂时不可用，其他功能正常"
                 }
-            elif getattr(app.state, 'rag_initializing', False):
+            elif getattr(request.app.state, 'rag_initializing', False):
                 components['rag_pipeline'] = {
                     "status": "initializing",
                     "enabled": True
@@ -154,7 +154,7 @@ async def health_check(
 
         return HealthCheckResponse(
             status=health_status,
-            initialized=getattr(app.state, 'initialized', False),
+            initialized=getattr(request.app.state, 'initialized', False),
             timestamp=time.time(),
             components=components
         )
@@ -164,9 +164,9 @@ async def health_check(
 
 
 @router.get("/health/ready")
-async def readiness_check():
+async def readiness_check(request: Request):
     """就绪检查 - 用于Kubernetes等环境的就绪探针"""
-    if getattr(app.state, 'initialized', False):
+    if getattr(request.app.state, 'initialized', False):
         return {"ready": True}
     else:
         raise HTTPException(status_code=503, detail="服务尚未就绪")

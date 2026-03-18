@@ -1,6 +1,9 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-"""搜索引擎模块 - 集成文本搜索和向量搜索功能"""
+"""搜索引擎模块 - 集成文本搜索和向量搜索功能
+
+类型注解完善版本，提升代码可维护性和 IDE 支持。
+"""
 import os
 import re
 import time
@@ -11,7 +14,7 @@ import logging
 import traceback
 from datetime import datetime
 from collections import OrderedDict
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Tuple, Union
 import numpy as np
 from threading import RLock
 
@@ -33,6 +36,11 @@ from backend.core.constants import (
 )
 from backend.core.sharded_cache import ShardedCache
 from backend.core.query_processor import QueryProcessor
+
+# 类型别名定义
+FilterDict = Dict[str, Any]
+SearchResult = Dict[str, Any]
+ScoredResult = Tuple[str, float]
 
 class SearchEngine:
     """搜索引擎类，负责执行文件搜索和结果排序"""
@@ -117,22 +125,20 @@ class SearchEngine:
             self.logger.info(f"搜索引擎初始化完成，文本权重: {self.text_weight}, 向量权重: {self.vector_weight}, 缓存已禁用")
 
     def _get_cache_key(self, query, filters=None) -> str:
-        """生成缓存键"""
+        """生成缓存键
+        
+        使用 JSON 序列化确保过滤器字典顺序一致性，避免缓存键冲突。
+        """
         if filters is None:
             filters = {}
         try:
-            normalized_filters = {}
-            for k, v in sorted(filters.items()):
-                if isinstance(v, (list, tuple)):
-                    normalized_filters[k] = tuple(sorted(str(x) for x in v))
-                elif isinstance(v, dict):
-                    normalized_filters[k] = json.dumps(v, sort_keys=True, ensure_ascii=True)
-                else:
-                    normalized_filters[k] = str(v)
-            cache_str = f"{query}:{json.dumps(normalized_filters, sort_keys=True, ensure_ascii=True)}"
+            # 使用 json.dumps 统一序列化，确保一致性
+            normalized_filters = json.dumps(filters, sort_keys=True, ensure_ascii=True)
+            cache_str = f"{query}:{normalized_filters}"
         except (TypeError, ValueError):
-            cache_str = f"{query}:{str(sorted(filters.items()))}"
-        return hashlib.md5(cache_str.encode(), usedforsecurity=False).hexdigest()
+            # 降级处理：直接转换为字符串
+            cache_str = f"{query}:{str(filters)}"
+        return hashlib.md5(cache_str.encode()).hexdigest()
 
 
     def _get_from_cache(self, key: str) -> Optional[Any]:
@@ -147,21 +153,23 @@ class SearchEngine:
             return
         self.cache.put(key, result)
     
-    def search(self, query: str, filters: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
-        """执行搜索，整合文本搜索和向量搜索结果"""
+    def search(self, query: str, filters: Optional[FilterDict] = None) -> List[SearchResult]:
+        """执行搜索，整合文本搜索和向量搜索结果
+        
+        Args:
+            query: 搜索查询字符串
+            filters: 可选的过滤器字典，包含 file_types, date_from, date_to 等
+            
+        Returns:
+            搜索结果列表，每个结果包含 path, filename, score, snippet 等字段
+        """
         start_time = time.time()
         self.logger.info(f"执行搜索: {query}, 过滤器: {filters}")
 
-        # 使用QueryProcessor扩展查询
-        try:
-            expanded_queries = QueryProcessor(self.config_loader).process(query)
-            self.logger.info(f"查询扩展: {expanded_queries}")
-        except Exception as e:
-            self.logger.warning(f"查询扩展失败: {e}")
-            expanded_queries = [query]
-
-        # 检查缓存
-        cache_key = self._get_cache_key(query, filters)
+        # 准备搜索：检查缓存、处理查询
+        cache_key, expanded_queries, filters = self._prepare_search(query, filters)
+        
+        # 检查缓存命中
         if self.enable_cache:
             cached_result = self._get_from_cache(cache_key)
             if cached_result is not None:
@@ -172,6 +180,38 @@ class SearchEngine:
         # 保存当前查询以供后续使用
         self.current_query = query
 
+        # 执行多路召回搜索
+        all_text_results, all_vector_results = self._execute_multi_recall(expanded_queries, filters)
+        
+        # 后处理结果：合并、重排、过滤
+        limited_results = self._post_process_results(query, filters, all_text_results, all_vector_results)
+        
+        search_time = time.time() - start_time
+        self.logger.info(f"搜索完成，找到 {len(limited_results)} 条结果，耗时: {search_time:.3f}秒")
+
+        # 将结果存入缓存
+        if self.enable_cache:
+            self._put_in_cache(cache_key, limited_results)
+
+        return limited_results
+    
+    def _prepare_search(self, query: str, filters: Optional[FilterDict]) -> tuple:
+        """准备搜索：检查缓存、处理查询、处理过滤器
+        
+        Returns:
+            (cache_key, expanded_queries, processed_filters)
+        """
+        # 使用QueryProcessor扩展查询
+        try:
+            expanded_queries = QueryProcessor(self.config_loader).process(query)
+            self.logger.info(f"查询扩展: {expanded_queries}")
+        except Exception as e:
+            self.logger.warning(f"查询扩展失败: {e}")
+            expanded_queries = [query]
+
+        # 检查缓存
+        cache_key = self._get_cache_key(query, filters)
+        
         # 如果没有提供过滤器，使用默认空字典
         if filters is None:
             filters = {}
@@ -181,10 +221,15 @@ class SearchEngine:
         file_type_filter = self._detect_file_type_filter(query)
         if file_type_filter:
             filters['file_types'] = file_type_filter
-
-        # 保持查询与类型筛选相互独立：不再基于查询自动推断文件类型过滤
-
-        # 执行多路召回：原始查询 + 扩展查询
+            
+        return cache_key, expanded_queries, filters
+    
+    def _execute_multi_recall(self, expanded_queries: List[str], filters: FilterDict) -> tuple:
+        """执行多路召回搜索
+        
+        Returns:
+            (all_text_results, all_vector_results)
+        """
         all_text_results = []
         all_vector_results = []
         seen_paths = set()
@@ -210,7 +255,16 @@ class SearchEngine:
                     all_vector_results.append(result)
 
         self.logger.info(f"多路召回: 文本搜索 {len(all_text_results)} 条, 向量搜索 {len(all_vector_results)} 条")
-
+        
+        return all_text_results, all_vector_results
+    
+    def _post_process_results(self, query: str, filters: FilterDict, 
+                            all_text_results: List, all_vector_results: List) -> List[SearchResult]:
+        """后处理搜索结果：合并、重排、过滤、排序
+        
+        Returns:
+            处理后的搜索结果列表
+        """
         # 合并和排序结果
         combined_results = self._combine_results(all_text_results, all_vector_results)
         self.logger.info(f"合并后 {len(combined_results)} 条结果")
@@ -253,17 +307,18 @@ class SearchEngine:
 
         # 限制结果数量
         limited_results = limited_results[:self.max_results]
-
-        search_time = time.time() - start_time
-        self.logger.info(f"搜索完成，找到 {len(limited_results)} 条结果，耗时: {search_time:.3f}秒")
-
-        # 将结果存入缓存
-        if self.enable_cache:
-            self._put_in_cache(cache_key, limited_results)
-
+        
         return limited_results
 
-    def _detect_file_type_filter(self, query: str):
+    def _detect_file_type_filter(self, query: str) -> Optional[List[str]]:
+        """检测查询中的文件类型过滤器
+        
+        Args:
+            query: 用户查询字符串
+            
+        Returns:
+            文件扩展名列表，如果没有检测到则返回 None
+        """
         q = (query or '').strip().lower()
         if not q:
             return None
@@ -281,8 +336,16 @@ class SearchEngine:
                 return [ext]
         return None
     
-    def _search_text(self, query, filters=None):
-        """执行文本搜索"""
+    def _search_text(self, query: str, filters: Optional[FilterDict] = None) -> List[SearchResult]:
+        """执行文本搜索
+        
+        Args:
+            query: 搜索查询字符串
+            filters: 可选的过滤器字典
+            
+        Returns:
+            文本搜索结果列表
+        """
         try:
             # 调用索引管理器的文本搜索功能，获取更多结果以确保过滤后有足够数量
             # 将过滤器传递给search_text，包括 case_sensitive 参数
@@ -299,8 +362,16 @@ class SearchEngine:
             self.logger.error(f"详细错误信息: {traceback.format_exc()}")
             return []
 
-    def _search_vector(self, query, filters=None):
-        """执行向量搜索"""
+    def _search_vector(self, query: str, filters: Optional[FilterDict] = None) -> List[SearchResult]:
+        """执行向量搜索
+        
+        Args:
+            query: 搜索查询字符串
+            filters: 可选的过滤器字典
+            
+        Returns:
+            向量搜索结果列表
+        """
         try:
             # 调用索引管理器的向量搜索功能，获取更多结果以确保过滤后有足够数量
             results = self.index_manager.search_vector(query, limit=self.max_results * 3)
@@ -497,7 +568,7 @@ class SearchEngine:
         # 步骤5: 排序并返回
         return sorted(combined.values(), key=lambda x: x['score'], reverse=True)
     
-    def _apply_filters(self, results, filters):
+    def _apply_filters(self, results: list[dict], filters: dict) -> list[dict]:
         """应用过滤器"""
         if not filters:
             return results
@@ -509,7 +580,7 @@ class SearchEngine:
         
         return filtered
     
-    def _match_filters(self, result, filters):
+    def _match_filters(self, result: dict, filters: dict) -> bool:
         """检查结果是否匹配所有过滤器条件"""
         # 文件类型过滤
         if 'file_types' in filters and filters['file_types']:
@@ -567,7 +638,7 @@ class SearchEngine:
         # 所有过滤条件都通过
         return True
     
-    def search_by_path(self, path_pattern):
+    def search_by_path(self, path_pattern: str) -> list[dict]:
         """按路径搜索文件"""
         try:
             # 这是一个简化实现，实际可能需要更复杂的路径匹配逻辑
@@ -596,12 +667,12 @@ class SearchEngine:
             self.logger.error(f"按路径搜索失败: {str(e)}")
             return []
     
-    def _match_path_pattern(self, path, pattern):
+    def _match_path_pattern(self, path: str, pattern: str) -> bool:
         """简单的路径模式匹配"""
         # 使用 fnmatch 模块进行模式匹配
         return fnmatch.fnmatch(path.lower(), pattern.lower())
     
-    def get_suggestions(self, query, limit=5):
+    def get_suggestions(self, query: str, limit: int = 5) -> list[dict]:
         """获取搜索建议"""
         try:
             # 这是一个简化实现，实际可能需要更复杂的建议生成逻辑
@@ -632,7 +703,7 @@ class SearchEngine:
             self.logger.error(f"获取搜索建议失败: {str(e)}")
             return []
     
-    def get_search_stats(self):
+    def get_search_stats(self) -> dict[str, any]:
         """获取搜索统计信息"""
         # 这是一个简化实现，可以根据实际需求扩展
         stats = {
@@ -648,7 +719,7 @@ class SearchEngine:
         
         return stats
     
-    def _get_query_words(self):
+    def _get_query_words(self) -> list[str]:
         """从当前的搜索查询中提取查询词"""
         if hasattr(self, 'current_query') and self.current_query:
             # 简单的分词处理，按空格和常见分隔符分割

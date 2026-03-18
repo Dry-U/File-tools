@@ -84,8 +84,9 @@ class ModelManager:
             self.mode = ModelMode.LOCAL
 
         # 安全配置
-        # 注意：出于安全考虑，SSL验证始终启用，不允许通过配置禁用
-        self.verify_ssl = True
+        self.verify_ssl = config_loader.getboolean('ai_model', 'security.verify_ssl', True)
+        if not self.verify_ssl:
+            logger.warning("SSL证书验证已禁用，这会降低安全性，仅建议用于自签名证书或内网环境")
         self.timeout = config_loader.getint('ai_model', 'security.timeout', 120)
         self.retry_count = config_loader.getint('ai_model', 'security.retry_count', 2)
 

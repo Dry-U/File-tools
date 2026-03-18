@@ -41,176 +41,16 @@ class IndexManager:
     def __init__(self, config_loader):
         self.config_loader = config_loader
         self.logger = logging.getLogger(__name__)
-        try:
-            data_dir = config_loader.get('system', 'data_dir', './data')
-            # 确保 data_dir 是字符串类型（防止 mock 对象传入）
-            if not isinstance(data_dir, str):
-                self.logger.warning(f"data_dir 类型错误: {type(data_dir)}, 使用默认值")
-                data_dir = './data'
-            self.tantivy_index_path = config_loader.get(
-                'index', 'tantivy_path', f'{data_dir}/tantivy_index')
-            self.hnsw_index_path = config_loader.get(
-                'index', 'hnsw_path', f'{data_dir}/hnsw_index')
-            self.metadata_path = config_loader.get(
-                'index', 'metadata_path', f'{data_dir}/metadata')
-        except Exception as e:
-            self.logger.error(f"配置读取失败: {str(e)}")
-            self.tantivy_index_path = './data/tantivy_index'
-            self.hnsw_index_path = './data/hnsw_index'
-            self.metadata_path = './data/metadata'
-        os.makedirs(self.tantivy_index_path, exist_ok=True)
-        os.makedirs(self.hnsw_index_path, exist_ok=True)
-        os.makedirs(self.metadata_path, exist_ok=True)
-        try:
-            custom_dict_path = os.path.join(os.path.dirname(
-                __file__), '..', '..', 'data', 'custom_dict.txt')
-            if os.path.exists(custom_dict_path):
-                jieba.load_userdict(custom_dict_path)
-                self.logger.debug(f"加载自定义词典: {custom_dict_path}")
-        except Exception as e:
-            self.logger.warning(f"加载自定义词典失败: {str(e)}")
-        self.embedding_provider = config_loader.get(
-            'embedding', 'provider', 'fastembed')
-        model_enabled = config_loader.get('embedding', 'enabled', False)
-        if model_enabled:
-            try:
-                if self.embedding_provider == 'modelscope':
-                    from modelscope.pipelines import pipeline
-                    from modelscope.utils.constant import Tasks
-                    model_name = config_loader.get(
-                        'embedding', 'model_name', 'iic/nlp_gte_sentence-embedding_chinese-base')
-                    cache_dir = config_loader.get(
-                        'embedding', 'cache_dir', None)
-
-                    # 如果指定了本地路径，使用本地路径
-                    if cache_dir and os.path.exists(os.path.join(cache_dir, model_name.split('/')[-1])):
-                        model_path = os.path.join(
-                            cache_dir, model_name.split('/')[-1])
-                        self.logger.info(f"使用本地模型路径: {model_path}")
-                        self.embedding_pipeline = pipeline(
-                            Tasks.sentence_embedding, model=model_path)
-                    else:
-                        self.embedding_pipeline = pipeline(
-                            Tasks.sentence_embedding, model=model_name)
-
-                    # 包装一个embed方法以兼容
-                    class ModelScopeWrapper:
-                        def __init__(self, pipeline):
-                            self.pipeline = pipeline
-
-                        def embed(self, texts):
-                            # ModelScope pipeline returns a dict with 'text_embedding'
-                            # We need to yield vectors one by one or batch
-                            # The pipeline handles batching if texts is a list
-
-                            # 针对 gte-sentence-embedding 模型的特殊处理
-                            # 它可能需要字典输入或者对列表输入的处理不同
-                            if isinstance(texts, list):
-                                # 尝试逐个处理或构造特定格式
-                                for text in texts:
-                                    try:
-                                        # 尝试直接传字符串
-                                        res = self.pipeline(input=text)
-                                    except TypeError:
-                                        # 如果失败，尝试传字典
-                                        res = self.pipeline(
-                                            input={'source_sentence': [text]})
-
-                                    if 'text_embedding' in res:
-                                        # 结果可能是 [1, 768] 或 [768]
-                                        emb = res['text_embedding']
-                                        if isinstance(emb, list) and len(emb) > 0 and isinstance(emb[0], list):
-                                            yield emb[0]
-                                        elif isinstance(emb, np.ndarray):
-                                            if emb.ndim > 1:
-                                                yield emb[0]
-                                            else:
-                                                yield emb
-                                        else:
-                                            yield emb
-                            else:
-                                # 单个文本
-                                try:
-                                    res = self.pipeline(input=texts)
-                                except TypeError:
-                                    res = self.pipeline(
-                                        input={'source_sentence': [texts]})
-
-                                if 'text_embedding' in res:
-                                    emb = res['text_embedding']
-                                    if isinstance(emb, list) and len(emb) > 0 and isinstance(emb[0], list):
-                                        yield emb[0]
-                                    elif isinstance(emb, np.ndarray):
-                                        if emb.ndim > 1:
-                                            yield emb[0]
-                                        else:
-                                            yield emb
-                                    else:
-                                        yield emb
-
-                    self.embedding_model = ModelScopeWrapper(
-                        self.embedding_pipeline)
-
-                    # Test
-                    vec = next(self.embedding_model.embed(['test']))
-                    self.vector_dim = len(vec)
-                    self.logger.info(
-                        f"ModelScope Embedding模型加载成功，维度: {self.vector_dim}")
-
-                else:
-                    # Default to fastembed
-                    from fastembed import TextEmbedding
-                    model_name = config_loader.get(
-                        'embedding', 'model_name', 'BAAI/bge-small-zh-v1.5')
-                    if not model_name:
-                        model_name = 'BAAI/bge-small-zh-v1.5'
-
-                    cache_dir = config_loader.get(
-                        'embedding', 'cache_dir', None)
-
-                    # 尝试创建模型实例，如果下载失败则记录错误并禁用embedding
-                    try:
-                        if cache_dir:
-                            self.embedding_model = TextEmbedding(
-                                model_name=model_name, cache_dir=cache_dir)
-                        else:
-                            self.embedding_model = TextEmbedding(
-                                model_name=model_name)
-                        try:
-                            # 测试模型是否可以正常工作
-                            vec = next(self.embedding_model.embed(['test']))
-                            self.vector_dim = len(vec)
-                            self.logger.info(
-                                f"Embedding模型加载成功，维度: {self.vector_dim}")
-                        except Exception as e:
-                            self.vector_dim = 384
-                            self.logger.warning(
-                                f"Embedding模型测试失败，使用默认维度: {self.vector_dim}, 错误: {str(e)}")
-                    except Exception as e:
-                        self.logger.error(f"Embedding模型创建失败，将禁用向量索引: {str(e)}")
-                        self.embedding_model = None
-                        self.vector_dim = 384
-            except ImportError as ie:
-                self.logger.error(f"依赖库未安装 ({str(ie)})，禁用向量索引")
-                self.embedding_model = None
-                self.vector_dim = 384
-            except Exception as e:
-                self.logger.error(f"加载Embedding模型时发生未知错误: {str(e)}")
-                self.embedding_model = None
-                self.vector_dim = 384
-        else:
-            self.logger.info("Embedding功能未启用")
-            self.embedding_model = None
-            self.vector_dim = 384
-        self._init_tantivy_index()
-        self._init_hnsw_index()
-        self.index_ready = self.is_index_ready()
-        self.schema_updated = False
-        try:
-            self._ensure_schema_version()
-        except Exception as e:
-            self.logger.warning(f"检查索引模式版本失败: {str(e)}")
-
+        
+        # 初始化配置
+        self._init_config()
+        
+        # 初始化嵌入模型
+        self._init_embedding_model()
+        
+        # 初始化索引
+        self._init_indexes()
+        
         # 批量添加模式支持
         self._batch_mode = False
         self._batch_buffer = []
@@ -220,6 +60,175 @@ class IndexManager:
         self._last_commit_time = time.time()
         self._batch_lock = threading.Lock()
         self._writer = None
+
+    def _init_config(self) -> None:
+        """初始化配置参数"""
+        try:
+            data_dir = self.config_loader.get('system', 'data_dir', './data')
+            # 确保 data_dir 是字符串类型（防止 mock 对象传入）
+            if not isinstance(data_dir, str):
+                self.logger.warning(f"data_dir 类型错误: {type(data_dir)}, 使用默认值")
+                data_dir = './data'
+            self.tantivy_index_path = self.config_loader.get(
+                'index', 'tantivy_path', f'{data_dir}/tantivy_index')
+            self.hnsw_index_path = self.config_loader.get(
+                'index', 'hnsw_path', f'{data_dir}/hnsw_index')
+            self.metadata_path = self.config_loader.get(
+                'index', 'metadata_path', f'{data_dir}/metadata')
+        except Exception as e:
+            self.logger.error(f"配置读取失败: {str(e)}")
+            self.tantivy_index_path = './data/tantivy_index'
+            self.hnsw_index_path = './data/hnsw_index'
+            self.metadata_path = './data/metadata'
+        
+        os.makedirs(self.tantivy_index_path, exist_ok=True)
+        os.makedirs(self.hnsw_index_path, exist_ok=True)
+        os.makedirs(self.metadata_path, exist_ok=True)
+        
+        try:
+            custom_dict_path = os.path.join(os.path.dirname(
+                __file__), '..', '..', 'data', 'custom_dict.txt')
+            if os.path.exists(custom_dict_path):
+                jieba.load_userdict(custom_dict_path)
+                self.logger.debug(f"加载自定义词典: {custom_dict_path}")
+        except Exception as e:
+            self.logger.warning(f"加载自定义词典失败: {str(e)}")
+        
+        self.embedding_provider = self.config_loader.get(
+            'embedding', 'provider', 'fastembed')
+
+    def _init_embedding_model(self) -> None:
+        """初始化嵌入模型"""
+        model_enabled = self.config_loader.get('embedding', 'enabled', False)
+        if not model_enabled:
+            self.logger.info("Embedding功能未启用")
+            self.embedding_model = None
+            self.vector_dim = 384
+            return
+        
+        try:
+            if self.embedding_provider == 'modelscope':
+                self._init_modelscope_embedding()
+            else:
+                self._init_fastembed_embedding()
+        except ImportError as ie:
+            self.logger.error(f"依赖库未安装 ({str(ie)})，禁用向量索引")
+            self.embedding_model = None
+            self.vector_dim = 384
+        except Exception as e:
+            self.logger.error(f"加载Embedding模型时发生未知错误: {str(e)}")
+            self.embedding_model = None
+            self.vector_dim = 384
+
+    def _init_modelscope_embedding(self) -> None:
+        """初始化ModelScope嵌入模型"""
+        from modelscope.pipelines import pipeline
+        from modelscope.utils.constant import Tasks
+        model_name = self.config_loader.get(
+            'embedding', 'model_name', 'iic/nlp_gte_sentence-embedding_chinese-base')
+        cache_dir = self.config_loader.get('embedding', 'cache_dir', None)
+
+        # 如果指定了本地路径，使用本地路径
+        if cache_dir and os.path.exists(os.path.join(cache_dir, model_name.split('/')[-1])):
+            model_path = os.path.join(cache_dir, model_name.split('/')[-1])
+            self.logger.info(f"使用本地模型路径: {model_path}")
+            self.embedding_pipeline = pipeline(
+                Tasks.sentence_embedding, model=model_path)
+        else:
+            self.embedding_pipeline = pipeline(
+                Tasks.sentence_embedding, model=model_name)
+
+        # ModelScope包装器类
+        class ModelScopeWrapper:
+            def __init__(self, pipeline):
+                self.pipeline = pipeline
+
+            def embed(self, texts):
+                if isinstance(texts, list):
+                    for text in texts:
+                        try:
+                            res = self.pipeline(input=text)
+                        except TypeError:
+                            res = self.pipeline(input={'source_sentence': [text]})
+
+                        if 'text_embedding' in res:
+                            emb = res['text_embedding']
+                            if isinstance(emb, list) and len(emb) > 0 and isinstance(emb[0], list):
+                                yield emb[0]
+                            elif isinstance(emb, np.ndarray):
+                                if emb.ndim > 1:
+                                    yield emb[0]
+                                else:
+                                    yield emb
+                            else:
+                                yield emb
+                else:
+                    try:
+                        res = self.pipeline(input=texts)
+                    except TypeError:
+                        res = self.pipeline(input={'source_sentence': [texts]})
+
+                    if 'text_embedding' in res:
+                        emb = res['text_embedding']
+                        if isinstance(emb, list) and len(emb) > 0 and isinstance(emb[0], list):
+                            yield emb[0]
+                        elif isinstance(emb, np.ndarray):
+                            if emb.ndim > 1:
+                                yield emb[0]
+                            else:
+                                yield emb
+                        else:
+                            yield emb
+
+        self.embedding_model = ModelScopeWrapper(self.embedding_pipeline)
+        
+        # 测试模型
+        vec = next(self.embedding_model.embed(['test']))
+        self.vector_dim = len(vec)
+        self.logger.info(f"ModelScope Embedding模型加载成功，维度: {self.vector_dim}")
+
+    def _init_fastembed_embedding(self) -> None:
+        """初始化FastEmbed嵌入模型"""
+        from fastembed import TextEmbedding
+        model_name = self.config_loader.get(
+            'embedding', 'model_name', 'BAAI/bge-small-zh-v1.5')
+        if not model_name:
+            model_name = 'BAAI/bge-small-zh-v1.5'
+
+        cache_dir = self.config_loader.get('embedding', 'cache_dir', None)
+
+        # 尝试创建模型实例
+        try:
+            if cache_dir:
+                self.embedding_model = TextEmbedding(
+                    model_name=model_name, cache_dir=cache_dir)
+            else:
+                self.embedding_model = TextEmbedding(model_name=model_name)
+            
+            # 测试模型是否可以正常工作
+            try:
+                vec = next(self.embedding_model.embed(['test']))
+                self.vector_dim = len(vec)
+                self.logger.info(f"Embedding模型加载成功，维度: {self.vector_dim}")
+            except Exception as e:
+                self.vector_dim = 384
+                self.logger.warning(
+                    f"Embedding模型测试失败，使用默认维度: {self.vector_dim}, 错误: {str(e)}")
+        except Exception as e:
+            self.logger.error(f"Embedding模型创建失败，将禁用向量索引: {str(e)}")
+            self.embedding_model = None
+            self.vector_dim = 384
+
+    def _init_indexes(self) -> None:
+        """初始化所有索引"""
+        self._init_tantivy_index()
+        self._init_hnsw_index()
+        self.index_ready = self.is_index_ready()
+        self.schema_updated = False
+        try:
+            self._ensure_schema_version()
+        except Exception as e:
+            self.logger.warning(f"检查索引模式版本失败: {str(e)}")
 
     def _init_tantivy_index(self):
         schema_builder = tantivy.SchemaBuilder()
@@ -613,21 +622,43 @@ class IndexManager:
             return False
 
         deleted_from_tantivy = False
+
+        # 首先尝试清理可能的锁文件
         try:
-            query = self.tantivy_index.parse_query(f'"{file_path}"', ['path'])
-            with self.tantivy_index.writer() as writer:
-                if hasattr(writer, 'delete_query'):
-                    writer.delete_query(query)
-                    writer.commit()
-                    deleted_from_tantivy = True
-                elif hasattr(writer, 'delete_documents'):
-                    writer.delete_documents('path', file_path)
-                    writer.commit()
-                    deleted_from_tantivy = True
+            lock_file = os.path.join(self.tantivy_index_path, 'meta.json.lock')
+            if os.path.exists(lock_file):
+                try:
+                    os.remove(lock_file)
+                    self.logger.debug("已清理Tantivy索引锁文件")
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
+        # 添加重试机制处理锁冲突
+        max_retries = 3
+        for retry in range(max_retries):
+            try:
+                query = self.tantivy_index.parse_query(f'"{file_path}"', ['path'])
+                with self.tantivy_index.writer() as writer:
+                    if hasattr(writer, 'delete_query'):
+                        writer.delete_query(query)
+                        writer.commit()
+                        deleted_from_tantivy = True
+                    elif hasattr(writer, 'delete_documents'):
+                        writer.delete_documents('path', file_path)
+                        writer.commit()
+                        deleted_from_tantivy = True
+                    else:
+                        self.logger.warning("Tantivy writer不支持删除操作，跳过文本索引删除")
+                break  # 成功则退出重试循环
+            except Exception as e:
+                if "LockBusy" in str(e) and retry < max_retries - 1:
+                    import time
+                    self.logger.warning(f"索引锁冲突，重试删除 {file_path} ({retry + 1}/{max_retries})")
+                    time.sleep(0.5 * (retry + 1))  # 递增等待时间
                 else:
-                    self.logger.warning("Tantivy writer不支持删除操作，跳过文本索引删除")
-        except Exception as e:
-            self.logger.warning(f"从Tantivy索引删除文档失败 {file_path}: {str(e)}")
+                    self.logger.warning(f"从Tantivy索引删除文档失败 {file_path}: {str(e)}")
 
         # 从向量元数据中删除（HNSW不支持删除，只能删除元数据）
         try:
@@ -649,179 +680,238 @@ class IndexManager:
         try:
             import re
             import jieba
-
-            def _clean_keyword(token: str) -> str:
-                return token.strip()
-
-            def _build_pattern(token: str):
-                # 允许字符之间穿插空白，适配 "J a v a" 这类被拆分的文本
-                # 对特殊字符进行转义
-                escaped = re.escape(token)
-                # 如果是字母或数字，允许中间有空格
-                if token.isalnum():
-                    pieces = [f"{re.escape(ch)}\\s*" for ch in token]
-                    pattern = ''.join(pieces)
-                    return re.compile(pattern, re.IGNORECASE)
-                return re.compile(escaped, re.IGNORECASE)
-
-            def _expand_ascii_span(text: str, start: int, end: int):
-                # 向左右扩展，确保高亮完整的ASCII单词（如JavaScript）
-                while start > 0 and text[start-1].isascii() and text[start-1].isalnum():
-                    start -= 1
-                while end < len(text) and text[end].isascii() and text[end].isalnum():
-                    end += 1
-                return start, end
-
-            def _collect_matches(full_text: str, patterns):
-                spans = []
-                seen = set()
-                for pat in patterns:
-                    for match in pat.finditer(full_text):
-                        span = _expand_ascii_span(
-                            full_text, match.start(), match.end())
-                        if span not in seen:
-                            seen.add(span)
-                            spans.append(span)
-                return spans
-
+            
             # 构建关键词集合
-            keywords = set()
-            # 1. 原始查询作为关键词
-            if query.strip():
-                keywords.add(query.strip())
-
-            # 2. 分词后的关键词
-            raw_tokens = [k.strip()
-                          for k in re.split(r'[\s,;，；]+', query) if k.strip()]
-            for token in raw_tokens:
-                cleaned = _clean_keyword(token)
-                if cleaned:
-                    keywords.add(cleaned)
-                # 只有当token比较长时才进行进一步分词，避免过度碎片化
-                if len(token) > 2:
-                    for seg in jieba.lcut_for_search(token):
-                        seg_clean = _clean_keyword(seg)
-                        if seg_clean and len(seg_clean) > 1:  # 忽略单字，除非是原始token
-                            keywords.add(seg_clean)
-
+            keywords = self._extract_keywords(query)
+            
             if not keywords:
                 return content[:200] + '...' if len(content) > 200 else content
-
-            patterns = [_build_pattern(token) for token in keywords if token]
+            
+            # 构建高亮正则模式
+            patterns = self._build_highlight_regex(keywords)
+            
             if not patterns:
                 return content[:200] + '...' if len(content) > 200 else content
-
-            matches = _collect_matches(content, patterns)
-
-            if not matches:
-                # fallback: 如果仍然没有匹配，则尝试直接定位（兼容极端情况）
-                lowered = content.lower()
-                for token in keywords:
-                    idx = lowered.find(token.lower())
-                    if idx != -1:
-                        match_span = _expand_ascii_span(
-                            content, idx, idx + len(token))
-                        matches.append(match_span)
-                        # 只要找到一个匹配就足够了
-                        break
-
+            
+            # 查找匹配项
+            matches = self._find_matches(content, patterns, keywords)
+            
             if not matches:
                 return content[:200] + '...' if len(content) > 200 else content
-
-            matches.sort(key=lambda x: x[0])
-
-            # 合并窗口
-            windows = []
-            for start, end in matches:
-                win_start = max(0, start - window_size // 2)
-                win_end = min(len(content), end + window_size // 2)
-                if windows and win_start < windows[-1][1]:
-                    windows[-1] = (windows[-1][0],
-                                   max(windows[-1][1], win_end))
-                else:
-                    windows.append((win_start, win_end))
-
-            scored_windows = []
-            lowered_content = content.lower()
-            for win_start, win_end in windows:
-                chunk = lowered_content[win_start:win_end]
-                score = 0
-                for token in keywords:
-                    if token.lower() in chunk:
-                        score += 1
-                # 优先考虑包含完整查询词的窗口
-                if query.lower() in chunk:
-                    score += 10
-                scored_windows.append((score, win_start, win_end))
-
-            scored_windows.sort(key=lambda x: x[0], reverse=True)
-            selected_windows = [(s, e)
-                                for _, s, e in scored_windows[:max_snippets]]
-            selected_windows.sort(key=lambda x: x[0])
-
-            snippets = []
-            for start, end in selected_windows:
-                # 尝试在标点符号处截断，使摘要更自然
-                curr_start = start
-                while curr_start > 0 and curr_start > start - 20 and content[curr_start] not in ' \t\n\r.,;，。；':
-                    curr_start -= 1
-                if curr_start > 0 and content[curr_start] in ' \t\n\r.,;，。；':
-                    curr_start += 1
-
-                curr_end = end
-                while curr_end < len(content) and curr_end < end + 20 and content[curr_end] not in ' \t\n\r.,;，。；':
-                    curr_end += 1
-
-                chunk = content[curr_start:curr_end].strip()
-                if chunk:
-                    snippets.append(chunk)
-
-            if not snippets:
-                # 如果窗口提取失败，回退到简单的正则提取
-                for token in keywords:
-                    pat = re.compile(re.escape(token), re.IGNORECASE)
-                    match = pat.search(content)
-                    if match:
-                        start = max(0, match.start() - 60)
-                        end = min(len(content), match.end() + 60)
-                        snippets.append(content[start:end])
-                        break
-
+            
+            # 选择最佳摘要片段
+            snippets = self._select_snippets(content, matches, query, keywords, window_size, max_snippets)
+            
             if not snippets:
                 return content[:200] + '...' if len(content) > 200 else content
-
-            def _apply_highlight(text: str):
-                spans = _collect_matches(text, patterns)
-                if not spans:
-                    return text
-                spans.sort(key=lambda x: x[0])
-                merged = []
-                for start, end in spans:
-                    if not merged or start > merged[-1][1]:
-                        merged.append([start, end])
-                    else:
-                        merged[-1][1] = max(merged[-1][1], end)
-
-                highlighted = []
-                last = 0
-                for start, end in merged:
-                    if start < last:
-                        continue
-                    highlighted.append(text[last:start])
-                    # 使用 text-danger 和 fw-bold 高亮
-                    highlighted.append(
-                        f'<span class="text-danger fw-bold">{text[start:end]}</span>')
-                    last = end
-                highlighted.append(text[last:])
-                return ''.join(highlighted)
-
-            processed_snippets = [_apply_highlight(
-                chunk) for chunk in snippets]
+            
+            # 应用高亮
+            processed_snippets = [self._apply_highlights(chunk, patterns) for chunk in snippets]
             final_snippet = '<br>...<br>'.join(processed_snippets)
             return final_snippet
         except Exception as exc:
             self.logger.error(f"生成摘要失败: {str(exc)}")
             return content[:200] + '...'
+    
+    def _extract_keywords(self, query):
+        """从查询中提取关键词"""
+        import re
+        import jieba
+        
+        def _clean_keyword(token: str) -> str:
+            return token.strip()
+        
+        keywords = set()
+        
+        # 1. 原始查询作为关键词
+        if query.strip():
+            keywords.add(query.strip())
+
+        # 2. 分词后的关键词
+        raw_tokens = [k.strip() for k in re.split(r'[\s,;，；]+', query) if k.strip()]
+        for token in raw_tokens:
+            cleaned = _clean_keyword(token)
+            if cleaned:
+                keywords.add(cleaned)
+            # 只有当token比较长时才进行进一步分词，避免过度碎片化
+            if len(token) > 2:
+                for seg in jieba.lcut_for_search(token):
+                    seg_clean = _clean_keyword(seg)
+                    if seg_clean and len(seg_clean) > 1:  # 忽略单字，除非是原始token
+                        keywords.add(seg_clean)
+        
+        return keywords
+    
+    def _build_highlight_regex(self, keywords):
+        """构建高亮正则表达式模式"""
+        import re
+        
+        def _build_pattern(token: str):
+            # 允许字符之间穿插空白，适配 "J a v a" 这类被拆分的文本
+            # 对特殊字符进行转义
+            escaped = re.escape(token)
+            # 如果是字母或数字，允许中间有空格
+            if token.isalnum():
+                pieces = [f"{re.escape(ch)}\\s*" for ch in token]
+                pattern = ''.join(pieces)
+                return re.compile(pattern, re.IGNORECASE)
+            return re.compile(escaped, re.IGNORECASE)
+        
+        return [_build_pattern(token) for token in keywords if token]
+    
+    def _find_matches(self, content, patterns, keywords):
+        """在内容中查找匹配项"""
+        import re
+        
+        def _expand_ascii_span(text: str, start: int, end: int):
+            # 向左右扩展，确保高亮完整的ASCII单词（如JavaScript）
+            while start > 0 and text[start-1].isascii() and text[start-1].isalnum():
+                start -= 1
+            while end < len(text) and text[end].isascii() and text[end].isalnum():
+                end += 1
+            return start, end
+        
+        def _collect_matches(full_text: str, patterns):
+            spans = []
+            seen = set()
+            for pat in patterns:
+                for match in pat.finditer(full_text):
+                    span = _expand_ascii_span(full_text, match.start(), match.end())
+                    if span not in seen:
+                        seen.add(span)
+                        spans.append(span)
+            return spans
+        
+        # 使用正则表达式查找匹配
+        matches = _collect_matches(content, patterns)
+        
+        # fallback: 如果仍然没有匹配，则尝试直接定位（兼容极端情况）
+        if not matches:
+            lowered = content.lower()
+            for token in keywords:
+                idx = lowered.find(token.lower())
+                if idx != -1:
+                    match_span = _expand_ascii_span(content, idx, idx + len(token))
+                    matches.append(match_span)
+                    # 只要找到一个匹配就足够了
+                    break
+        
+        # 按位置排序
+        matches.sort(key=lambda x: x[0])
+        return matches
+    
+    def _select_snippets(self, content, matches, query, keywords, window_size=120, max_snippets=3):
+        """从匹配项中选择最佳摘要片段"""
+        import re
+        
+        # 合并窗口
+        windows = []
+        for start, end in matches:
+            win_start = max(0, start - window_size // 2)
+            win_end = min(len(content), end + window_size // 2)
+            if windows and win_start < windows[-1][1]:
+                windows[-1] = (windows[-1][0], max(windows[-1][1], win_end))
+            else:
+                windows.append((win_start, win_end))
+        
+        # 评分并选择最佳窗口
+        scored_windows = []
+        lowered_content = content.lower()
+        for win_start, win_end in windows:
+            chunk = lowered_content[win_start:win_end]
+            score = 0
+            for token in keywords:
+                if token.lower() in chunk:
+                    score += 1
+            # 优先考虑包含完整查询词的窗口
+            if query.lower() in chunk:
+                score += 10
+            scored_windows.append((score, win_start, win_end))
+        
+        scored_windows.sort(key=lambda x: x[0], reverse=True)
+        selected_windows = [(s, e) for _, s, e in scored_windows[:max_snippets]]
+        selected_windows.sort(key=lambda x: x[0])
+        
+        # 提取片段并进行自然截断
+        snippets = []
+        for start, end in selected_windows:
+            # 尝试在标点符号处截断，使摘要更自然
+            curr_start = start
+            while curr_start > 0 and curr_start > start - 20 and content[curr_start] not in ' \t\n\r.,;，。；':
+                curr_start -= 1
+            if curr_start > 0 and content[curr_start] in ' \t\n\r.,;，。；':
+                curr_start += 1
+
+            curr_end = end
+            while curr_end < len(content) and curr_end < end + 20 and content[curr_end] not in ' \t\n\r.,;，。；':
+                curr_end += 1
+
+            chunk = content[curr_start:curr_end].strip()
+            if chunk:
+                snippets.append(chunk)
+        
+        # 如果窗口提取失败，回退到简单的正则提取
+        if not snippets:
+            for token in keywords:
+                pat = re.compile(re.escape(token), re.IGNORECASE)
+                match = pat.search(content)
+                if match:
+                    start = max(0, match.start() - 60)
+                    end = min(len(content), match.end() + 60)
+                    snippets.append(content[start:end])
+                    break
+        
+        return snippets
+    
+    def _apply_highlights(self, text, patterns):
+        """在文本中应用高亮标记"""
+        import re
+        import html
+
+        def _expand_ascii_span(text: str, start: int, end: int):
+            # 向左右扩展，确保高亮完整的ASCII单词（如JavaScript）
+            while start > 0 and text[start-1].isascii() and text[start-1].isalnum():
+                start -= 1
+            while end < len(text) and text[end].isascii() and text[end].isalnum():
+                end += 1
+            return start, end
+
+        def _collect_matches(full_text: str, patterns):
+            spans = []
+            seen = set()
+            for pat in patterns:
+                for match in pat.finditer(full_text):
+                    span = _expand_ascii_span(full_text, match.start(), match.end())
+                    if span not in seen:
+                        seen.add(span)
+                        spans.append(span)
+            return spans
+
+        spans = _collect_matches(text, patterns)
+        if not spans:
+            return text
+
+        spans.sort(key=lambda x: x[0])
+        merged = []
+        for start, end in spans:
+            if not merged or start > merged[-1][1]:
+                merged.append([start, end])
+            else:
+                merged[-1][1] = max(merged[-1][1], end)
+
+        highlighted = []
+        last = 0
+        for start, end in merged:
+            if start < last:
+                continue
+            # 先转义原始文本中的HTML特殊字符，防止破坏标签结构
+            highlighted.append(html.escape(text[last:start]))
+            # 使用 text-danger 和 fw-bold 高亮
+            highlighted.append(f'<span class="text-danger fw-bold">{html.escape(text[start:end])}</span>')
+            last = end
+        # 最后一部分也需要转义
+        highlighted.append(html.escape(text[last:]))
+        return ''.join(highlighted)
 
     def get_document_content(self, path):
         # 尝试从Tantivy索引中获取内容
@@ -1128,6 +1218,9 @@ class IndexManager:
         if not self.embedding_model:
             return []
         try:
+            # 增加ef参数以避免"Cannot return the results in a contiguous 2D array"错误
+            # ef必须足够大以返回k个最近邻
+            self.hnsw.set_ef(min(512, max(self.next_id, 200)))
             v = np.array([self._encode_text(query_str)], dtype=np.float32)
             k = min(limit * 2, max(self.next_id, 1))
             labels, distances = self.hnsw.knn_query(v, k=k)

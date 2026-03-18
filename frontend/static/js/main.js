@@ -9,14 +9,15 @@
 
     console.log('FileTools initializing...');
 
-    // 模块加载顺序：utils -> [其他模块] -> main
+    // 模块加载顺序：utils -> [其他模块] -> event-bindings
     const modules = [
         'modules/utils.js',
         'modules/ui.js',
         'modules/search.js',
         'modules/chat.js',
         'modules/directory.js',
-        'modules/settings.js'
+        'modules/settings.js',
+        'modules/event-bindings.js'
     ];
 
     /**
@@ -68,11 +69,18 @@
                 <div style="font-size:48px;margin-bottom:20px;">⚠️</div>
                 <h2 style="color:#dc3545;margin-bottom:10px;">出错了</h2>
                 <p style="color:#6c757d;">${message}</p>
-                <button onclick="location.reload()" style="margin-top:20px;padding:10px 20px;background:#007bff;color:white;border:none;border-radius:4px;cursor:pointer;">
+                <button id="fatalErrorReloadBtn" style="margin-top:20px;padding:10px 20px;background:#007bff;color:white;border:none;border-radius:4px;cursor:pointer;">
                     刷新页面
                 </button>
             </div>
         `;
+        // 添加事件绑定
+        const reloadBtn = document.getElementById('fatalErrorReloadBtn');
+        if (reloadBtn) {
+            reloadBtn.addEventListener('click', function() {
+                location.reload();
+            });
+        }
     }
 
     /**
@@ -101,27 +109,45 @@
             FileToolsChat.init();
         }
 
-        // 页面加载完成后获取历史记录
-        document.addEventListener('DOMContentLoaded', function() {
-            console.log('DOMContentLoaded triggered');
+        // 初始化事件绑定（必须在其他模块初始化后）
+        if (typeof FileToolsEventBindings !== 'undefined') {
+            FileToolsEventBindings.init();
+        }
 
-            if (typeof FileToolsChat !== 'undefined') {
-                FileToolsChat.loadChatHistory();
-            }
-
-            // 初始化侧边栏按钮
-            if (typeof FileToolsUI !== 'undefined') {
-                FileToolsUI.initSidebarToggleBtn();
-            }
-
-            console.log('Application initialized');
-        });
+        // 检查DOM是否已经加载完成
+        if (document.readyState === 'loading') {
+            // DOM还在加载中，等待DOMContentLoaded事件
+            document.addEventListener('DOMContentLoaded', function() {
+                console.log('DOMContentLoaded triggered');
+                initAfterDOMReady();
+            });
+        } else {
+            // DOM已经加载完成，直接初始化
+            console.log('DOM already loaded, initializing...');
+            initAfterDOMReady();
+        }
 
         // 从 localStorage 恢复会话 ID
         const savedSessionId = localStorage.getItem('chat_session_id');
         if (savedSessionId && typeof FileToolsChat !== 'undefined') {
             FileToolsChat.setCurrentSessionId(savedSessionId);
         }
+    }
+
+    /**
+     * DOM加载完成后初始化
+     */
+    function initAfterDOMReady() {
+        if (typeof FileToolsChat !== 'undefined') {
+            FileToolsChat.loadChatHistory();
+        }
+
+        // 初始化侧边栏按钮
+        if (typeof FileToolsUI !== 'undefined') {
+            FileToolsUI.initSidebarToggleBtn();
+        }
+
+        console.log('Application initialized');
     }
 
     // 启动应用

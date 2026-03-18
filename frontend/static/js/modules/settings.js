@@ -48,11 +48,19 @@ const FileToolsSettings = (function() {
     function applySettingsToUI(config) {
         const setValue = (id, value) => {
             const el = document.getElementById(id);
-            if (el) el.value = value;
+            if (el) {
+                // 处理不同类型的元素
+                if (el.tagName === 'INPUT' || el.tagName === 'SELECT' || el.tagName === 'TEXTAREA') {
+                    el.value = value;
+                } else {
+                    // span, div 等显示元素
+                    el.innerText = value;
+                }
+            }
         };
 
-        // AI Mode
-        const mode = config.ai_mode || 'local';
+        // AI Mode - 支持嵌套结构
+        const mode = config.ai_model?.mode || config.ai_mode || 'local';
         const modeLocal = document.getElementById('modeLocal');
         const modeAPI = document.getElementById('modeAPI');
         const localSettings = document.getElementById('localSettings');
@@ -70,17 +78,21 @@ const FileToolsSettings = (function() {
             }
         }
 
-        // API 设置
-        if (config.ai_model) {
-            setValue('apiProviderSelect', config.ai_model.provider || 'siliconflow');
-            setValue('apiUrlInput', config.ai_model.api_url || '');
-            setValue('modelNameInput', config.ai_model.model_name || '');
-            setValue('apiKeyInput', config.ai_model.api_key || '');
+        // API 设置 - 支持嵌套结构
+        if (config.ai_model && config.ai_model.api) {
+            const apiConfig = config.ai_model.api;
+            setValue('apiProviderSelect', apiConfig.provider || 'siliconflow');
+            setValue('apiUrlInput', apiConfig.api_url || '');
+            setValue('modelNameInput', apiConfig.model_name || '');
+            // 从 keys 对象获取当前 provider 的 key
+            const keys = apiConfig.keys || {};
+            const currentKey = keys[apiConfig.provider] || apiConfig.api_key || '';
+            setValue('apiKeyInput', currentKey);
         }
 
-        // 采样参数
-        if (config.ai_model && config.ai_model.sampling) {
-            const sampling = config.ai_model.sampling;
+        // 采样参数 - 支持嵌套结构
+        if (config.ai_model && (config.ai_model.sampling || config.ai_model.api?.sampling)) {
+            const sampling = config.ai_model.sampling || config.ai_model.api?.sampling || {};
             setValue('tempRange', sampling.temperature ?? 0.7);
             setValue('tempValue', sampling.temperature ?? 0.7);
             setValue('topPRange', sampling.top_p ?? 0.9);
@@ -92,9 +104,9 @@ const FileToolsSettings = (function() {
             setValue('seedInput', sampling.seed ?? -1);
         }
 
-        // 惩罚参数
-        if (config.ai_model && config.ai_model.penalties) {
-            const penalties = config.ai_model.penalties;
+        // 惩罚参数 - 支持嵌套结构
+        if (config.ai_model && (config.ai_model.penalties || config.ai_model.api?.penalties)) {
+            const penalties = config.ai_model.penalties || config.ai_model.api?.penalties || {};
             setValue('repeatPenaltyRange', penalties.repeat_penalty ?? 1.1);
             setValue('repeatPenaltyValue', penalties.repeat_penalty ?? 1.1);
             setValue('freqPenaltyRange', penalties.frequency_penalty ?? 0.0);
@@ -103,21 +115,32 @@ const FileToolsSettings = (function() {
             setValue('presencePenaltyValue', penalties.presence_penalty ?? 0.0);
         }
 
-        // 本地模型设置
-        if (config.local_model) {
+        // 本地模型设置 - 支持嵌套结构
+        if (config.ai_model && config.ai_model.local) {
+            setValue('localApiUrlInput', config.ai_model.local.api_url || 'http://localhost:8000/v1/chat/completions');
+        } else if (config.local_model) {
+            // 向后兼容
             setValue('localApiUrlInput', config.local_model.api_url || 'http://localhost:8000/v1/chat/completions');
         }
 
         // RAG 设置
         if (config.rag) {
-            setValue('ragTopKInput', config.rag.top_k ?? 5);
-            setValue('ragContextLengthInput', config.rag.context_length ?? 2048);
+            setValue('ragTopKInput', config.rag.top_k ?? config.rag.max_history_turns ?? 5);
+            setValue('ragContextLengthInput', config.rag.context_length ?? config.rag.max_history_chars ?? 2048);
         }
 
         // 搜索设置
         if (config.search) {
             setValue('searchTextWeightInput', config.search.text_weight ?? 0.6);
             setValue('searchVectorWeightInput', config.search.vector_weight ?? 0.4);
+        }
+
+        // 安全设置
+        if (config.ai_model && config.ai_model.security) {
+            const verifySslCheck = document.getElementById('verifySslCheck');
+            if (verifySslCheck) {
+                verifySslCheck.checked = config.ai_model.security.verify_ssl ?? true;
+            }
         }
     }
 
@@ -141,13 +164,30 @@ const FileToolsSettings = (function() {
             return isNaN(val) ? defaultValue : val;
         };
 
+        const getChecked = (id, defaultValue = true) => {
+            const el = document.getElementById(id);
+            return el ? el.checked : defaultValue;
+        };
+
+        const provider = getValue('apiProviderSelect', 'siliconflow');
+        const apiKey = getValue('apiKeyInput', '');
+        
         return {
             ai_mode: document.getElementById('modeAPI')?.checked ? 'api' : 'local',
             ai_model: {
-                provider: getValue('apiProviderSelect', 'siliconflow'),
-                api_url: getValue('apiUrlInput', ''),
-                model_name: getValue('modelNameInput', ''),
-                api_key: getValue('apiKeyInput', ''),
+                mode: document.getElementById('modeAPI')?.checked ? 'api' : 'local',
+                api: {
+                    provider: provider,
+                    api_url: getValue('apiUrlInput', ''),
+                    model_name: getValue('modelNameInput', ''),
+                    api_key: apiKey,
+                    // 同时保存到 keys.{provider} 确保兼容
+                    keys: {
+                        siliconflow: provider === 'siliconflow' ? apiKey : '',
+                        deepseek: provider === 'deepseek' ? apiKey : '',
+                        custom: provider === 'custom' ? apiKey : ''
+                    }
+                },
                 sampling: {
                     temperature: getFloat('tempRange', 0.7),
                     top_p: getFloat('topPRange', 0.9),
@@ -160,6 +200,9 @@ const FileToolsSettings = (function() {
                     repeat_penalty: getFloat('repeatPenaltyRange', 1.1),
                     frequency_penalty: getFloat('freqPenaltyRange', 0.0),
                     presence_penalty: getFloat('presencePenaltyRange', 0.0)
+                },
+                security: {
+                    verify_ssl: getChecked('verifySslCheck', true)
                 }
             },
             local_model: {
@@ -204,6 +247,15 @@ const FileToolsSettings = (function() {
     }
 
     /**
+     * 检测配置是否有未保存的更改
+     */
+    function hasUnsavedChanges() {
+        if (!initialSettings) return false;
+        const currentSettings = getCurrentSettings();
+        return JSON.stringify(currentSettings) !== JSON.stringify(initialSettings);
+    }
+
+    /**
      * API 提供商变更时自动填充默认 URL
      */
     function onProviderChange() {
@@ -218,22 +270,55 @@ const FileToolsSettings = (function() {
     }
 
     /**
-     * 测试 API 连接
+     * 测试 API 连接 - 智能保存逻辑
+     * - 配置有变化：测试成功后自动保存
+     * - 配置无变化：直接测试
      */
     async function testAPIConnection() {
-        const btn = document.querySelector('button[onclick="FileToolsSettings.testAPIConnection()"]');
+        const btn = document.getElementById('testConnectionBtn') || document.querySelector('[onclick="testAPIConnection()"]');
         const originalText = btn ? btn.innerHTML : '';
+        
+        // 获取当前配置
+        const currentSettings = getCurrentSettings();
+        
+        // 检测配置是否有变化（对比 initialSettings）
+        const hasChanges = initialSettings && JSON.stringify(currentSettings) !== JSON.stringify(initialSettings);
+        
         if (btn) {
-            btn.innerHTML = '<i class="bi bi-arrow-repeat spin"></i>测试中...';
+            if (hasChanges) {
+                btn.innerHTML = '<i class="bi bi-arrow-repeat spin"></i> 保存并测试...';
+            } else {
+                btn.innerHTML = '<i class="bi bi-arrow-repeat spin"></i> 测试中...';
+            }
             btn.disabled = true;
         }
 
         try {
+            // 如果配置有变化，先保存
+            if (hasChanges) {
+                const saveResponse = await fetch('/api/config', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(currentSettings)
+                });
+
+                if (!saveResponse.ok) {
+                    throw new Error('保存配置失败');
+                }
+                
+                // 更新 initialSettings
+                initialSettings = currentSettings;
+            }
+
+            // 测试连接
             const response = await fetch('/api/model/test');
             const result = await response.json();
 
             if (result.status === 'ok') {
-                FileToolsUtils.showTestResultModal('连接成功', `模式: ${result.mode}<br>模型: ${result.model}`, true);
+                const message = hasChanges 
+                    ? `配置已保存<br>模式: ${result.mode}<br>模型: ${result.model}`
+                    : `模式: ${result.mode}<br>模型: ${result.model}`;
+                FileToolsUtils.showTestResultModal('连接成功', message, true);
             } else {
                 FileToolsUtils.showTestResultModal('连接失败', result.error || '未知错误', false);
             }
@@ -365,9 +450,17 @@ const FileToolsSettings = (function() {
         `;
         document.getElementById('rebuildModalFooter').innerHTML = `
             <button type="button" class="btn btn-sm btn-outline-secondary border-0" data-bs-dismiss="modal">取消</button>
-            <button type="button" class="btn btn-sm btn-primary px-3" onclick="FileToolsSettings.confirmRebuild()">确定</button>
+            <button type="button" class="btn btn-sm btn-primary px-3" id="rebuildConfirmBtn">确定</button>
         `;
         document.getElementById('rebuildCloseBtn').style.display = 'block';
+
+        // 绑定确认按钮事件
+        const confirmBtn = document.getElementById('rebuildConfirmBtn');
+        if (confirmBtn) {
+            confirmBtn.addEventListener('click', function() {
+                confirmRebuild();
+            });
+        }
 
         FileToolsUtils.showModal(rebuildModalEl);
     }
@@ -448,7 +541,8 @@ const FileToolsSettings = (function() {
         confirmReset,
         showRebuildModal,
         confirmRebuild,
-        updateSliderValue
+        updateSliderValue,
+        hasUnsavedChanges
     };
 })();
 
@@ -464,3 +558,4 @@ const resetSettings = FileToolsSettings.resetSettings;
 const confirmReset = FileToolsSettings.confirmReset;
 const showRebuildModal = FileToolsSettings.showRebuildModal;
 const confirmRebuild = FileToolsSettings.confirmRebuild;
+const hasUnsavedChanges = FileToolsSettings.hasUnsavedChanges;

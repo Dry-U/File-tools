@@ -87,4 +87,4 @@ class DirectoryInfo(BaseModel):
 
 class DirectoriesListResponse(BaseModel):
     """目录列表响应模型"""
-    directories: list
+    directories: List[DirectoryInfo]

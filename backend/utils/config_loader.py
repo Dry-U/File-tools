@@ -13,26 +13,27 @@ import hashlib
 import base64
 
 # 尝试导入加密库，如果不存在则使用简单的 base64 混淆
-
-def _check_crypto():
-    """检查 cryptography 是否可用"""
-    try:
-        from cryptography.fernet import Fernet
-        from cryptography.hazmat.primitives import hashes
-        from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2
-        return True
-    except ImportError:
-        return False
+try:
+    from cryptography.fernet import Fernet
+    from cryptography.hazmat.primitives import hashes
+    from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
+    CRYPTO_AVAILABLE = True
+    # 保持向后兼容的别名
+    PBKDF2 = PBKDF2HMAC
+except ImportError:
+    CRYPTO_AVAILABLE = False
+    Fernet = None
+    PBKDF2 = None
+    PBKDF2HMAC = None
+    hashes = None
 
 # 延迟检查：只在实际需要时检查并显示警告
 _CRYPTO_CHECKED = False
-CRYPTO_AVAILABLE = None
 
 def _ensure_crypto_check():
     """确保已检查 cryptography 可用性，并在首次检查时记录日志"""
-    global _CRYPTO_CHECKED, CRYPTO_AVAILABLE
+    global _CRYPTO_CHECKED
     if not _CRYPTO_CHECKED:
-        CRYPTO_AVAILABLE = _check_crypto()
         _CRYPTO_CHECKED = True
         if not CRYPTO_AVAILABLE:
             logger.warning("cryptography 库未安装，敏感信息将使用简单混淆存储")
@@ -239,7 +240,7 @@ class ConfigLoader:
         # 获取盐值（随机生成或从文件读取）
         salt = self._get_or_create_salt()
 
-        if _ensure_crypto_check():
+        if _ensure_crypto_check() and PBKDF2 and hashes:
             # 使用 PBKDF2 派生密钥，符合 OWASP 2023 推荐
             kdf = PBKDF2(
                 algorithm=hashes.SHA256(),
@@ -268,7 +269,7 @@ class ConfigLoader:
         try:
             key = self._get_encryption_key()
 
-            if _ensure_crypto_check():
+            if _ensure_crypto_check() and Fernet:
                 f = Fernet(key)
                 encrypted = f.encrypt(value.encode('utf-8'))
                 return f"enc:{encrypted.decode('utf-8')}"
@@ -300,7 +301,7 @@ class ConfigLoader:
                 obfuscated = encrypted_data[4:]
                 return base64.b64decode(obfuscated).decode('utf-8')
 
-            if _ensure_crypto_check():
+            if _ensure_crypto_check() and Fernet:
                 f = Fernet(key)
                 decrypted = f.decrypt(encrypted_data.encode('utf-8'))
                 return decrypted.decode('utf-8')

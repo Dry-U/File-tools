@@ -114,8 +114,8 @@ class TestConfigValidator:
         # 空列表
         assert validator._validate_scan_paths([]) is False
 
-        # None
-        assert validator._validate_scan_paths(None) is False
+        # 测试空字符串路径的边界情况
+        assert validator._validate_scan_paths([""]) is False
 
     def test_validate_numeric_ranges(self):
         """测试验证数值范围"""

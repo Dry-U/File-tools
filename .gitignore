@@ -88,7 +88,6 @@ ipython_config.py
 Pipfile.lock
 
 # UV
-# uv.lock 应提交到版本控制以保障可重现构建
 
 # poetry
 poetry.lock
@@ -178,3 +177,4 @@ test_data/
 
 # Claude settings
 .claude/settings.local.json
+论文/

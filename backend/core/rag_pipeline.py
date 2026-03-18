@@ -1022,122 +1022,160 @@ class RAGPipeline:
             # 没有提供 session_id 时，为避免不同用户共享"default"历史，生成一次性会话键
             session_key = secrets.token_hex(8)
 
-        normalized_reset = (query or '').strip().lower()
-        if normalized_reset in self.reset_commands:
-            self._reset_session(session_key)
-            return {"answer": self.reset_response, "sources": []}
+        # 处理特殊命令（重置、问候等）
+        special_result = self._handle_special_commands(query, session_key)
+        if special_result is not None:
+            return special_result
 
         try:
-            if self._is_small_talk(query):
-                return {"answer": self.greeting_response, "sources": []}
-
-            if self._is_noise_query(query):
-                return {"answer": self._render_template(self.fallback_response, query), "sources": []}
-
-            if self.max_context_chars_total > 0:
-                history_budget = min(self.max_history_chars, self.max_context_chars_total)
-            else:
-                history_budget = self.max_history_chars
-
-            history_text, used_history = self._build_history(session_key, history_budget)
-
-            doc_budget: Optional[int] = None
-            if self.max_context_chars_total > 0:
-                doc_budget = max(self.max_context_chars_total - used_history, 0)
-                if doc_budget <= 0:
-                    return {"answer": self.context_exhausted_response, "sources": []}
-
-                # Adjust document budget based on memory constraints
-                doc_budget = self._adjust_context_for_memory(doc_budget)
-
-            documents = self._collect_documents(query)
-            if not documents and not history_text:
-                answer = self._render_template(self.fallback_response, query)
-                return {"answer": answer, "sources": []}
-
-            prompt = self._build_prompt(query, documents, history_text, doc_budget)
-            if not prompt:
-                return {"answer": self._render_template(self.fallback_response, query), "sources": []}
-
-            # 使用 ThreadPoolExecutor 实现更可靠的超时控制
-            chunks: List[str] = []
-            try:
-                # 获取配置的超时时间，默认为120秒
-                timeout = self.config_loader.getint('ai_model', 'request_timeout', 120)
-
-                def generate_content():
-                    result_chunks = []
-                    try:
-                        for piece in self.model_manager.generate(
-                            prompt,
-                            max_tokens=self.max_output_tokens,
-                            temperature=self.sampling_params['temperature'],
-                            top_p=self.sampling_params['top_p'],
-                            top_k=self.sampling_params['top_k'],
-                            min_p=self.sampling_params['min_p'],
-                            seed=self.sampling_params['seed'],
-                            repeat_penalty=self.sampling_params['repeat_penalty'],
-                            frequency_penalty=self.sampling_params['frequency_penalty'],
-                            presence_penalty=self.sampling_params['presence_penalty']
-                        ):
-                            if piece:
-                                result_chunks.append(str(piece))
-                        return {'chunks': result_chunks, 'completed': True, 'error': None}
-                    except Exception as e:
-                        return {'chunks': result_chunks, 'completed': False, 'error': e}
-
-                # 使用 ThreadPoolExecutor 执行生成任务
-                executor = ThreadPoolExecutor(max_workers=1)
-                future = executor.submit(generate_content)
-                try:
-                    result = future.result(timeout=float(timeout))
-                except FutureTimeoutError:
-                    result = {'chunks': [], 'completed': False, 'error': 'timeout'}
-                    logger.warning(f"生成超时({timeout}s): {query[:50]}...")
-                    try:
-                        future.cancel()
-                    except Exception:
-                        pass
-                finally:
-                    # 关键：不要 wait=True，否则会把超时“卡回去”
-                    try:
-                        executor.shutdown(wait=False, cancel_futures=True)
-                    except TypeError:
-                        executor.shutdown(wait=False)
-
-                if not result['completed']:
-                    partial_answer = ''.join(result['chunks']).strip()
-                    if partial_answer:
-                        answer = partial_answer + "\n\n(注意：回答生成超时，内容可能不完整)"
-                    else:
-                        # 如果完全没有结果（例如还在思考中），给出明确提示而不是通用的"未找到"
-                        if documents:
-                            answer = "已找到相关文档，但AI模型思考时间过长导致超时。请尝试：\n1. 增加配置文件中的 request_timeout\n2. 简化问题\n3. 直接查看下方列出的参考来源"
-                        else:
-                            answer = self._render_template(self.fallback_response, query)
-                elif result['error']:
-                    logger.error(f"生成过程中发生错误: {str(result['error'])}")
-                    answer = f"生成回答时发生错误: {str(result['error'])}"
-                else:
-                    answer = ''.join(result['chunks']).strip()
-                    if not answer:
-                        # 如果生成结果为空（可能是被过滤器完全过滤了），给出提示
-                        if documents:
-                            answer = "AI模型已完成处理，但未生成有效回答（可能是思考过程被过滤且未生成正文）。请尝试重新提问。"
-                        else:
-                            answer = self._render_template(self.fallback_response, query)
-            except Exception as e:
-                logger.error(f"生成过程中发生错误: {str(e)}")
-                answer = self._render_template(self.fallback_response, query)
-
+            # 收集和准备上下文
+            context_info = self._collect_and_prepare_context(query, session_key)
+            if 'answer' in context_info:
+                return context_info
+            
+            history_text = context_info['history_text']
+            doc_budget = context_info['doc_budget']
+            documents = context_info['documents']
+            
+            # 生成回答
+            result = self._generate_answer(query, documents, history_text, doc_budget)
+            
             # 后处理：优化回答格式，确保连贯流畅
             sources = [doc.get('path') or doc.get('filename') for doc in documents]
-            answer = self._post_process_answer(answer, sources)
+            answer = self._post_process_answer(result['answer'], sources)
             self._remember_turn(session_key, query, answer)
             return {"answer": answer, "sources": sources}
         except Exception as exc:
             logger.error(f"RAG查询失败: {exc}")
             return {"answer": f"错误：处理查询时发生异常 ({str(exc)})。", "sources": []}
+    
+    def _handle_special_commands(self, query: str, session_key: str) -> Optional[Dict[str, Any]]:
+        """处理特殊命令（重置、问候、噪音查询等）"""
+        normalized_reset = (query or '').strip().lower()
+        if normalized_reset in self.reset_commands:
+            self._reset_session(session_key)
+            return {"answer": self.reset_response, "sources": []}
+
+        if self._is_small_talk(query):
+            return {"answer": self.greeting_response, "sources": []}
+
+        if self._is_noise_query(query):
+            return {"answer": self._render_template(self.fallback_response, query), "sources": []}
+        
+        return None
+    
+    def _collect_and_prepare_context(self, query: str, session_key: str) -> Dict[str, Any]:
+        """收集和准备上下文（历史记录、文档等）"""
+        # 计算历史记录预算
+        if self.max_context_chars_total > 0:
+            history_budget = min(self.max_history_chars, self.max_context_chars_total)
+        else:
+            history_budget = self.max_history_chars
+
+        history_text, used_history = self._build_history(session_key, history_budget)
+
+        # 计算文档预算
+        doc_budget: Optional[int] = None
+        if self.max_context_chars_total > 0:
+            doc_budget = max(self.max_context_chars_total - used_history, 0)
+            if doc_budget <= 0:
+                return {"answer": self.context_exhausted_response, "sources": []}
+
+            # 根据内存约束调整文档预算
+            doc_budget = self._adjust_context_for_memory(doc_budget)
+
+        # 收集相关文档
+        documents = self._collect_documents(query)
+        if not documents and not history_text:
+            answer = self._render_template(self.fallback_response, query)
+            return {"answer": answer, "sources": []}
+        
+        return {
+            'history_text': history_text,
+            'doc_budget': doc_budget,
+            'documents': documents
+        }
+    
+    def _generate_answer(self, query: str, documents: List[Dict], 
+                        history_text: str, doc_budget: Optional[int]) -> Dict[str, Any]:
+        """生成回答"""
+        # 构建提示
+        prompt = self._build_prompt(query, documents, history_text, doc_budget)
+        if not prompt:
+            return {"answer": self._render_template(self.fallback_response, query), "sources": []}
+
+        # 使用 ThreadPoolExecutor 实现更可靠的超时控制
+        chunks: List[str] = []
+        try:
+            # 获取配置的超时时间，默认为120秒
+            timeout = self.config_loader.getint('ai_model', 'request_timeout', 120)
+
+            def generate_content():
+                result_chunks = []
+                try:
+                    for piece in self.model_manager.generate(
+                        prompt,
+                        max_tokens=self.max_output_tokens,
+                        temperature=self.sampling_params['temperature'],
+                        top_p=self.sampling_params['top_p'],
+                        top_k=self.sampling_params['top_k'],
+                        min_p=self.sampling_params['min_p'],
+                        seed=self.sampling_params['seed'],
+                        repeat_penalty=self.sampling_params['repeat_penalty'],
+                        frequency_penalty=self.sampling_params['frequency_penalty'],
+                        presence_penalty=self.sampling_params['presence_penalty']
+                    ):
+                        if piece:
+                            result_chunks.append(str(piece))
+                    return {'chunks': result_chunks, 'completed': True, 'error': None}
+                except Exception as e:
+                    return {'chunks': result_chunks, 'completed': False, 'error': e}
+
+            # 使用 ThreadPoolExecutor 执行生成任务
+            executor = ThreadPoolExecutor(max_workers=1)
+            future = executor.submit(generate_content)
+            try:
+                result = future.result(timeout=float(timeout))
+            except FutureTimeoutError:
+                result = {'chunks': [], 'completed': False, 'error': 'timeout'}
+                logger.warning(f"生成超时({timeout}s): {query[:50]}...")
+                try:
+                    future.cancel()
+                except Exception:
+                    pass
+            finally:
+                # 关键：不要 wait=True，否则会把超时"卡回去"
+                try:
+                    executor.shutdown(wait=False, cancel_futures=True)
+                except TypeError:
+                    executor.shutdown(wait=False)
+
+            if not result['completed']:
+                partial_answer = ''.join(result['chunks']).strip()
+                if partial_answer:
+                    answer = partial_answer + "\n\n(注意：回答生成超时，内容可能不完整)"
+                else:
+                    # 如果完全没有结果（例如还在思考中），给出明确提示而不是通用的"未找到"
+                    if documents:
+                        answer = "已找到相关文档，但AI模型思考时间过长导致超时。请尝试：\n1. 增加配置文件中的 request_timeout\n2. 简化问题\n3. 直接查看下方列出的参考来源"
+                    else:
+                        answer = self._render_template(self.fallback_response, query)
+            elif result['error']:
+                logger.error(f"生成过程中发生错误: {str(result['error'])}")
+                answer = f"生成回答时发生错误: {str(result['error'])}"
+            else:
+                answer = ''.join(result['chunks']).strip()
+                if not answer:
+                    # 如果生成结果为空（可能是被过滤器完全过滤了），给出提示
+                    if documents:
+                        answer = "AI模型已完成处理，但未生成有效回答（可能是思考过程被过滤且未生成正文）。请尝试重新提问。"
+                    else:
+                        answer = self._render_template(self.fallback_response, query)
+        except Exception as e:
+            logger.error(f"生成过程中发生错误: {str(e)}")
+            answer = self._render_template(self.fallback_response, query)
+        
+        return {"answer": answer}
 
     def _post_process_answer(self, answer: str, sources: List[str]) -> str:
         """

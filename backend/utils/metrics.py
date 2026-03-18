@@ -247,8 +247,9 @@ class MetricsCollector:
                 return self
 
             def __exit__(self, exc_type, exc_val, exc_tb):
-                duration = time.time() - self.start_time
-                self.metric.observe(duration, **self.labels)
+                if self.start_time is not None:
+                    duration = time.time() - self.start_time
+                    self.metric.observe(duration, **self.labels)
                 return False
 
         return TimerContext(metric, labels)

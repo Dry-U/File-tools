@@ -144,7 +144,7 @@ def run_desktop_app():
     window_ref = {'window': None, 'closed': False}
 
     # 信号处理函数
-    def signal_handler(signum, frame):
+    def signal_handler(signum, _frame):
         logger.info(f"收到信号 {signum}，准备退出...")
         exit_event.set()
         # 直接关闭窗口，避免重复调用
@@ -166,9 +166,9 @@ def run_desktop_app():
             # 禁用 pythonnet 的默认清理，避免 KeyboardInterrupt 报错
             if 'clr' in sys.modules:
                 import clr
-                clr.System.GC.Collect()
-                clr.System.GC.WaitForPendingFinalizers()
-        except Exception as e:
+                clr.System.GC.Collect()  # type: ignore
+                clr.System.GC.WaitForPendingFinalizers()  # type: ignore
+        except Exception:  # noqa: BLE001
             pass
 
     atexit.register(cleanup)

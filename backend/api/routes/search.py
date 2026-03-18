@@ -3,6 +3,7 @@
 """
 
 import os
+import errno
 from pathlib import Path
 import numpy as np
 from typing import List
@@ -11,12 +12,43 @@ from fastapi import APIRouter, HTTPException, Request, Depends
 from backend.api.models import SearchRequest, SearchResult
 from backend.utils.config_loader import ConfigLoader
 from backend.utils.logger import get_logger
-from backend.utils.network import get_client_ip, is_valid_ip
+from backend.utils.network import get_client_ip
 from backend.api.dependencies import get_search_engine, get_config_loader, get_rate_limiter, get_index_manager
 from backend.core.constants import ALLOWED_MIME_TYPES, MAX_PREVIEW_LENGTH
 
 logger = get_logger(__name__)
 router = APIRouter()
+
+
+def safe_read_file(path: str, max_length: int = MAX_PREVIEW_LENGTH) -> str:
+    """使用 O_NOFOLLOW 标志安全读取文件，防止符号链接攻击
+    
+    Args:
+        path: 文件路径
+        max_length: 最大读取长度
+        
+    Returns:
+        文件内容
+        
+    Raises:
+        OSError: 如果文件不存在或无权限
+        PermissionError: 如果权限不足
+        UnicodeDecodeError: 如果文件编码不支持
+    """
+    try:
+        # 使用 O_NOFOLLOW 标志打开文件，如果路径是符号链接则失败
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+        with os.fdopen(fd, 'r', encoding='utf-8') as f:
+            content = f.read(max_length)
+            # 如果文件内容超过最大长度，添加提示
+            if f.read(1):  # 检查是否还有更多内容
+                content += f"\n\n[内容过长，仅显示前{max_length}字符]"
+            return content
+    except OSError as e:
+        if e.errno == errno.ELOOP:  # 检测到符号链接
+            logger.warning(f"检测到符号链接，拒绝访问: {os.path.basename(path)}")
+            raise PermissionError(f"不允许访问符号链接: {os.path.basename(path)}")
+        raise
 
 
 @router.post("/search", response_model=List[SearchResult])
@@ -82,7 +114,20 @@ async def search(
                     converted_value = convert_types(value)
                     # 确保分数不超过100
                     if key == 'score':
-                        converted_value = min(float(converted_value), 100.0)
+                        try:
+                            # 先检查是否是数字类型
+                            if converted_value is None:
+                                score = 0.0
+                            elif isinstance(converted_value, (int, float, str)):
+                                # 只有数字和字符串可以尝试转换为float
+                                score = float(converted_value)
+                            else:
+                                # 其他类型（如字典、列表）使用默认值
+                                score = 0.0
+                            converted_value = min(score, 100.0)
+                        except (TypeError, ValueError):
+                            # 如果转换失败，使用默认值0.0
+                            converted_value = 0.0
                     result_dict[key] = converted_value
                 return result_dict
             elif hasattr(obj, 'isoformat'):  # datetime对象
@@ -192,25 +237,28 @@ async def preview_file(
         except Exception as e:
             logger.debug(f"从索引获取内容失败: {e}")
 
-        # 回退到直接读取文本文件
+        # 回退到直接读取文本文件，使用安全读取函数
         try:
-            with open(normalized_path, 'r', encoding='utf-8') as f:
-                content = f.read()
-                # 限制预览长度
-                if len(content) > MAX_PREVIEW_LENGTH:
-                    content = content[:MAX_PREVIEW_LENGTH] + f"\n\n[内容过长，仅显示前{MAX_PREVIEW_LENGTH}字符]"
-                return {"content": content}
+            content = safe_read_file(str(normalized_path), MAX_PREVIEW_LENGTH)
+            return {"content": content}
         except UnicodeDecodeError:
             raise HTTPException(
                 status_code=415,
                 detail={"error": {"code": "ENCODING_ERROR", "message": "文件编码不支持或不是文本文件"}}
             )
-        except PermissionError:
-            logger.warning("无权限读取文件")
-            raise HTTPException(
-                status_code=403,
-                detail={"error": {"code": "PERMISSION_DENIED", "message": "无权限读取文件"}}
-            )
+        except PermissionError as e:
+            if "符号链接" in str(e):
+                logger.warning(f"拒绝符号链接访问: {normalized_path.name}")
+                raise HTTPException(
+                    status_code=403,
+                    detail={"error": {"code": "SYMLINK_DENIED", "message": "不允许访问符号链接"}}
+                )
+            else:
+                logger.warning(f"无权限读取文件: {normalized_path.name}")
+                raise HTTPException(
+                    status_code=403,
+                    detail={"error": {"code": "PERMISSION_DENIED", "message": "无权限读取文件"}}
+                )
         except Exception as e:
             # 安全日志：不泄露文件路径
             logger.error(f"读取文件失败: {e}")

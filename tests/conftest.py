@@ -1,12 +1,10 @@
 import pytest
 import pytest_asyncio
 import tempfile
-import shutil
 import sys
 import os
-from pathlib import Path
 from unittest.mock import Mock, MagicMock
-from typing import Generator, List, Dict, Any
+from typing import List, Dict, Any
 
 # 添加项目根目录到Python路径（只需在顶层 conftest.py 中添加一次）
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
@@ -14,7 +12,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')
 from backend.utils.config_loader import ConfigLoader
 
 
-@pytest_asyncio.fixture
+@pytest_asyncio.fixture()  # type: ignore[misc]
 def event_loop():
     """创建事件循环用于异步测试"""
     import asyncio

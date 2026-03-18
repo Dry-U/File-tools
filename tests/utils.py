@@ -170,7 +170,7 @@ def create_mock_file_stats(
     size: int = 1024,
     modified: float = 1700000000.0,
     created: float = 1700000000.0
-) -> os.stat_result:
+):
     """
     创建模拟的文件统计信息
 
@@ -180,9 +180,9 @@ def create_mock_file_stats(
         created: 创建时间
 
     Returns:
-        模拟的 stat_result
+        模拟的 stat_result 对象
     """
-    # 使用 namedtuple 模拟 stat_result
+    # 使用命名元组模拟 stat_result
     from collections import namedtuple
     StatResult = namedtuple('StatResult', ['st_size', 'st_mtime', 'st_ctime'])
     return StatResult(st_size=size, st_mtime=modified, st_ctime=created)

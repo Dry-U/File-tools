@@ -70,6 +70,16 @@ const FileToolsSearch = (function() {
                 body: JSON.stringify({ query, filters })
             });
 
+            if (response.status === 429) {
+                resultsContainer.innerHTML = `
+                    <div class="text-center text-warning mt-5">
+                        <i class="bi bi-clock display-4"></i>
+                        <p class="mt-3">请求过于频繁，请稍后再试</p>
+                    </div>
+                `;
+                return;
+            }
+
             if (!response.ok) throw new Error('Search failed');
 
             const results = await response.json();
@@ -110,7 +120,8 @@ const FileToolsSearch = (function() {
         results.forEach((result, index) => {
             const iconClass = FileToolsUtils.getFileIcon(result.file_name);
             const safeFileName = FileToolsUtils.escapeHtml(result.file_name);
-            const safeSnippet = FileToolsUtils.escapeHtml(result.snippet || '...');
+            // snippet 包含高亮HTML标签，不应转义；只处理null/undefined情况
+            const safeSnippet = result.snippet ? result.snippet : '...';
             const safePathDisplay = FileToolsUtils.escapeHtml(result.path);
             const pathAttr = FileToolsUtils.escapeHtml(result.path).replace(/"/g, '&quot;');
 
@@ -157,7 +168,7 @@ const FileToolsSearch = (function() {
         const modalContent = document.getElementById('previewModalContent');
 
         modalTitle.innerText = FileToolsUtils.escapeHtml(path.split(/[\\/]/).pop());
-        modalContent.innerText = '正在加载文件内容...';
+        modalContent.innerHTML = '<div class="text-center text-muted p-4">正在加载文件内容...</div>';
         FileToolsUtils.showModal(modalEl);
 
         try {
@@ -170,11 +181,26 @@ const FileToolsSearch = (function() {
             if (!response.ok) throw new Error('Failed to load file');
 
             const data = await response.json();
-            modalContent.innerText = data.content || '文件内容为空';
+            let content = data.content || '文件内容为空';
+
+            // 处理内容格式：PDF/DOCX解析后的纯文本需要适当处理
+            if (content && typeof content === 'string') {
+                // 转义HTML特殊字符以防止XSS
+                content = FileToolsUtils.escapeHtml(content);
+
+                // 处理换行和空格，保持段落格式
+                // 将多个连续换行合并为段落分隔
+                content = content.replace(/\n{3,}/g, '\n\n');
+
+                // 在pre标签中显示，保持原始格式
+                modalContent.innerHTML = content;
+            } else {
+                modalContent.innerHTML = '<div class="text-muted">文件内容为空</div>';
+            }
 
         } catch (error) {
             console.error('Preview error:', error);
-            modalContent.innerText = '无法预览文件: ' + error.message;
+            modalContent.innerHTML = '<div class="text-danger p-3">无法预览文件: ' + FileToolsUtils.escapeHtml(error.message) + '</div>';
         }
     }
 

@@ -224,19 +224,17 @@ const FileToolsChat = (function() {
 
         historyList.innerHTML = sessions.map(session => {
             const sessionIdAttr = FileToolsUtils.escapeHtml(session.session_id);
-            const sessionIdJs = JSON.stringify(session.session_id).slice(1, -1);
             const isActive = session.session_id === currentSessionId ? 'active' : '';
             return `
                 <div class="history-item ${isActive}"
-                     data-session-id="${sessionIdAttr}"
-                     onclick="if(!event.target.closest('.history-item-delete')) FileToolsChat.switchToSession('${sessionIdJs}')">
+                     data-session-id="${sessionIdAttr}">
                     <i class="bi bi-chat-left-text history-item-icon"></i>
                     <div class="history-item-content">
                         <div class="history-item-title">${FileToolsUtils.escapeHtml(session.title)}</div>
                         <div class="history-item-meta">${FileToolsUtils.formatDate(session.created_at)} · ${session.message_count}条消息</div>
                     </div>
                     <button class="history-item-delete"
-                            onclick="FileToolsChat.deleteSession('${sessionIdJs}', event)"
+                            data-session-id="${sessionIdAttr}"
                             title="删除会话">
                         <i class="bi bi-trash"></i>
                     </button>
@@ -454,3 +452,6 @@ const switchToSession = FileToolsChat.switchToSession;
 const deleteSession = FileToolsChat.deleteSession;
 const executeDeleteSession = FileToolsChat.executeDeleteSession;
 const fillInput = FileToolsChat.fillInput;
+const getCurrentSessionId = FileToolsChat.getCurrentSessionId;
+const setCurrentSessionId = FileToolsChat.setCurrentSessionId;
+const init = FileToolsChat.init;

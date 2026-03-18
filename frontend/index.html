@@ -5,12 +5,10 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>智能文件检索与问答系统</title>
-    <!-- 引入 Bootstrap 5 CSS -->
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet"
-          onerror="this.onerror=null;this.href='static/css/bootstrap.min.css';">
-    <!-- 引入 Bootstrap Icons -->
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css"
-          onerror="this.onerror=null;this.href='static/css/bootstrap-icons.css';">
+    <!-- Bootstrap 5 CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <!-- Bootstrap Icons -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
 
     <!-- 引入自定义样式 -->
     <link rel="stylesheet" href="static/css/style.css">
@@ -35,19 +33,13 @@
                     <div class="settings-group">
                         <span class="settings-label">文件类型</span>
                         <div class="file-type-grid">
-                            <button class="file-type-btn active" data-type="pdf"
-                                onclick="toggleFileType(this)">PDF</button>
-                            <button class="file-type-btn active" data-type="docx"
-                                onclick="toggleFileType(this)">Word</button>
-                            <button class="file-type-btn active" data-type="txt"
-                                onclick="toggleFileType(this)">TXT</button>
-                            <button class="file-type-btn" data-type="md" onclick="toggleFileType(this)">MD</button>
-                            <button class="file-type-btn" data-type="ppt,pptx" onclick="toggleFileType(this)"
-                                title="PowerPoint演示文稿">PPT</button>
-                            <button class="file-type-btn" data-type="xls,xlsx" onclick="toggleFileType(this)"
-                                title="Excel表格">Excel</button>
-                            <button class="file-type-btn" data-type="other" onclick="toggleFileType(this)"
-                                title="其他类型文件">Others</button>
+                            <button class="file-type-btn active" data-type="pdf">PDF</button>
+                            <button class="file-type-btn active" data-type="docx">Word</button>
+                            <button class="file-type-btn active" data-type="txt">TXT</button>
+                            <button class="file-type-btn" data-type="md">MD</button>
+                            <button class="file-type-btn" data-type="ppt,pptx" title="PowerPoint演示文稿">PPT</button>
+                            <button class="file-type-btn" data-type="xls,xlsx" title="Excel表格">Excel</button>
+                            <button class="file-type-btn" data-type="other" title="其他类型文件">Others</button>
                         </div>
                     </div>
 
@@ -87,7 +79,7 @@
                     </div>
 
                     <div class="settings-group rebuild-section">
-                        <button class="rebuild-btn" onclick="showRebuildModal()">
+                        <button class="rebuild-btn">
                             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5"
                                 stroke="currentColor" style="width: 16px; height: 16px;">
                                 <path stroke-linecap="round" stroke-linejoin="round"
@@ -100,7 +92,7 @@
 
                 <!-- 2. 智能问答模式侧边栏内容 -->
                 <div id="sidebar-chat-content" style="display: none;">
-                    <button class="new-chat-btn" onclick="resetChat()">
+                    <button class="new-chat-btn">
                         <i class="bi bi-plus-lg"></i>
                         <span>新建对话</span>
                     </button>
@@ -131,7 +123,7 @@
             <!-- 顶部导航栏 -->
             <div class="top-nav-bar">
                 <!-- 左侧：折叠按钮 -->
-                <button class="nav-icon-btn" id="sidebarToggleBtn" onclick="toggleSidebar()" aria-label="切换侧边栏">
+                <button class="nav-icon-btn" id="sidebarToggleBtn" aria-label="切换侧边栏">
                     <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5"
                         stroke="currentColor" style="width: 24px; height: 24px;">
                         <path stroke-linecap="round" stroke-linejoin="round"
@@ -141,12 +133,12 @@
 
                 <!-- 中间：模式切换 Tabs -->
                 <div class="nav-tabs-wrapper">
-                    <div class="nav-tab-btn active" id="tab-search" onclick="switchMode('search')">文件搜索</div>
-                    <div class="nav-tab-btn" id="tab-chat" onclick="switchMode('chat')">智能问答</div>
+                    <div class="nav-tab-btn active" id="tab-search">文件搜索</div>
+                    <div class="nav-tab-btn" id="tab-chat">智能问答</div>
                 </div>
 
                 <!-- 右侧：设置按钮 -->
-                <button class="nav-icon-btn settings-btn" onclick="openSettingsModal()" aria-label="设置">
+                <button class="nav-icon-btn settings-btn" aria-label="设置">
                     <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5"
                         stroke="currentColor">
                         <path stroke-linecap="round" stroke-linejoin="round"
@@ -176,7 +168,7 @@
                     <div class="search-input-wrapper">
                         <div class="search-input-box">
                             <input type="text" class="search-input" id="searchInput" placeholder="输入关键词搜索...">
-                            <button class="search-btn" onclick="performSearch()" aria-label="搜索">
+                            <button class="search-btn" aria-label="搜索">
                                 <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="currentColor"
                                     viewBox="0 0 16 16">
                                     <path
@@ -207,9 +199,8 @@
                 <div class="chat-input-area" id="chat-input-area">
                     <div class="chat-input-wrapper">
                         <div class="chat-input-box">
-                            <textarea class="chat-textarea" id="userInput" rows="1" placeholder="输入您的问题..."
-                                oninput="autoResize(this)"></textarea>
-                            <button class="chat-send-btn" onclick="sendMessage()" aria-label="发送">
+                            <textarea class="chat-textarea" id="userInput" rows="1" placeholder="输入您的问题..."></textarea>
+                            <button class="chat-send-btn" aria-label="发送">
                                 <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="currentColor"
                                     viewBox="0 0 16 16">
                                     <path
@@ -226,9 +217,8 @@
         </div>
     </div>
 
-    <!-- 引入 Bootstrap JS -->
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"
-            onerror="this.onerror=null;document.write('<script src=static/js/bootstrap.bundle.min.js><\/script>')"></script>
+    <!-- Bootstrap JS -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 
     <!-- 设置模态框 (Settings Modal) -->
     <div class="modal fade" id="settingsModal" tabindex="-1" aria-hidden="true" data-bs-backdrop="false">
@@ -277,8 +267,8 @@
                                         <span id="tempValue">0.7</span>
                                     </label>
                                     <input type="range" class="form-range" min="0" max="2" step="0.1" id="tempRange"
-                                        value="0.7"
-                                        oninput="document.getElementById('tempValue').innerText = this.value">
+                                        value="0.7">
+
                                     <div class="form-text small text-muted">控制生成的随机性。值越高越随机，值越低越确定。</div>
                                 </div>
 
@@ -289,8 +279,8 @@
                                         <span id="topPValue">0.9</span>
                                     </label>
                                     <input type="range" class="form-range" min="0" max="1" step="0.05" id="topPRange"
-                                        value="0.9"
-                                        oninput="document.getElementById('topPValue').innerText = this.value">
+                                        value="0.9">
+
                                 </div>
 
                                 <div class="mb-3">
@@ -306,8 +296,8 @@
                                         <span id="minPValue">0.05</span>
                                     </label>
                                     <input type="range" class="form-range" min="0" max="1" step="0.01" id="minPRange"
-                                        value="0.05"
-                                        oninput="document.getElementById('minPValue').innerText = this.value">
+                                        value="0.05">
+
                                 </div>
 
                                 <div class="row mb-3">
@@ -336,8 +326,8 @@
                                         <span id="repeatPenaltyValue">1.1</span>
                                     </label>
                                     <input type="range" class="form-range" min="1" max="2" step="0.05"
-                                        id="repeatPenaltyRange" value="1.1"
-                                        oninput="document.getElementById('repeatPenaltyValue').innerText = this.value">
+                                        id="repeatPenaltyRange" value="1.1">
+
                                     <div class="form-text small text-muted">防止模型重复相同的文本。</div>
                                 </div>
 
@@ -348,8 +338,9 @@
                                         <span id="freqPenaltyValue">0.0</span>
                                     </label>
                                     <input type="range" class="form-range" min="-2" max="2" step="0.1"
-                                        id="freqPenaltyRange" value="0.0"
-                                        oninput="document.getElementById('freqPenaltyValue').innerText = this.value">
+                                        id="freqPenaltyRange" value="0.0">
+
+
                                 </div>
 
                                 <div class="mb-3">
@@ -359,8 +350,8 @@
                                         <span id="presencePenaltyValue">0.0</span>
                                     </label>
                                     <input type="range" class="form-range" min="-2" max="2" step="0.1"
-                                        id="presencePenaltyRange" value="0.0"
-                                        oninput="document.getElementById('presencePenaltyValue').innerText = this.value">
+                                        id="presencePenaltyRange" value="0.0">
+
                                 </div>
                             </div>
 
@@ -406,7 +397,7 @@
                                     <div class="mb-2">
                                         <label class="form-label small text-muted">API 提供商</label>
                                         <select class="form-select form-select-sm" id="apiProviderSelect"
-                                            onchange="onProviderChange()">
+                                            onchange="FileToolsSettings.onProviderChange()">
                                             <option value="siliconflow">硅基流动 (SiliconFlow)</option>
                                             <option value="deepseek">DeepSeek 官方</option>
                                             <option value="custom">自定义</option>
@@ -419,8 +410,13 @@
                                     </div>
                                     <div class="mb-2">
                                         <label class="form-label small text-muted">API Key</label>
-                                        <input type="password" class="form-control form-control-sm" id="apiKeyInput"
-                                            placeholder="sk-...">
+                                        <div class="password-input-wrapper">
+                                            <input type="password" class="form-control form-control-sm" id="apiKeyInput"
+                                                placeholder="sk-...">
+                                            <button type="button" class="password-toggle-btn" id="toggleApiKeyBtn">
+                                                <i class="bi bi-eye"></i>
+                                            </button>
+                                        </div>
                                         <div class="form-text small">密钥仅存储在本地，不会上传</div>
                                     </div>
                                     <div class="mb-2">
@@ -430,9 +426,10 @@
                                     </div>
                                     <div class="mt-3 pt-2 border-top border-secondary">
                                         <button type="button" class="btn btn-sm btn-outline-secondary w-100"
-                                            onclick="testAPIConnection()">
+                                            id="testConnectionBtn">
                                             <i class="bi bi-lightning me-1"></i>测试连接
                                         </button>
+                                        <div class="form-text small mt-2 text-center">测试成功后自动保存配置</div>
                                     </div>
                                 </div>
 
@@ -443,6 +440,9 @@
                                         <input class="form-check-input" type="checkbox" id="verifySslCheck" checked>
                                         <label class="form-check-label small text-light" for="verifySslCheck">验证 SSL
                                             证书</label>
+                                    </div>
+                                    <div class="form-text small mb-2 text-warning">
+                                        <i class="bi bi-exclamation-triangle me-1"></i>禁用后将不验证HTTPS证书，仅用于自签名证书或内网环境
                                     </div>
                                     <div class="form-text small">
                                         <i class="bi bi-shield-check me-1"></i>隐私保护始终启用：自动检测并脱敏手机号、身份证、邮箱
@@ -465,7 +465,7 @@
 
                                 <!-- 添加目录按钮 -->
                                 <button type="button" class="btn btn-sm btn-outline-secondary w-100"
-                                    onclick="browseAndAddDirectory()">
+                                    id="addDirectoryBtn">
                                     <i class="bi bi-plus-lg me-1"></i>添加目录
                                 </button>
                             </div>
@@ -478,11 +478,11 @@
 
                                     <div class="d-grid gap-2 col-8 mx-auto">
                                         <button type="button" class="btn btn-outline-secondary btn-sm"
-                                            onclick="return openExternalLink('https://github.com/Dry-U/File-tools', event)">
+                                            id="githubBtn">
                                             <i class="bi bi-github me-2"></i>GitHub Repository
                                         </button>
                                         <button type="button" class="btn btn-outline-secondary btn-sm"
-                                            onclick="return openExternalLink('https://github.com/Dry-U/File-tools/issues', event)">
+                                            id="issueBtn">
                                             <i class="bi bi-bug me-2"></i>Report Issue
                                         </button>
                                     </div>
@@ -498,11 +498,11 @@
                     </div>
                 </div>
                 <div class="modal-footer border-secondary justify-content-between">
-                    <button type="button" class="btn btn-outline-secondary border-0" onclick="resetSettings()">
+                    <button type="button" class="btn btn-outline-secondary border-0" id="resetSettingsBtn">
                         <i class="bi bi-arrow-counterclockwise me-1"></i>恢复默认
                     </button>
                     <div>
-                        <button type="button" class="btn btn-primary" onclick="saveSettings()">
+                        <button type="button" class="btn btn-primary" id="saveSettingsBtn">
                             <i class="bi bi-check-lg me-1"></i>保存更改
                         </button>
                     </div>
@@ -537,7 +537,7 @@
                 <div class="modal-footer border-secondary justify-content-center p-2" id="rebuildModalFooter">
                     <button type="button" class="btn btn-sm btn-outline-secondary border-0"
                         data-bs-dismiss="modal">取消</button>
-                    <button type="button" class="btn btn-sm btn-primary px-3" onclick="confirmRebuild()">确定</button>
+                    <button type="button" class="btn btn-sm btn-primary px-3" id="confirmRebuildBtn">确定</button>
                 </div>
             </div>
         </div>
@@ -545,9 +545,8 @@
 
     <!-- 文件预览模态框 (File Preview Modal) -->
     <div class="modal fade" id="previewModal" tabindex="-1" aria-hidden="true" data-bs-backdrop="false">
-        <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
-            <div class="modal-content"
-                style="background-color: var(--llama-bg); border: 1px solid var(--llama-border); color: var(--llama-text-main); height: 80vh;">
+        <div class="modal-dialog modal-lg modal-dialog-centered">
+            <div class="modal-content">
                 <div class="modal-header border-secondary py-2">
                     <h6 class="modal-title" id="previewModalTitle">文件预览</h6>
                     <button type="button" class="btn btn-llama p-1" data-bs-dismiss="modal" aria-label="Close">
@@ -557,13 +556,8 @@
                         </svg>
                     </button>
                 </div>
-                <div class="modal-body p-0">
-                    <pre class="m-0 p-3 h-100"
-                        style="white-space: pre-wrap; font-family: monospace; font-size: 0.9rem; color: var(--llama-text-sub);"
-                        id="previewModalContent">正在加载...</pre>
-                </div>
-                <div class="modal-footer border-secondary justify-content-end p-2">
-                    <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-dismiss="modal">关闭</button>
+                <div class="modal-body" id="previewModalBody">
+                    <pre id="previewModalContent">正在加载...</pre>
                 </div>
             </div>
         </div>
@@ -589,7 +583,7 @@
                 <div class="modal-footer border-secondary justify-content-center p-2">
                     <button type="button" class="btn btn-sm btn-outline-secondary border-0"
                         data-bs-dismiss="modal">取消</button>
-                    <button type="button" class="btn btn-sm btn-primary px-3" onclick="confirmReset()">确定</button>
+                    <button type="button" class="btn btn-sm btn-primary px-3" id="confirmResetBtn">确定</button>
                 </div>
             </div>
         </div>

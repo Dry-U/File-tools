@@ -92,7 +92,23 @@ class LoggerConfig:
             self.log_json = config.get('system', 'log_json', False)
             self.log_sensitive_data = config.get('system', 'log_sensitive_data', False)
         else:
-            system_config = config.get('system', {}) if hasattr(config, 'get') else {}
+            # 处理字典类型的配置
+            if isinstance(config, dict):
+                system_config = config.get('system', {})
+            elif hasattr(config, 'get'):
+                # 尝试作为 ConfigLoader 处理，但更安全的做法是检查返回类型
+                try:
+                    # ConfigLoader.get(section, key, default) 格式
+                    # 这里的逻辑有点混乱，先简化处理
+                    system_section = config.get('system')
+                    if isinstance(system_section, dict):
+                        system_config = system_section
+                    else:
+                        system_config = {}
+                except (TypeError, AttributeError, KeyError):
+                    system_config = {}
+            else:
+                system_config = {}
             self.log_level = system_config.get('log_level', 'INFO')
             self.log_dir = system_config.get('data_dir', './data') + '/logs'
             self.log_max_size = system_config.get('log_max_size', 10)
@@ -129,13 +145,14 @@ class StructuredFormatter(logging.Formatter):
 
     def format(self, record: logging.LogRecord) -> str:
         """格式化日志记录"""
-        record.timestamp = datetime.datetime.fromtimestamp(record.created).isoformat()
-        record.thread_name = threading.current_thread().name
-        record.process_id = os.getpid()
+        # 动态添加自定义属性
+        timestamp = datetime.datetime.fromtimestamp(record.created).isoformat()
+        thread_name = threading.current_thread().name
+        process_id = os.getpid()
 
         if self.log_json:
             log_data = {
-                "timestamp": record.timestamp,
+                "timestamp": timestamp,
                 "level": record.levelname,
                 "logger": record.name,
                 "message": record.getMessage(),
@@ -143,19 +160,22 @@ class StructuredFormatter(logging.Formatter):
                 "function": record.funcName,
                 "line": record.lineno,
                 "thread": record.thread,
-                "thread_name": record.thread_name,
+                "thread_name": thread_name,
                 "process": record.process,
-                "process_id": record.process_id,
+                "process_id": process_id,
             }
 
             if record.exc_info:
                 log_data["exception"] = self.formatException(record.exc_info)
                 log_data["traceback"] = traceback.format_exception(*record.exc_info)
 
-            if hasattr(record, 'context'):
-                log_data["context"] = record.context
-            if hasattr(record, 'custom_fields'):
-                log_data["custom_fields"] = record.custom_fields
+            # 添加自定义字段
+            context = getattr(record, 'context', None)
+            if context:
+                log_data["context"] = context
+            custom_fields = getattr(record, 'custom_fields', None)
+            if custom_fields:
+                log_data["custom_fields"] = custom_fields
 
             return json.dumps(log_data, ensure_ascii=False, default=str)
         else:

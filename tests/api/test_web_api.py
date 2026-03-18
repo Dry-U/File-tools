@@ -45,8 +45,9 @@ def client():
 @pytest.fixture
 def mock_rate_limiter():
     """创建模拟限流器"""
+    from collections import OrderedDict
     limiter = RateLimiter()
-    limiter._requests = {}
+    limiter._requests = OrderedDict()
     return limiter
 
 
