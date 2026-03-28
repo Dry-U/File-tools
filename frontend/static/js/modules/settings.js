@@ -335,16 +335,21 @@ const FileToolsSettings = (function() {
     /**
      * 初始化设置面板 Tab 切换
      */
+    let _tabsInitialized = false;
     function initSettingsTabs() {
+        if (_tabsInitialized) {
+            // 已初始化过，仅重置到第一个 tab
+            const firstTab = document.querySelector('#v-pills-tab .nav-link');
+            if (firstTab && !firstTab.classList.contains('active')) {
+                firstTab.click();
+            }
+            return;
+        }
+        _tabsInitialized = true;
         console.log('Initializing settings tabs...');
-        const tabButtons = document.querySelectorAll('#v-pills-tab .nav-link');
-        const tabPanes = document.querySelectorAll('#v-pills-tabContent .tab-pane');
 
-        tabButtons.forEach(function (button) {
-            const newButton = button.cloneNode(true);
-            button.parentNode.replaceChild(newButton, button);
-
-            newButton.addEventListener('click', function (e) {
+        document.querySelectorAll('#v-pills-tab .nav-link').forEach(function (button) {
+            button.addEventListener('click', function (e) {
                 e.preventDefault();
                 e.stopPropagation();
 
@@ -353,10 +358,11 @@ const FileToolsSettings = (function() {
 
                 console.log('Tab clicked:', targetId);
 
-                tabButtons.forEach(function (btn) {
+                // 使用实时 DOM 查询，确保操作的是当前 DOM 中的节点
+                document.querySelectorAll('#v-pills-tab .nav-link').forEach(function (btn) {
                     btn.classList.remove('active');
                 });
-                tabPanes.forEach(function (pane) {
+                document.querySelectorAll('#v-pills-tabContent .tab-pane').forEach(function (pane) {
                     pane.classList.remove('show', 'active');
                 });
 
@@ -372,7 +378,7 @@ const FileToolsSettings = (function() {
             });
         });
 
-        console.log('Settings tabs initialized, found', tabButtons.length, 'tabs');
+        console.log('Settings tabs initialized');
     }
 
     /**

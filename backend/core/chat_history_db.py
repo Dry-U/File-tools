@@ -317,6 +317,9 @@ class ChatHistoryDB:
             return False
 
         with self.get_cursor() as cursor:
+            # 先删除关联的消息
+            cursor.execute("DELETE FROM messages WHERE session_id = ?", (session_id,))
+            # 再删除会话
             cursor.execute("DELETE FROM sessions WHERE session_id = ?", (session_id,))
             return cursor.rowcount > 0
 

@@ -80,18 +80,41 @@ const FileToolsSearch = (function() {
                 return;
             }
 
-            if (!response.ok) throw new Error('Search failed');
+            if (response.status === 503) {
+                resultsContainer.innerHTML = `
+                    <div class="text-center text-warning mt-5">
+                        <i class="bi bi-hourglass-split display-4"></i>
+                        <p class="mt-3">系统正在初始化，请稍后重试</p>
+                    </div>
+                `;
+                return;
+            }
+
+            if (response.status === 500) {
+                resultsContainer.innerHTML = `
+                    <div class="text-center text-danger mt-5">
+                        <i class="bi bi-exclamation-triangle display-4"></i>
+                        <p class="mt-3">服务器内部错误，请稍后重试或查看日志</p>
+                    </div>
+                `;
+                return;
+            }
+
+            if (!response.ok) throw new Error('搜索请求失败');
 
             const results = await response.json();
             renderSearchResults(results, resultsContainer);
 
         } catch (error) {
             console.error('Search error:', error);
-            const safeErrorMessage = FileToolsUtils.escapeHtml(error.message);
+            const isNetworkError = error.message === 'Failed to fetch' || error.name === 'TypeError';
+            const errorMsg = isNetworkError
+                ? '网络连接失败，请检查服务是否运行'
+                : '搜索出错，请稍后重试';
             resultsContainer.innerHTML = `
                 <div class="text-center text-danger mt-5">
-                    <i class="bi bi-exclamation-circle display-4"></i>
-                    <p class="mt-3">搜索出错: ${safeErrorMessage}</p>
+                    <i class="bi bi-${isNetworkError ? 'wifi-off' : 'exclamation-circle'} display-4"></i>
+                    <p class="mt-3">${FileToolsUtils.escapeHtml(errorMsg)}</p>
                 </div>
             `;
         }
@@ -178,7 +201,22 @@ const FileToolsSearch = (function() {
                 body: JSON.stringify({ path })
             });
 
-            if (!response.ok) throw new Error('Failed to load file');
+            if (response.status === 404) {
+                modalContent.innerHTML = '<div class="text-warning p-3"><i class="bi bi-file-earmark-x me-2"></i>文件不存在或已被删除</div>';
+                return;
+            }
+
+            if (response.status === 403) {
+                modalContent.innerHTML = '<div class="text-warning p-3"><i class="bi bi-shield-lock me-2"></i>无权访问此文件（路径不在允许范围内）</div>';
+                return;
+            }
+
+            if (response.status === 413) {
+                modalContent.innerHTML = '<div class="text-warning p-3"><i class="bi bi-file-earmark-break me-2"></i>文件过大，无法预览</div>';
+                return;
+            }
+
+            if (!response.ok) throw new Error('预览请求失败');
 
             const data = await response.json();
             let content = data.content || '文件内容为空';
@@ -200,7 +238,11 @@ const FileToolsSearch = (function() {
 
         } catch (error) {
             console.error('Preview error:', error);
-            modalContent.innerHTML = '<div class="text-danger p-3">无法预览文件: ' + FileToolsUtils.escapeHtml(error.message) + '</div>';
+            const isNetworkError = error.message === 'Failed to fetch' || error.name === 'TypeError';
+            const errorMsg = isNetworkError
+                ? '网络连接失败'
+                : '无法预览文件内容';
+            modalContent.innerHTML = `<div class="text-danger p-3"><i class="bi bi-${isNetworkError ? 'wifi-off' : 'exclamation-circle'} me-2"></i>${FileToolsUtils.escapeHtml(errorMsg)}</div>`;
         }
     }
 

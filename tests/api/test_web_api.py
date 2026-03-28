@@ -563,6 +563,58 @@ class TestPathSecurity:
         result = is_path_allowed("//etc/passwd", config)
         assert result == False
 
+    def test_is_path_allowed_null_byte(self):
+        """测试空字节注入攻击"""
+        from backend.api.dependencies import is_path_allowed
+        config = Mock()
+        result = is_path_allowed("/allowed/path/file\x00.txt", config)
+        assert result == False
+
+    def test_is_path_allowed_url_encoded_traversal(self):
+        """测试URL编码的路径遍历攻击"""
+        from backend.api.dependencies import is_path_allowed
+        config = Mock()
+        # %2e%2e 是 .. 的URL编码
+        result = is_path_allowed("/allowed/path/%2e%2e/%2e%2e/etc/passwd", config)
+        assert result == False
+
+    def test_is_path_allowed_double_url_encoded(self):
+        """测试双重URL编码的路径遍历攻击"""
+        from backend.api.dependencies import is_path_allowed
+        config = Mock()
+        # %252e 是 %2e 的双重编码
+        result = is_path_allowed("/allowed/path/%252e%252e/etc/passwd", config)
+        assert result == False
+
+    def test_is_path_allowed_dotdot_in_middle(self):
+        """测试路径中间的 .. 遍历"""
+        from backend.api.dependencies import is_path_allowed
+        config = Mock()
+        result = is_path_allowed("/allowed/path/../secret/file.txt", config)
+        assert result == False
+
+    def test_is_path_allowed_none_path(self):
+        """测试None路径"""
+        from backend.api.dependencies import is_path_allowed
+        config = Mock()
+        result = is_path_allowed(None, config)
+        assert result == False
+
+    def test_is_path_allowed_non_string_path(self):
+        """测试非字符串路径"""
+        from backend.api.dependencies import is_path_allowed
+        config = Mock()
+        result = is_path_allowed(12345, config)
+        assert result == False
+
+    def test_is_path_allowed_no_scan_paths_configured(self):
+        """测试未配置扫描路径时拒绝所有访问"""
+        from backend.api.dependencies import is_path_allowed
+        config = Mock()
+        config.get.return_value = ''
+        result = is_path_allowed("/some/path/file.txt", config)
+        assert result == False
+
 
 class TestRootEndpoint:
     """根端点测试"""

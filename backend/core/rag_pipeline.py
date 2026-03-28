@@ -380,10 +380,13 @@ class RAGPipeline:
         return False
 
     def _collect_documents(self, query: str) -> List[Dict[str, Any]]:
-        """高级文档收集流程，集成多级RAG优化策略"""
+        """高级文档收集流程，集成多级RAG优化策略
+
+        对于RAG场景，优先使用向量搜索获取chunk级别结果，以提供更多上下文。
+        """
         try:
             # 尝试获取缓存结果以提高性能
-            cache_key = f"search_{query[:50]}"
+            cache_key = f"rag_search_{query[:50]}"
             results = self.vram_manager.get_cached_result(cache_key)
 
             if results is None:
@@ -410,13 +413,32 @@ class RAGPipeline:
                 all_results = []
                 seen_paths = set()
 
-                for search_query in search_queries:
-                    query_results = self.search_engine.search(search_query) or []
-                    for res in query_results:
-                        path = res.get('path', '')
-                        if path and path not in seen_paths:
-                            seen_paths.add(path)
-                            all_results.append(res)
+                # RAG场景：优先使用向量搜索获取chunk级别结果（group_by_doc=False）
+                if hasattr(self.search_engine, 'index_manager'):
+                    try:
+                        for search_query in search_queries:
+                            # 获取chunk级别结果，提供更多上下文
+                            vector_results = self.search_engine.index_manager.search_vector(
+                                search_query, limit=15, group_by_doc=False
+                            ) or []
+                            for res in vector_results:
+                                path = res.get('path', '')
+                                if path and path not in seen_paths:
+                                    seen_paths.add(path)
+                                    all_results.append(res)
+                                    logger.debug(f"RAG获取到chunk结果: {path}, is_chunk={res.get('is_chunk', False)}")
+                    except Exception as e:
+                        logger.warning(f"RAG向量搜索失败，回退到普通搜索: {e}")
+
+                # 如果向量搜索没有结果，回退到普通搜索
+                if not all_results:
+                    for search_query in search_queries:
+                        query_results = self.search_engine.search(search_query) or []
+                        for res in query_results:
+                            path = res.get('path', '')
+                            if path and path not in seen_paths:
+                                seen_paths.add(path)
+                                all_results.append(res)
 
                 results = all_results
                 if results:
@@ -436,24 +458,46 @@ class RAGPipeline:
             for res in results:
                 try:
                     path = res.get('path', '')
-                    if path and path.lower() in seen_paths:
+                    is_chunk = res.get('is_chunk', False)
+
+                    # 如果是chunk模式，同一文档的多个chunks可以都保留（但限制数量）
+                    if path and path.lower() in seen_paths and not is_chunk:
                         continue
                     if path:
                         seen_paths.add(path.lower())
-
-                    # 从索引获取完整内容
-                    full_content = self.search_engine.index_manager.get_document_content(path) if hasattr(self.search_engine, 'index_manager') else ''
-                    if full_content:
-                        cleaned = self._strip_tags(full_content)
-                    else:
-                        raw_content = res.get('content') or ''
-                        snippet = res.get('snippet') or ''
-                        cleaned = self._strip_tags(raw_content) if raw_content else self._strip_tags(snippet)
 
                     if path:
                         filename = os.path.basename(path)
                     else:
                         filename = res.get('filename') or res.get('file_name') or '未知文件'
+
+                    # 优先使用chunk内容（如果可用）
+                    if is_chunk:
+                        # 使用chunk的预览内容
+                        chunk_content = res.get('snippet') or res.get('content', '')
+                        if chunk_content:
+                            cleaned = self._strip_tags(chunk_content)
+                        else:
+                            # 如果snippet太短，尝试获取完整chunk内容
+                            full_content = self.search_engine.index_manager.get_document_content(path) if hasattr(self.search_engine, 'index_manager') else ''
+                            if full_content:
+                                start_pos = res.get('chunk_start', 0)
+                                end_pos = res.get('chunk_end', start_pos + 1000)
+                                cleaned = self._strip_tags(full_content[start_pos:end_pos])
+                            else:
+                                cleaned = ''
+                    else:
+                        # 从索引获取完整内容
+                        full_content = self.search_engine.index_manager.get_document_content(path) if hasattr(self.search_engine, 'index_manager') else ''
+                        if full_content:
+                            cleaned = self._strip_tags(full_content)
+                        else:
+                            raw_content = res.get('content') or ''
+                            snippet = res.get('snippet') or ''
+                            cleaned = self._strip_tags(raw_content) if raw_content else self._strip_tags(snippet)
+
+                    if not cleaned.strip():
+                        continue
 
                     # 内容预处理：智能分块和语义增强
                     processed_content = self._preprocess_content(cleaned, query)
@@ -468,6 +512,11 @@ class RAGPipeline:
                             )
                         else:
                             processed_content = self._extract_relevant_fragments(processed_content, query, max_allowed_chars)
+
+                    # 对于chunk结果，添加chunk信息到内容中
+                    if is_chunk:
+                        chunk_info = f"[文档片段 {res.get('chunk_index', 0) + 1}/{res.get('total_chunks', 1)}]\n"
+                        processed_content = chunk_info + processed_content
 
                     # 计算多维度相关性得分
                     relevance_score = self._calculate_multidimensional_relevance(query, processed_content, res, filename)
@@ -954,18 +1003,14 @@ class RAGPipeline:
             head_size = min(available_content // 2, 1000)
             tail_size = available_content - head_size - 3
             if tail_size > 0:
-                content = content[:head_size] + '...' + content[-tail_size:]
+                truncated = content[:head_size] + '...' + content[-tail_size:]
             else:
-                content = content[:available_content - 3] + '...'
+                truncated = content[:available_content - 3] + '...'
         else:
-            content = content[:available_content - 3] + '...'
+            truncated = content[:available_content - 3] + '...'
 
-        return (
-            f"--- 文件: {section.split('--- 文件: ')[1].split(' ---')[0]} ---\n"
-            f"路径: {section.split('路径: ')[1].split('\\n')[0]}\n"
-            f"相关性: {section.split('相关性: ')[1].split('\\n')[0]}\n"
-            f"内容:\n{content}"
-        )
+        # 返回 section，用截断后的内容替换原始内容
+        return section[:overhead] + truncated
 
     def _calculate_context_budget(self, doc_budget: Optional[int]) -> int:
         """计算文档上下文预算"""

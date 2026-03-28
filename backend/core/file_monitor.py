@@ -210,7 +210,7 @@ class FileMonitor:
             return
 
         # 获取事件路径
-        event_path = event.src_path if event.is_directory else event.src_path
+        event_path = event.src_path
         event_type = event.event_type
 
         # 记录事件

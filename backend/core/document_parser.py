@@ -412,9 +412,14 @@ class DocumentParser:
             # 尝试使用textract作为后备
             if textract:
                 try:
-                    # 检查文件大小限制
-                    if file_size > max_size:
-                        return f"错误: Word文档过大 ({file_size} bytes)，已跳过解析"
+                    # 重新获取文件大小（异常可能发生在获取大小之后）
+                    try:
+                        _file_size = os.path.getsize(file_path)
+                        _max_size = self.MAX_FILE_SIZE_DOC
+                        if _file_size > _max_size:
+                            return f"错误: Word文档过大 ({_file_size} bytes)，已跳过解析"
+                    except OSError:
+                        pass
 
                     content = textract.process(file_path).decode('utf-8', errors='ignore')
                     max_content_size = self.MAX_OUTPUT_SIZE_DOC_MB * 1024 * 1024

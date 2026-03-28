@@ -77,6 +77,10 @@ file_scanner:
   scan_threads: 4
 index:
   batch_size: 100
+  chunk_enabled: true
+  chunk_overlap: 100
+  chunk_size: 800
+  chunk_strategy: semantic
   commit_interval: 30
   hnsw_path: ./data/hnsw_index
   metadata_path: ./data/metadata

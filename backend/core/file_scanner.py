@@ -545,12 +545,12 @@ class FileScanner:
             file_count = 0
 
             for root, dirs, files in os.walk(dir_path):
-                if self._stop_flag:
+                if self._is_stop_requested():
                     self.logger.info(f"扫描被停止，已处理 {file_count} 个项目")
                     return
 
                 for file_name in files:
-                    if self._stop_flag:
+                    if self._is_stop_requested():
                         self.logger.info(f"扫描被停止，已处理 {file_count} 个项目")
                         return
 
@@ -809,7 +809,8 @@ class FileScanner:
     def stop_scan(self):
         """停止扫描操作"""
         self.logger.info("正在停止扫描...")
-        self._stop_flag = True
+        with self._stop_lock:
+            self._stop_flag = True
     
     def get_supported_file_types(self) -> Dict[str, List[str]]:
         """获取支持的文件类型及其扩展名"""
@@ -902,10 +903,10 @@ class FileScanner:
             # 索引文件
             success = self._index_file(file_path)
             if success:
-                self.scan_stats['total_files_indexed'] += 1
+                self._increment_stat('total_files_indexed')
                 self.logger.info(f"成功更新文件索引: {file_path}")
             else:
-                self.scan_stats['total_files_skipped'] += 1
+                self._increment_stat('total_files_skipped')
                 self.logger.warning(f"更新文件索引失败: {file_path}")
 
             return success
@@ -934,21 +935,14 @@ class FileScanner:
         """获取文件类型统计信息"""
         stats = {}
         for file_type, extensions in self.target_extensions.items():
-            count = 0
-            for ext in extensions:
-                # 这里只是统计配置中定义的类型，实际统计需要扫描文件
-                pass
-            stats[file_type] = count
+            stats[file_type] = 0
         
         # 如果有索引管理器，可以从索引中获取实际统计
         if self.index_manager:
             try:
                 # 获取索引中的文件类型统计
                 searcher = self.index_manager.tantivy_index.searcher()
-                collector = tantivy.Collector()
                 
-                # 这里需要根据实际的索引结构来统计
-                # 由于我们没有直接访问tantivy的Collector，我们使用搜索来近似统计
                 for file_type in stats.keys():
                     query = self.index_manager.tantivy_index.parse_query(file_type, ['file_type'])
                     top_docs = searcher.search(query, 0)  # 只需要计数，不需要结果
@@ -983,7 +977,7 @@ class FileScanner:
         file_types = filters.get('file_types', None)
 
         for path in scan_paths:
-            if self._stop_flag:
+            if self._is_stop_requested():
                 break
             self._scan_directory(Path(path), 0)  # 这里简化处理，不计算预估总数
 

@@ -365,6 +365,17 @@ class ConfigValidator:
 
         paths = scan_paths if isinstance(scan_paths, list) else [scan_paths]
 
+        # 过滤空字符串路径
+        paths = [p for p in paths if p and str(p).strip()]
+        if not paths:
+            result.add_warning(
+                message='扫描路径均为空值，应用将无法索引文件',
+                section='file_scanner.scan_paths',
+                code='EMPTY_SCAN_PATHS',
+                suggestion='在设置中添加至少一个有效的扫描目录'
+            )
+            return False
+
         for path_str in paths:
             path = Path(str(path_str)).expanduser()
 

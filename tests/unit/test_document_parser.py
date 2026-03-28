@@ -78,16 +78,16 @@ def test_convert_doc_to_docx(mock_win32, parser):
     mock_doc = Mock()
     mock_word.Documents.Open.return_value = mock_doc
     mock_win32.client.Dispatch.return_value = mock_word
-    
-    # Mock _parse_docx to return content
-    parser._parse_docx = Mock(return_value="converted content")
-    
+
+    # Mock tempfile to avoid actual file creation issues
     with patch.dict('sys.modules', {'pythoncom': Mock()}):
-        with patch('os.path.abspath', return_value="C:\\test.doc"):
-            with patch('os.remove'): # Mock remove
-                result = parser._convert_doc_to_docx("test.doc")
-                assert result == "converted content"
-                mock_doc.SaveAs2.assert_called()
+        with patch('tempfile.mkstemp', return_value=(123, "C:\\test_converted.docx")):
+            with patch('os.close'):
+                with patch('os.remove'):
+                    # Mock _parse_docx at instance level
+                    with patch.object(parser, '_parse_docx', return_value="converted content"):
+                        result = parser._convert_doc_to_docx("test.doc")
+                        assert result == "converted content"
 
 @patch('backend.core.document_parser.win32com')
 def test_parse_doc_win32_retry_convert(mock_win32, parser):

@@ -3,6 +3,7 @@
 """
 
 import os
+import stat
 import urllib.parse
 from pathlib import Path
 from fastapi import Depends
@@ -260,3 +261,67 @@ def is_path_allowed(path: str, config_loader: ConfigLoader) -> bool:
     safe_path_name = file_path.name if len(file_path.parts) > 0 else "unknown"
     logger.warning(f"路径不在允许范围内: ...{safe_path_name}")
     return False
+
+
+# O_NOFOLLOW 标志（防止通过符号链接跟踪读取文件）
+_O_NOFOLLOW = getattr(os, 'O_NOFOLLOW', 0)
+_O_RDONLY = os.O_RDONLY
+
+
+def safe_read_file(file_path: str, config_loader: ConfigLoader,
+                   max_size: int = 10 * 1024 * 1024) -> bytes:
+    """安全读取文件内容，防止符号链接跟踪攻击（TOCTOU 防护）
+
+    使用 O_NOFOLLOW 标志打开文件描述符，确保读取的是真实文件而非符号链接。
+    这消除了检查路径和读取文件之间的竞态条件窗口。
+
+    Args:
+        file_path: 要读取的文件路径
+        config_loader: 配置加载器（用于路径白名单验证）
+        max_size: 最大允许读取的字节数（默认 10MB）
+
+    Returns:
+        文件内容的字节串
+
+    Raises:
+        PermissionError: 路径不在允许范围内
+        FileNotFoundError: 文件不存在
+        IsADirectoryError: 路径是目录
+        ValueError: 文件过大
+        OSError: 读取失败
+    """
+    if not is_path_allowed(file_path, config_loader):
+        raise PermissionError(f"路径不在允许的访问范围内")
+
+    path = Path(file_path)
+
+    # 检查是否为符号链接（在打开描述符之前）
+    if path.is_symlink():
+        raise PermissionError("不允许读取符号链接")
+
+    # 使用 O_NOFOLLOW 原子性地打开文件（如果操作系统支持）
+    if _O_NOFOLLOW:
+        fd = os.open(str(path), _O_RDONLY | _O_NOFOLLOW)
+        try:
+            # 验证打开的文件不是符号链接
+            st = os.fstat(fd)
+            if stat.S_ISLNK(st.st_mode):
+                os.close(fd)
+                raise PermissionError("检测到符号链接，拒绝读取")
+            # 检查文件大小
+            if st.st_size > max_size:
+                os.close(fd)
+                raise ValueError(f"文件过大: {st.st_size} 字节（限制 {max_size} 字节）")
+            # 从文件描述符读取
+            return os.read(fd, max_size)
+        finally:
+            os.close(fd)
+    else:
+        # Windows 不支持 O_NOFOLLOW，使用额外检查
+        st = os.stat(str(path))
+        if stat.S_ISLNK(st.st_mode):
+            raise PermissionError("检测到符号链接，拒绝读取")
+        if st.st_size > max_size:
+            raise ValueError(f"文件过大: {st.st_size} 字节（限制 {max_size} 字节）")
+        with open(str(path), 'rb') as f:
+            return f.read(max_size)

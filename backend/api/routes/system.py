@@ -186,3 +186,63 @@ async def version_check():
         "name": "file-tools",
         "description": "智能文件检索与问答系统"
     }
+
+
+@router.get("/initialization-status")
+async def initialization_status(request: Request):
+    """获取应用初始化状态（前端轮询使用）
+
+    返回各组件的初始化进度和状态，前端可在启动时轮询此端点
+    展示加载进度，避免用户在系统未就绪时操作。
+    """
+    initialized = getattr(request.app.state, 'initialized', False)
+    components: Dict[str, Any] = {}
+
+    # 索引管理器状态
+    try:
+        index_manager = None
+        if hasattr(request.app.state, 'index_manager'):
+            index_manager = request.app.state.index_manager
+        if index_manager and getattr(index_manager, 'index_ready', False):
+            try:
+                stats = index_manager.get_index_stats()
+                components['index'] = {
+                    "status": "ready",
+                    "tantivy_docs": stats.get('tantivy_docs', 0),
+                    "vector_docs": stats.get('vector_docs', 0)
+                }
+            except Exception:
+                components['index'] = {"status": "ready"}
+        else:
+            components['index'] = {"status": "initializing"}
+    except Exception:
+        components['index'] = {"status": "initializing"}
+
+    # RAG 管道状态
+    try:
+        rag_status = getattr(request.app.state, 'rag_status', 'unknown')
+        rag_error = getattr(request.app.state, 'rag_error', None)
+        components['rag'] = {
+            "status": rag_status,
+            "error": rag_error
+        }
+    except Exception:
+        components['rag'] = {"status": "unknown"}
+
+    # 文件监控状态
+    try:
+        monitor = getattr(request.app.state, 'file_monitor', None)
+        if monitor and getattr(monitor, '_running', False):
+            components['monitor'] = {"status": "running"}
+        elif monitor:
+            components['monitor'] = {"status": "stopped"}
+        else:
+            components['monitor'] = {"status": "disabled"}
+    except Exception:
+        components['monitor'] = {"status": "unknown"}
+
+    return {
+        "initialized": initialized,
+        "components": components,
+        "version": get_version()
+    }

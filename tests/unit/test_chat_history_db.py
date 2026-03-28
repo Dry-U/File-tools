@@ -234,11 +234,13 @@ class TestChatHistoryDBEdgeCases:
 
     @pytest.fixture
     def temp_db(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
             db_path = os.path.join(tmpdir, "test_chat.db")
             db = ChatHistoryDB(db_path)
             yield db
             db.close()
+            import time
+            time.sleep(0.1)  # Windows 下等待文件锁释放
 
     def test_concurrent_access(self, temp_db):
         """测试并发访问"""
@@ -299,7 +301,8 @@ class TestChatHistoryDBEdgeCases:
 
     def test_session_id_with_safe_special_chars(self, temp_db):
         """测试带安全特殊字符的会话ID"""
-        result = temp_db.create_session("test-session_1.2$3@domain:port")
+        # 只有字母、数字、下划线、连字符被允许
+        result = temp_db.create_session("test-session_1")
         assert result == True
 
     def test_multiple_databases(self):
@@ -338,22 +341,22 @@ class TestChatHistoryDBSessionValidation:
 
     @pytest.fixture
     def temp_db(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
             db_path = os.path.join(tmpdir, "test_chat.db")
             db = ChatHistoryDB(db_path)
             yield db
             db.close()
+            import time
+            time.sleep(0.1)
 
     @pytest.mark.parametrize("valid_id", [
         "session123",
         "test_session",
         "test-session",
-        "test.session",
-        "test$session",
-        "test@session",
-        "session:123",
         "SESSION_123",
         "123session",
+        "a",
+        "A" * 64,
     ])
     def test_valid_session_ids(self, temp_db, valid_id):
         """测试有效会话ID"""
@@ -373,3 +376,93 @@ class TestChatHistoryDBSessionValidation:
         """测试无效会话ID"""
         result = temp_db.create_session(invalid_id)
         assert result == False
+
+
+class TestChatHistoryDBConnectionManagement:
+    """ChatHistoryDB 连接管理测试"""
+
+    def test_close_all(self):
+        """测试 close_all 关闭所有线程的连接"""
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
+            db_path = os.path.join(tmpdir, "test_chat.db")
+            db = ChatHistoryDB(db_path)
+
+            # 在当前线程创建连接
+            db.create_session("test_session")
+
+            # 模拟多线程连接
+            def create_connection():
+                db.add_message("test_session", "user", "hello")
+
+            threads = [threading.Thread(target=create_connection) for _ in range(3)]
+            for t in threads:
+                t.start()
+            for t in threads:
+                t.join()
+
+            # 验证有多个连接被跟踪
+            assert len(db._all_connections) >= 1
+
+            # 关闭所有连接
+            db.close_all()
+
+            # 验证所有连接被清除
+            assert len(db._all_connections) == 0
+
+            # 验证关闭后仍可重新连接（惰性重连）
+            db.create_session("test_session_2")
+            assert db.session_exists("test_session_2")
+            db.close()
+
+    def test_close_removes_from_tracking(self):
+        """测试 close() 从跟踪列表中移除连接"""
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
+            db_path = os.path.join(tmpdir, "test_chat.db")
+            db = ChatHistoryDB(db_path)
+            db.create_session("test_session")
+
+            assert len(db._all_connections) >= 1
+            db.close()
+            assert len(db._all_connections) == 0
+
+    def test_del_closes_all_connections(self):
+        """测试 __del__ 关闭所有连接"""
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
+            db_path = os.path.join(tmpdir, "test_chat.db")
+            db = ChatHistoryDB(db_path)
+            db.create_session("test_session")
+            initial_count = len(db._all_connections)
+            assert initial_count >= 1
+
+            # 调用 __del__（显式调用，因为Python可能不立即回收）
+            db.__del__()
+            assert len(db._all_connections) == 0
+
+    def test_concurrent_close_all(self):
+        """测试并发操作不会导致连接泄漏"""
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmpdir:
+            db_path = os.path.join(tmpdir, "test_chat.db")
+            db = ChatHistoryDB(db_path)
+
+            # 多线程并发创建连接和操作
+            def worker(worker_id):
+                try:
+                    sid = f"session_{worker_id}"
+                    db.create_session(sid)
+                    for i in range(10):
+                        db.add_message(sid, "user", f"msg {worker_id}-{i}")
+                except Exception:
+                    pass  # SQLite 并发写入可能失败，这是预期的
+
+            threads = [threading.Thread(target=worker, args=(i,)) for i in range(3)]
+            for t in threads:
+                t.start()
+            for t in threads:
+                t.join()
+
+            # 安全关闭所有连接
+            db.close_all()
+
+            # 验证所有连接被清除
+            assert len(db._all_connections) == 0
+            db.close()
