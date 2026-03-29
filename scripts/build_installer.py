@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
-File Tools - NSIS 安装包构建脚本
-动态生成 NSIS 安装脚本并调用 makensis 编译
+File Tools - NSIS installer build script
+Dynamically generates NSIS script and invokes makensis to compile
 
-用法:
+Usage:
     python scripts/build_installer.py --mode cpu --version 1.0.0
     python scripts/build_installer.py --mode slim
 """
@@ -18,7 +18,7 @@ from pathlib import Path
 
 
 def read_version() -> str:
-    """读取当前版本号"""
+    """Read current version from VERSION file"""
     version_file = Path(__file__).parent.parent / "VERSION"
     if version_file.exists():
         return version_file.read_text().strip()
@@ -26,13 +26,13 @@ def read_version() -> str:
 
 
 def generate_nsis_script(version: str, mode: str, output_dir: str) -> str:
-    """从模板生成 NSIS 脚本"""
+    """Generate NSIS script from template"""
     project_root = Path(__file__).parent.parent
     template_path = project_root / "installer.nsi"
     output_path = project_root / output_dir / f"installer-{mode}.nsi"
 
     if not template_path.exists():
-        print(f"[错误] 未找到 NSIS 模板: {template_path}")
+        print(f"[ERROR] NSIS template not found: {template_path}")
         sys.exit(1)
 
     content = template_path.read_text(encoding="utf-8")
@@ -41,13 +41,12 @@ def generate_nsis_script(version: str, mode: str, output_dir: str) -> str:
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(content, encoding="utf-8")
-    print(f"[生成] NSIS 脚本: {output_path}")
+    print(f"[OK] NSIS script generated: {output_path}")
     return str(output_path)
 
 
 def find_nsis() -> str:
-    """查找 NSIS 编译器"""
-    # 常见安装路径
+    """Find NSIS compiler (makensis)"""
     nsis_paths = [
         r"C:\Program Files (x86)\NSIS\makensis.exe",
         r"C:\Program Files\NSIS\makensis.exe",
@@ -59,7 +58,6 @@ def find_nsis() -> str:
         if os.path.isfile(path):
             return path
 
-    # 尝试 PATH
     nsis = shutil.which("makensis")
     if nsis:
         return nsis
@@ -68,15 +66,15 @@ def find_nsis() -> str:
 
 
 def build_installer(nsis_script: str, version: str, mode: str) -> str:
-    """调用 NSIS 编译安装包"""
+    """Compile installer with NSIS"""
     nsis_path = find_nsis()
     if not nsis_path:
-        print("[错误] 未找到 NSIS (makensis)，请先安装 NSIS:")
-        print("  下载地址: https://nsis.sourceforge.io/Download")
-        print("  或使用 Chocolatey: choco install nsis")
+        print("[ERROR] NSIS (makensis) not found. Install via:")
+        print("  Download: https://nsis.sourceforge.io/Download")
+        print("  Or: choco install nsis")
         sys.exit(1)
 
-    print(f"[编译] 使用 NSIS: {nsis_path}")
+    print(f"[BUILD] Using NSIS: {nsis_path}")
     cmd = [
         nsis_path,
         "/INPUTCHARSET", "UTF8",
@@ -86,51 +84,49 @@ def build_installer(nsis_script: str, version: str, mode: str) -> str:
 
     result = subprocess.run(cmd, capture_output=True, text=True)
     if result.returncode != 0:
-        print(f"[错误] NSIS 编译失败:")
+        print(f"[ERROR] NSIS compile failed:")
         print(result.stderr)
         sys.exit(1)
 
-    # 查找生成的安装包
+    # Find generated installer
     project_root = Path(__file__).parent.parent
     pattern = f"FileTools-{mode}-v{version}-Setup.exe"
     installer_path = project_root / "dist" / pattern
 
     if installer_path.exists():
         size_mb = installer_path.stat().st_size / (1024 * 1024)
-        print(f"[完成] 安装包: {installer_path} ({size_mb:.1f} MB)")
+        print(f"[OK] Installer: {installer_path} ({size_mb:.1f} MB)")
         return str(installer_path)
     else:
-        # 搜索
         for f in (project_root / "dist").glob("*.exe"):
             if "Setup" in f.name:
                 size_mb = f.stat().st_size / (1024 * 1024)
-                print(f"[完成] 安装包: {f} ({size_mb:.1f} MB)")
+                print(f"[OK] Installer: {f} ({size_mb:.1f} MB)")
                 return str(f)
 
-    print("[警告] 未找到生成的安装包")
+    print("[WARN] Generated installer not found")
     return ""
 
 
 def create_portable_archive(version: str, mode: str) -> str:
-    """创建便携版 zip 归档"""
+    """Create portable zip archive"""
     import zipfile
 
     project_root = Path(__file__).parent.parent
     source_dir = project_root / "dist" / f"FileTools-v{version}-{mode}"
 
     if not source_dir.exists():
-        # 尝试查找
         matches = list((project_root / "dist").glob("FileTools-*"))
         if matches:
             source_dir = matches[0]
         else:
-            print(f"[错误] 未找到构建目录")
+            print(f"[ERROR] Build directory not found")
             return ""
 
     archive_name = f"FileTools-{mode}-v{version}-portable.zip"
     archive_path = project_root / "dist" / archive_name
 
-    print(f"[打包] 创建便携版: {archive_name}")
+    print(f"[PACK] Creating portable archive: {archive_name}")
     with zipfile.ZipFile(archive_path, "w", zipfile.ZIP_DEFLATED) as zf:
         for file_path in source_dir.rglob("*"):
             if file_path.is_file():
@@ -138,20 +134,20 @@ def create_portable_archive(version: str, mode: str) -> str:
                 zf.write(file_path, arcname)
 
     size_mb = archive_path.stat().st_size / (1024 * 1024)
-    print(f"[完成] 便携版: {archive_path} ({size_mb:.1f} MB)")
+    print(f"[OK] Portable: {archive_path} ({size_mb:.1f} MB)")
     return str(archive_path)
 
 
 def main():
-    parser = argparse.ArgumentParser(description="File Tools 安装包构建工具")
+    parser = argparse.ArgumentParser(description="FileTools Installer Builder")
     parser.add_argument("--mode", choices=["cpu", "gpu", "slim"], default="cpu",
-                        help="构建模式 (默认: cpu)")
+                        help="Build mode (default: cpu)")
     parser.add_argument("--version", default=None,
-                        help="版本号 (默认从 VERSION 文件读取)")
+                        help="Version string (default: read from VERSION file)")
     parser.add_argument("--portable", action="store_true",
-                        help="同时创建便携版 zip")
+                        help="Also create portable zip")
     parser.add_argument("--no-compile", action="store_true",
-                        help="只生成 NSIS 脚本，不编译")
+                        help="Only generate NSIS script, do not compile")
 
     args = parser.parse_args()
 
@@ -160,21 +156,19 @@ def main():
 
     print(f"\n{'='*50}")
     print(f"File Tools Installer Builder")
-    print(f"版本: v{version} | 模式: {mode}")
+    print(f"Version: v{version} | Mode: {mode}")
     print(f"{'='*50}\n")
 
-    # 生成 NSIS 脚本
+    # Generate NSIS script
     nsis_script = generate_nsis_script(version, mode, "dist")
 
     if not args.no_compile:
-        # 编译安装包
         build_installer(nsis_script, version, mode)
 
-    # 创建便携版
     if args.portable:
         create_portable_archive(version, mode)
 
-    print("\n完成!")
+    print("\nDone!")
 
 
 if __name__ == "__main__":
