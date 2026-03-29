@@ -29,7 +29,8 @@ def generate_nsis_script(version: str, mode: str, output_dir: str) -> str:
     """Generate NSIS script from template"""
     project_root = Path(__file__).parent.parent
     template_path = project_root / "installer.nsi"
-    output_path = project_root / output_dir / f"installer-{mode}.nsi"
+    # Generate script in project root so relative paths (LICENSE, frontend\static\, dist\) resolve correctly
+    output_path = project_root / f"installer-{mode}.nsi"
 
     if not template_path.exists():
         print(f"[ERROR] NSIS template not found: {template_path}")
@@ -39,7 +40,6 @@ def generate_nsis_script(version: str, mode: str, output_dir: str) -> str:
     content = content.replace("___VERSION___", version)
     content = content.replace("___MODE___", mode)
 
-    output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(content, encoding="utf-8")
     print(f"[OK] NSIS script generated: {output_path}")
     return str(output_path)
