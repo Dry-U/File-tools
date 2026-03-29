@@ -96,7 +96,7 @@ class TestUIChat:
         # 历史容器可能存在也可能不存在
         if history_container.is_visible():
             # 获取消息列表
-            messages = page.locator('.message, .chat-message').all()
+            page.locator('.message, .chat-message').all()
             # 消息数量应该大于等于0
 
         assert page.url.startswith("http://127.0.0.1:8000")
@@ -160,7 +160,7 @@ class TestUIChat:
 
         # 会话列表可能存在也可能不存在
         if session_list.is_visible():
-            sessions = page.locator('.session-item, .chat-session').all()
+            page.locator('.session-item, .chat-session').all()
             # 会话数量应该大于等于0
 
         assert page.url.startswith("http://127.0.0.1:8000")

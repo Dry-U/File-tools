@@ -43,11 +43,11 @@ class TestVRAMManager:
         """测试上下文限制判断"""
         with patch.object(vram_manager, 'get_memory_usage', return_value=100):
             # 100MB < 512 * 0.7 = 358.4MB, 不应该限制
-            assert vram_manager.should_limit_context() == False
+            assert not vram_manager.should_limit_context()
 
         with patch.object(vram_manager, 'get_memory_usage', return_value=400):
             # 400MB > 358.4MB, 应该限制
-            assert vram_manager.should_limit_context() == True
+            assert vram_manager.should_limit_context()
 
     def test_adjust_context_size_normal(self, vram_manager):
         """测试正常情况下的上下文大小调整"""
@@ -144,7 +144,7 @@ class TestVRAMManager:
         mock_gputil.getGPUs.return_value = [mock_gpu]
 
         result = vram_manager.get_gpu_info()
-        assert result['available'] == True
+        assert result['available']
         assert len(result['gpus']) == 1
         assert result['gpus'][0]['name'] == "NVIDIA GTX 1080"
 
@@ -152,7 +152,7 @@ class TestVRAMManager:
     def test_get_gpu_info_unavailable(self, vram_manager):
         """测试获取GPU信息（GPU不可用）"""
         result = vram_manager.get_gpu_info()
-        assert result['available'] == False
+        assert not result['available']
         assert result['gpus'] == []
 
     def test_available_vram(self, vram_manager):
@@ -174,7 +174,7 @@ class TestVRAMManager:
     def test_unload_model_warning(self, vram_manager):
         """测试卸载模型警告"""
         result = vram_manager.unload_model("test_model")
-        assert result == False
+        assert not result
 
 
 class TestVRAMManagerEdgeCases:

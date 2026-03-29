@@ -36,52 +36,52 @@ class TestChatHistoryDB:
     def test_create_session(self, temp_db):
         """测试创建会话"""
         result = temp_db.create_session("test_session")
-        assert result == True
+        assert result
 
     def test_create_session_with_title(self, temp_db):
         """测试带标题创建会话"""
         result = temp_db.create_session("test_session", "测试会话")
-        assert result == True
+        assert result
 
     def test_create_session_invalid_id(self, temp_db):
         """测试无效会话ID"""
         result = temp_db.create_session("")
-        assert result == False
+        assert not result
 
     def test_create_session_invalid_characters(self, temp_db):
         """测试无效字符会话ID"""
         result = temp_db.create_session("test/session")  # 包含非法字符
-        assert result == False
+        assert not result
 
     def test_create_session_too_long(self, temp_db):
         """测试过长会话ID"""
         long_id = "a" * 300
         result = temp_db.create_session(long_id)
-        assert result == False
+        assert not result
 
     def test_add_message(self, temp_db):
         """测试添加消息"""
         temp_db.create_session("test_session")
         result = temp_db.add_message("test_session", "user", "Hello")
-        assert result == True
+        assert result
 
     def test_add_message_auto_create_session(self, temp_db):
         """测试自动创建会话"""
         result = temp_db.add_message("new_session", "user", "Hello")
-        assert result == True
+        assert result
         assert temp_db.session_exists("new_session")
 
     def test_add_message_invalid_session(self, temp_db):
         """测试无效会话ID添加消息"""
         result = temp_db.add_message("", "user", "Hello")
-        assert result == False
+        assert not result
 
     def test_add_message_invalid_role(self, temp_db):
         """测试无效角色"""
         temp_db.create_session("test_session")
         # 应该仍然可以添加，不验证角色
         result = temp_db.add_message("test_session", "invalid_role", "Hello")
-        assert result == True
+        assert result
 
     def test_get_session_messages(self, temp_db):
         """测试获取会话消息"""
@@ -143,7 +143,7 @@ class TestChatHistoryDB:
         """测试删除会话"""
         temp_db.create_session("test_session")
         result = temp_db.delete_session("test_session")
-        assert result == True
+        assert result
         assert not temp_db.session_exists("test_session")
 
     def test_delete_session_with_messages(self, temp_db):
@@ -158,22 +158,22 @@ class TestChatHistoryDB:
     def test_delete_session_invalid_id(self, temp_db):
         """测试删除无效会话"""
         result = temp_db.delete_session("nonexistent")
-        assert result == False
+        assert not result
 
     def test_delete_session_empty_id(self, temp_db):
         """测试删除空会话ID"""
         result = temp_db.delete_session("")
-        assert result == False
+        assert not result
 
     def test_session_exists(self, temp_db):
         """测试会话存在性检查"""
         temp_db.create_session("test_session")
-        assert temp_db.session_exists("test_session") == True
-        assert temp_db.session_exists("nonexistent") == False
+        assert temp_db.session_exists("test_session")
+        assert not temp_db.session_exists("nonexistent")
 
     def test_session_exists_invalid_id(self, temp_db):
         """测试无效ID存在性检查"""
-        assert temp_db.session_exists("") == False
+        assert not temp_db.session_exists("")
 
     def test_clear_session_messages(self, temp_db):
         """测试清空会话消息"""
@@ -181,7 +181,7 @@ class TestChatHistoryDB:
         temp_db.add_message("test_session", "user", "Hello")
         result = temp_db.clear_session_messages("test_session")
 
-        assert result == True
+        assert result
         messages = temp_db.get_session_messages("test_session")
         assert messages == []
 
@@ -191,12 +191,12 @@ class TestChatHistoryDB:
         temp_db.add_message("test_session", "user", "Hello")
         temp_db.clear_session_messages("test_session")
 
-        assert temp_db.session_exists("test_session") == True
+        assert temp_db.session_exists("test_session")
 
     def test_clear_session_messages_invalid_id(self, temp_db):
         """测试清空无效会话消息"""
         result = temp_db.clear_session_messages("")
-        assert result == False
+        assert not result
 
     def test_auto_update_title(self, temp_db):
         """测试自动更新标题"""
@@ -268,7 +268,7 @@ class TestChatHistoryDBEdgeCases:
         temp_db.create_session("test_session")
         long_content = "A" * 100000
         result = temp_db.add_message("test_session", "user", long_content)
-        assert result == True
+        assert result
 
         messages = temp_db.get_session_messages("test_session")
         assert messages[0]["content"] == long_content
@@ -286,14 +286,14 @@ class TestChatHistoryDBEdgeCases:
         """测试会话ID中的Unicode"""
         # 包含Unicode字符的ID应该被拒绝
         result = temp_db.create_session("会话123")
-        assert result == False
+        assert not result
 
     def test_sql_injection_attempt(self, temp_db):
         """测试SQL注入尝试"""
         temp_db.create_session("test_session")
         malicious_content = "'; DROP TABLE messages; --"
         result = temp_db.add_message("test_session", "user", malicious_content)
-        assert result == True
+        assert result
 
         # 验证表仍然存在
         messages = temp_db.get_session_messages("test_session")
@@ -303,7 +303,7 @@ class TestChatHistoryDBEdgeCases:
         """测试带安全特殊字符的会话ID"""
         # 只有字母、数字、下划线、连字符被允许
         result = temp_db.create_session("test-session_1")
-        assert result == True
+        assert result
 
     def test_multiple_databases(self):
         """测试多个数据库实例"""
@@ -325,7 +325,7 @@ class TestChatHistoryDBEdgeCases:
         """测试空消息内容"""
         temp_db.create_session("test_session")
         result = temp_db.add_message("test_session", "user", "")
-        assert result == True
+        assert result
 
         messages = temp_db.get_session_messages("test_session")
         assert messages[0]["content"] == ""
@@ -333,7 +333,7 @@ class TestChatHistoryDBEdgeCases:
     def test_very_short_session_id(self, temp_db):
         """测试超短会话ID"""
         result = temp_db.create_session("a")
-        assert result == True
+        assert result
 
 
 class TestChatHistoryDBSessionValidation:
@@ -361,7 +361,7 @@ class TestChatHistoryDBSessionValidation:
     def test_valid_session_ids(self, temp_db, valid_id):
         """测试有效会话ID"""
         result = temp_db.create_session(valid_id)
-        assert result == True
+        assert result
 
     @pytest.mark.parametrize("invalid_id", [
         "",
@@ -375,7 +375,7 @@ class TestChatHistoryDBSessionValidation:
     def test_invalid_session_ids(self, temp_db, invalid_id):
         """测试无效会话ID"""
         result = temp_db.create_session(invalid_id)
-        assert result == False
+        assert not result
 
 
 class TestChatHistoryDBConnectionManagement:

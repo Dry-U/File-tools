@@ -52,7 +52,7 @@ class TestUISettings:
         self.open_settings(page)
 
         # 查找AI模型设置区域
-        ai_settings = page.locator('.ai-settings, [class*="ai-model"], [data-testid="ai-settings"]').first
+        page.locator('.ai-settings, [class*="ai-model"], [data-testid="ai-settings"]').first
 
         # 查找启用AI复选框
         enable_checkbox = page.locator('input[type="checkbox"][name*="enable"], input[type="checkbox"][id*="ai"]').first
@@ -209,7 +209,7 @@ class TestUISettings:
         self.open_settings(page)
 
         # 查找目录列表
-        directory_list = page.locator('.directory-list, [class*="directory"]').first
+        page.locator('.directory-list, [class*="directory"]').first
 
         # 查找添加目录按钮
         add_dir_button = page.locator('button:has-text("添加目录"), button:has-text("Add Directory"), .add-directory').first
@@ -265,6 +265,6 @@ class TestUISettings:
             page.wait_for_timeout(500)
 
             # 高级设置应该显示
-            advanced_settings = page.locator('.advanced-settings, [class*="advanced"]').first
+            page.locator('.advanced-settings, [class*="advanced"]').first
 
         assert page.url.startswith("http://127.0.0.1:8000")

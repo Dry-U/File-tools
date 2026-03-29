@@ -161,33 +161,33 @@ class TestQueryProcessor:
         """测试带扩展名的文件名查询检测"""
         # 带 .pdf + 长度短 = 30+10 = 40, 不到阈值50
         # 加上路径符号才能达到 40+40 = 80 >= 50
-        assert processor.is_likely_filename_query("/document.pdf") == True
-        assert processor.is_likely_filename_query("script.py") == False  # 30+10=40 < 50
+        assert processor.is_likely_filename_query("/document.pdf")
+        assert not processor.is_likely_filename_query("script.py")  # 30+10=40 < 50
 
     def test_is_likely_filename_query_short(self, processor):
         """测试短查询的文件名检测"""
         # 短英文查询没有足够信号
-        assert processor.is_likely_filename_query("readme") == False
-        assert processor.is_likely_filename_query("test file") == False
+        assert not processor.is_likely_filename_query("readme")
+        assert not processor.is_likely_filename_query("test file")
 
     def test_is_likely_filename_query_with_indicator(self, processor):
         """测试带指示词的文件名查询"""
         # "查找PDF文件" → 中文无空格(+20) + 长度<20(+10) + pdf关键词(+15) = 45 < 50
-        assert processor.is_likely_filename_query("查找PDF文件") == False
+        assert not processor.is_likely_filename_query("查找PDF文件")
         # "word文档" → 中文无空格(+20) + 长度<20(+10) + doc关键词(+15) = 45 < 50
-        assert processor.is_likely_filename_query("word文档") == False
+        assert not processor.is_likely_filename_query("word文档")
         # 带.pdf扩展名 + 关键词：30+10+15 = 55 >= 50
-        assert processor.is_likely_filename_query("报告.pdf") == True
+        assert processor.is_likely_filename_query("报告.pdf")
 
     def test_is_likely_filename_query_content(self, processor):
         """测试内容查询"""
         # 长查询（超过3个词）通常不是文件名查询
-        result = processor.is_likely_filename_query("如何学习Python编程语言")
+        processor.is_likely_filename_query("如何学习Python编程语言")
         # 注意：实际行为可能因实现而异，这里我们检查它不会崩溃
 
     def test_is_likely_filename_query_empty(self, processor):
         """测试空查询"""
-        assert processor.is_likely_filename_query("") == False
+        assert not processor.is_likely_filename_query("")
 
 
 class TestQueryProcessorEdgeCases:
@@ -247,7 +247,7 @@ class TestQueryProcessorEdgeCases:
     def test_is_likely_filename_query_long(self, processor):
         """测试长查询的文件名检测"""
         long_query = "这是一个非常长的查询语句，包含很多个字"
-        result = processor.is_likely_filename_query(long_query)
+        processor.is_likely_filename_query(long_query)
         # 长查询通常不是文件名查询，但实际行为取决于实现
 
 

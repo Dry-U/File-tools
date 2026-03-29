@@ -44,7 +44,7 @@ class TestRAGWorkflowIntegration:
     def test_end_to_end_search_workflow(self, temp_test_dir, mock_config):
         """测试端到端搜索工作流"""
         with patch('backend.core.index_manager.IndexManager'), \
-             patch('backend.core.search_engine.SearchEngine') as mock_se:
+             patch('backend.core.search_engine.SearchEngine'):
             # 配置模拟搜索引擎
             search_engine = Mock()
             search_engine.search.return_value = [
@@ -176,7 +176,7 @@ class TestSessionManagementIntegration:
             # 创建会话
             session_id = 'test_session'
             result = db.create_session(session_id)
-            assert result == True
+            assert result
 
             # 添加消息
             db.add_message(session_id, 'user', 'Hello')
@@ -209,8 +209,8 @@ class TestSearchAndRAGIntegration:
 
     def test_search_results_feed_to_rag(self):
         """测试搜索结果输入RAG"""
-        with patch('backend.core.search_engine.SearchEngine') as mock_se, \
-             patch('backend.core.rag_pipeline.RAGPipeline') as mock_rag:
+        with patch('backend.core.search_engine.SearchEngine'), \
+             patch('backend.core.rag_pipeline.RAGPipeline'):
             # 模拟搜索结果
             search_results = [
                 {
@@ -284,7 +284,7 @@ class TestErrorHandlingIntegration:
 
     def test_rag_fallback_on_empty_results(self):
         """测试空结果时的RAG回退"""
-        with patch('backend.core.rag_pipeline.RAGPipeline') as mock_rag:
+        with patch('backend.core.rag_pipeline.RAGPipeline'):
             rag = Mock()
             rag._collect_documents.return_value = []
             rag.fallback_response = "No relevant documents found."

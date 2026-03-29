@@ -256,14 +256,14 @@ class ConfigValidator:
                 continue
 
             for field_name in fields:
-                value = self._get_value(section, field, None)
+                value = self._get_value(section, field_name, None)
                 if value is None or value == '':
                     is_critical = section in ['system']
                     if is_critical:
                         result.add_error(
-                            message=f'必要配置项缺失: [{section}].{field}',
+                            message=f'必要配置项缺失: [{section}].{field_name}',
                             section=section,
-                            key=field,
+                            key=field_name,
                             code='MISSING_REQUIRED_FIELD',
                             suggestion=f'在配置文件中设置 {section}.{field}'
                         )

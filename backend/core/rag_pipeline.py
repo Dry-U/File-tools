@@ -663,7 +663,7 @@ class RAGPipeline:
                     content_embedding = next(embedding_model.embed([content]))
 
                     # 计算余弦相似度
-                    if SKLEARN_AVAILABLE:
+                    if SKLEARN_AVAILABLE and cosine_similarity is not None:
                         query_vec = np.array(query_embedding).reshape(1, -1)
                         content_vec = np.array(content_embedding).reshape(1, -1)
                         result = cosine_similarity(query_vec, content_vec)

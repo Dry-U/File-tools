@@ -22,7 +22,7 @@ class TestRateLimiter:
         """测试首次请求允许"""
         from backend.api.main import RateLimiter
         limiter = RateLimiter()
-        assert limiter.is_allowed("test_key", max_requests=10, window=60) == True
+        assert limiter.is_allowed("test_key", max_requests=10, window=60)
 
     def test_rate_limiter_block_excess(self):
         """测试超出限制阻止"""
@@ -32,14 +32,14 @@ class TestRateLimiter:
         for i in range(5):
             limiter.is_allowed("test_key", max_requests=3, window=60)
         # 第4个请求应该被阻止
-        assert limiter.is_allowed("test_key", max_requests=3, window=60) == False
+        assert not limiter.is_allowed("test_key", max_requests=3, window=60)
 
     def test_rate_limiter_different_keys(self):
         """测试不同key独立计数"""
         from backend.api.main import RateLimiter
         limiter = RateLimiter()
         limiter.is_allowed("key1", max_requests=1, window=60)
-        assert limiter.is_allowed("key2", max_requests=1, window=60) == True
+        assert limiter.is_allowed("key2", max_requests=1, window=60)
 
 
 class TestPathSecurity:
@@ -50,21 +50,21 @@ class TestPathSecurity:
         from backend.api.dependencies import is_path_allowed
         config = Mock()
         result = is_path_allowed("../../../etc/passwd", config)
-        assert result == False
+        assert not result
 
     def test_is_path_allowed_empty(self):
         """测试空路径"""
         from backend.api.dependencies import is_path_allowed
         config = Mock()
         result = is_path_allowed("", config)
-        assert result == False
+        assert not result
 
     def test_is_path_allowed_double_slash(self):
         """测试双斜杠路径"""
         from backend.api.dependencies import is_path_allowed
         config = Mock()
         result = is_path_allowed("//etc/passwd", config)
-        assert result == False
+        assert not result
 
 
 class TestHealthCheck:

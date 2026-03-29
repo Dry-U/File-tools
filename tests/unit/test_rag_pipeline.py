@@ -69,27 +69,27 @@ class TestRAGPipeline:
 
     def test_is_noise_query_empty(self, rag_pipeline):
         """测试空查询检测"""
-        assert rag_pipeline._is_noise_query("") == True
+        assert rag_pipeline._is_noise_query("")
 
     def test_is_noise_query_whitespace(self, rag_pipeline):
         """测试空白查询检测"""
-        assert rag_pipeline._is_noise_query("   ") == True
+        assert rag_pipeline._is_noise_query("   ")
 
     def test_is_noise_query_single_char(self, rag_pipeline):
         """测试单字符查询检测"""
-        assert rag_pipeline._is_noise_query("a") == True
+        assert rag_pipeline._is_noise_query("a")
 
     def test_is_noise_query_repeated_char(self, rag_pipeline):
         """测试重复字符查询检测"""
-        assert rag_pipeline._is_noise_query("aa") == True
+        assert rag_pipeline._is_noise_query("aa")
 
     def test_is_noise_query_valid(self, rag_pipeline):
         """测试有效查询"""
-        assert rag_pipeline._is_noise_query("python") == False
+        assert not rag_pipeline._is_noise_query("python")
 
     def test_is_noise_query_chinese(self, rag_pipeline):
         """测试中文查询"""
-        assert rag_pipeline._is_noise_query("你好") == False
+        assert not rag_pipeline._is_noise_query("你好")
 
     def test_strip_tags(self, rag_pipeline):
         """测试标签去除"""
@@ -106,20 +106,20 @@ class TestRAGPipeline:
 
     def test_has_query_overlap_exact(self, rag_pipeline):
         """测试精确匹配"""
-        assert rag_pipeline._has_query_overlap("python guide", "python") == True
+        assert rag_pipeline._has_query_overlap("python guide", "python")
 
     def test_has_query_overlap_token(self, rag_pipeline):
         """测试token匹配"""
-        assert rag_pipeline._has_query_overlap("python_guide", "python guide") == True
+        assert rag_pipeline._has_query_overlap("python_guide", "python guide")
 
     def test_has_query_overlap_no_match(self, rag_pipeline):
         """测试无匹配"""
-        assert rag_pipeline._has_query_overlap("java guide", "python") == False
+        assert not rag_pipeline._has_query_overlap("java guide", "python")
 
     def test_has_query_overlap_empty(self, rag_pipeline):
         """测试空查询"""
-        assert rag_pipeline._has_query_overlap("", "test") == False
-        assert rag_pipeline._has_query_overlap("test", "") == False
+        assert not rag_pipeline._has_query_overlap("", "test")
+        assert not rag_pipeline._has_query_overlap("test", "")
 
     def test_render_template(self, rag_pipeline):
         """测试模板渲染"""
@@ -141,16 +141,16 @@ class TestRAGPipeline:
     def test_is_small_talk_greeting(self, rag_pipeline):
         """测试问候语检测"""
         rag_pipeline.greeting_keywords = ['hello', 'hi']
-        assert rag_pipeline._is_small_talk("hello") == True
+        assert rag_pipeline._is_small_talk("hello")
 
     def test_is_small_talk_normal(self, rag_pipeline):
         """测试正常查询"""
         rag_pipeline.greeting_keywords = ['hello']
-        assert rag_pipeline._is_small_talk("python tutorial") == False
+        assert not rag_pipeline._is_small_talk("python tutorial")
 
     def test_is_small_talk_empty(self, rag_pipeline):
         """测试空查询"""
-        assert rag_pipeline._is_small_talk("") == True
+        assert rag_pipeline._is_small_talk("")
 
     def test_remove_file_extension(self, rag_pipeline):
         """测试文件扩展名移除"""
@@ -244,7 +244,7 @@ class TestRAGPipeline:
         """测试清空会话"""
         with patch.object(rag_pipeline.chat_db, 'delete_session', return_value=True):
             result = rag_pipeline.clear_session("test_session")
-            assert result == True
+            assert result
 
     def test_get_all_sessions(self, rag_pipeline):
         """测试获取所有会话"""

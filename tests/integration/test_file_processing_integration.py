@@ -239,7 +239,7 @@ More content.
 
             # 添加监控目录
             result = monitor.add_monitored_directory(temp_test_dir)
-            assert result == True
+            assert result
 
             # 获取监控目录
             dirs = monitor.get_monitored_directories()
@@ -310,7 +310,7 @@ class TestIndexManagerIntegration:
             }
 
             result = index_manager.add_document(doc)
-            assert result == True
+            assert result
 
     def test_document_removal(self, temp_test_dir, mock_config):
         """测试文档移除"""
@@ -320,7 +320,7 @@ class TestIndexManagerIntegration:
             mock_index.return_value = index_manager
 
             result = index_manager.remove_document('/test/doc.txt')
-            assert result == True
+            assert result
 
     def test_search_integration(self, temp_test_dir, mock_config):
         """测试搜索集成"""

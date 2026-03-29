@@ -120,11 +120,11 @@ class TestPrivacyGuard:
 
     def test_has_sensitive_true(self, guard):
         """测试包含敏感信息检测"""
-        assert guard.has_sensitive('Phone: 13812345678') == True
+        assert guard.has_sensitive('Phone: 13812345678')
 
     def test_has_sensitive_false(self, guard):
         """测试不包含敏感信息检测"""
-        assert guard.has_sensitive('Normal text') == False
+        assert not guard.has_sensitive('Normal text')
 
     def test_clear_map(self, guard):
         """测试清除映射表"""
@@ -218,8 +218,8 @@ class TestPrivacyGuardGlobalFunctions:
 
     def test_has_sensitive_info_function(self):
         """测试has_sensitive_info函数"""
-        assert has_sensitive_info('Phone: 13812345678') == True
-        assert has_sensitive_info('Normal text') == False
+        assert has_sensitive_info('Phone: 13812345678')
+        assert not has_sensitive_info('Normal text')
 
 
 class TestPrivacyGuardPhonePatterns:
@@ -239,7 +239,7 @@ class TestPrivacyGuardPhonePatterns:
     def test_valid_phones(self, guard, phone):
         """测试有效手机号"""
         text = f"Phone: {phone}"
-        assert guard.has_sensitive(text) == True
+        assert guard.has_sensitive(text)
 
     @pytest.mark.parametrize("phone", [
         "1381234567",    # Missing one digit
@@ -250,7 +250,7 @@ class TestPrivacyGuardPhonePatterns:
     def test_invalid_phones(self, guard, phone):
         """测试无效手机号"""
         text = f"Phone: {phone}"
-        assert guard.has_sensitive(text) == False
+        assert not guard.has_sensitive(text)
 
 
 class TestPrivacyGuardEmailPatterns:
@@ -270,7 +270,7 @@ class TestPrivacyGuardEmailPatterns:
     def test_valid_emails(self, guard, email):
         """测试有效邮箱"""
         text = f"Email: {email}"
-        assert guard.has_sensitive(text) == True
+        assert guard.has_sensitive(text)
 
     @pytest.mark.parametrize("email", [
         "test@",

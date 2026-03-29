@@ -81,7 +81,7 @@ class TestRateLimiter:
     def test_rate_limiter_allow_first_request(self):
         """测试首次请求允许"""
         limiter = RateLimiter()
-        assert limiter.is_allowed("test_key", max_requests=10, window=60) == True
+        assert limiter.is_allowed("test_key", max_requests=10, window=60)
 
     def test_rate_limiter_block_excess(self):
         """测试超出限制阻止"""
@@ -90,13 +90,13 @@ class TestRateLimiter:
         for i in range(5):
             limiter.is_allowed("test_key", max_requests=3, window=60)
         # 第4个请求应该被阻止
-        assert limiter.is_allowed("test_key", max_requests=3, window=60) == False
+        assert not limiter.is_allowed("test_key", max_requests=3, window=60)
 
     def test_rate_limiter_different_keys(self):
         """测试不同key独立计数"""
         limiter = RateLimiter()
         limiter.is_allowed("key1", max_requests=1, window=60)
-        assert limiter.is_allowed("key2", max_requests=1, window=60) == True
+        assert limiter.is_allowed("key2", max_requests=1, window=60)
 
     def test_rate_limiter_cleanup_expired(self):
         """测试过期清理"""
@@ -327,7 +327,7 @@ class TestConfigEndpoint:
             assert response.status_code == 200
             config = response.json()
             assert "ai_model" in config
-            assert config["ai_model"]["enabled"] == True
+            assert config["ai_model"]["enabled"]
 
     def test_update_config_success(self, client, mock_config_loader):
         """测试更新配置"""
@@ -539,21 +539,21 @@ class TestPathSecurity:
                 with patch.object(Path, 'exists', return_value=True):
                     with patch.object(Path, 'is_dir', side_effect=lambda: True):
                         result = is_path_allowed("/allowed/path/file.txt", config)
-                        assert result == True
+                        assert result
 
     def test_is_path_allowed_traversal(self):
         """测试路径遍历攻击"""
         from backend.api.dependencies import is_path_allowed
         config = Mock()
         result = is_path_allowed("../../../etc/passwd", config)
-        assert result == False
+        assert not result
 
     def test_is_path_allowed_empty(self):
         """测试空路径"""
         from backend.api.dependencies import is_path_allowed
         config = Mock()
         result = is_path_allowed("", config)
-        assert result == False
+        assert not result
 
     def test_is_path_allowed_double_slash(self):
         """测试双斜杠路径"""
@@ -567,7 +567,7 @@ class TestPathSecurity:
         from backend.api.dependencies import is_path_allowed
         config = Mock()
         result = is_path_allowed("/allowed/path/file\x00.txt", config)
-        assert result == False
+        assert not result
 
     def test_is_path_allowed_url_encoded_traversal(self):
         """测试URL编码的路径遍历攻击"""
@@ -575,7 +575,7 @@ class TestPathSecurity:
         config = Mock()
         # %2e%2e 是 .. 的URL编码
         result = is_path_allowed("/allowed/path/%2e%2e/%2e%2e/etc/passwd", config)
-        assert result == False
+        assert not result
 
     def test_is_path_allowed_double_url_encoded(self):
         """测试双重URL编码的路径遍历攻击"""
@@ -583,28 +583,28 @@ class TestPathSecurity:
         config = Mock()
         # %252e 是 %2e 的双重编码
         result = is_path_allowed("/allowed/path/%252e%252e/etc/passwd", config)
-        assert result == False
+        assert not result
 
     def test_is_path_allowed_dotdot_in_middle(self):
         """测试路径中间的 .. 遍历"""
         from backend.api.dependencies import is_path_allowed
         config = Mock()
         result = is_path_allowed("/allowed/path/../secret/file.txt", config)
-        assert result == False
+        assert not result
 
     def test_is_path_allowed_none_path(self):
         """测试None路径"""
         from backend.api.dependencies import is_path_allowed
         config = Mock()
         result = is_path_allowed(None, config)
-        assert result == False
+        assert not result
 
     def test_is_path_allowed_non_string_path(self):
         """测试非字符串路径"""
         from backend.api.dependencies import is_path_allowed
         config = Mock()
         result = is_path_allowed(12345, config)
-        assert result == False
+        assert not result
 
     def test_is_path_allowed_no_scan_paths_configured(self):
         """测试未配置扫描路径时拒绝所有访问"""
@@ -612,7 +612,7 @@ class TestPathSecurity:
         config = Mock()
         config.get.return_value = ''
         result = is_path_allowed("/some/path/file.txt", config)
-        assert result == False
+        assert not result
 
 
 class TestRootEndpoint:

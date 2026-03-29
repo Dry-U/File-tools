@@ -84,7 +84,7 @@ class TestUISearch:
         page.wait_for_timeout(2000)
 
         # 检查结果容器是否存在
-        results_container = page.locator('.search-results, [class*="result"], [data-testid*="result"]').first
+        page.locator('.search-results, [class*="result"], [data-testid*="result"]').first
 
         # 即使没有结果，页面也应该正常显示
         assert page.url.startswith("http://127.0.0.1:8000")
@@ -186,7 +186,7 @@ class TestUISearch:
             page.wait_for_timeout(500)
 
             # 查找过滤器选项
-            filter_options = page.locator('.filter-option, [class*="filter"]').all()
+            page.locator('.filter-option, [class*="filter"]').all()
             # 过滤器选项可能存在也可能不存在
 
     def test_result_item_click(self, page):

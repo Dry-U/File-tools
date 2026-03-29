@@ -572,7 +572,8 @@ class FileScanner:
                         if enable_progress and file_count % self._PROGRESS_FREQUENCY == 0:
                             progress = min(99, int((self.scan_stats['total_files_scanned'] / total_estimate) * 100))
                             try:
-                                self.progress_callback(progress)
+                                if self.progress_callback:
+                                    self.progress_callback(progress)
                             except Exception as e:
                                 self.logger.warning(f"更新进度回调失败: {str(e)}")
 
@@ -857,7 +858,7 @@ class FileScanner:
         self.max_file_size = size_mb * 1024 * 1024
         self.logger.info(f"已设置最大文件大小: {size_mb} MB")
 
-    def get_scannable_files(self, directory: str = None) -> List[str]:
+    def get_scannable_files(self, directory: Optional[str] = None) -> List[str]:
         """获取可扫描的文件列表"""
         scan_dirs = [directory] if directory else self.scan_paths
         scannable_files = []
@@ -935,7 +936,7 @@ class FileScanner:
             stats[file_type] = 0
         
         # 如果有索引管理器，可以从索引中获取实际统计
-        if self.index_manager:
+        if self.index_manager and self.index_manager.tantivy_index:
             try:
                 # 获取索引中的文件类型统计
                 searcher = self.index_manager.tantivy_index.searcher()
@@ -943,13 +944,13 @@ class FileScanner:
                 for file_type in stats.keys():
                     query = self.index_manager.tantivy_index.parse_query(file_type, ['file_type'])
                     top_docs = searcher.search(query, 0)  # 只需要计数，不需要结果
-                    stats[file_type] = top_docs.total_count
+                    stats[file_type] = getattr(top_docs, 'total_count', len(top_docs.hits) if hasattr(top_docs, 'hits') else 0)
             except Exception as e:
                 self.logger.warning(f"获取索引中文件类型统计失败: {str(e)}")
         
         return stats
 
-    def scan_with_filters(self, filters: Dict = None) -> Dict:
+    def scan_with_filters(self, filters: Optional[Dict] = None) -> Dict:
         """使用过滤器扫描文件"""
         if filters is None:
             filters = {}
@@ -1311,9 +1312,9 @@ if __name__ == "__main__":
     
     try:
         # 初始化扫描器
-        config = MockConfig()
-        index_manager = MockIndexManager()
-        scanner = FileScanner(config, index_manager=index_manager)
+        config = MockConfig()  # type: ignore[arg-type]
+        index_manager = MockIndexManager()  # type: ignore[arg-type]
+        scanner = FileScanner(config, index_manager=index_manager)  # type: ignore[arg-type]
         
         # 执行扫描
         stats = scanner.scan_and_index()

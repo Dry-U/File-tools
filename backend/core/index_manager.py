@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
+# pyright: reportOptionalMemberAccess=false
 import os
 import shutil
 import time
@@ -210,7 +211,7 @@ class IndexManager:
         self.embedding_model = ModelScopeWrapper(self.embedding_pipeline)
         
         # 测试模型
-        vec = next(self.embedding_model.embed(['test']))
+        vec = next(iter(self.embedding_model.embed(['test'])))
         self.vector_dim = len(vec)
         self.logger.info(f"ModelScope Embedding模型加载成功，维度: {self.vector_dim}")
 
@@ -234,7 +235,7 @@ class IndexManager:
             
             # 测试模型是否可以正常工作
             try:
-                vec = next(self.embedding_model.embed(['test']))
+                vec = next(iter(self.embedding_model.embed(['test'])))
                 self.vector_dim = len(vec)
                 self.logger.info(f"Embedding模型加载成功，维度: {self.vector_dim}")
             except Exception as e:
@@ -904,7 +905,6 @@ class IndexManager:
         if not getattr(self, 'tantivy_index', None):
             return False
 
-        deleted_from_tantivy = False
 
         # 首先尝试清理可能的锁文件
         try:
@@ -925,7 +925,7 @@ class IndexManager:
                 query = self.tantivy_index.parse_query(f'"{file_path}"', ['path'])
                 with self.tantivy_index.writer() as writer:
                     if hasattr(writer, 'delete_query'):
-                        writer.delete_query(query)
+                        getattr(writer, 'delete_query')(query)
                         writer.commit()
                     elif hasattr(writer, 'delete_documents'):
                         writer.delete_documents('path', file_path)
@@ -1228,7 +1228,7 @@ class IndexManager:
                         doc = searcher.doc(doc_addr)
                         idx_path = doc.get_first('path')
                         # 在Python层面验证路径是否匹配 (忽略大小写和分隔符差异)
-                        if os.path.normpath(idx_path).lower() == os.path.normpath(path).lower():
+                        if idx_path and os.path.normpath(idx_path).lower() == os.path.normpath(path).lower():
                             raw_val = doc.get_first('content_raw')
                             content_val = raw_val or doc.get_first('content')
                             if raw_val:
@@ -1575,7 +1575,7 @@ class IndexManager:
 
     def _encode_text(self, text: str):
         try:
-            vec = next(self.embedding_model.embed([text]))
+            vec = next(iter(self.embedding_model.embed([text])))
             return np.array(vec, dtype=np.float32)
         except (StopIteration, RuntimeError, ValueError) as e:
             self.logger.debug(f"文本编码失败: {str(e)}")
@@ -1748,10 +1748,11 @@ class IndexManager:
             # 获取Tantivy索引统计
             searcher = self.tantivy_index.searcher()
             # num_docs 在新版 tantivy 中是属性而非方法
-            if callable(getattr(searcher, 'num_docs', None)):
-                doc_count = searcher.num_docs()
+            num_docs_attr = getattr(searcher, 'num_docs', 0)
+            if callable(num_docs_attr):
+                doc_count = num_docs_attr()
             else:
-                doc_count = searcher.num_docs
+                doc_count = num_docs_attr
 
             # 获取向量索引统计
             vector_count = len(self.vector_metadata) if hasattr(
@@ -1875,10 +1876,11 @@ class IndexManager:
             if hasattr(self, 'tantivy_index') and self.tantivy_index:
                 searcher = self.tantivy_index.searcher()
                 # num_docs 在新版 tantivy 中是属性而非方法
-                if callable(getattr(searcher, 'num_docs', None)):
-                    doc_count = searcher.num_docs()
+                num_docs_attr = getattr(searcher, 'num_docs', 0)
+                if callable(num_docs_attr):
+                    doc_count = num_docs_attr()
                 else:
-                    doc_count = searcher.num_docs
+                    doc_count = num_docs_attr
                 self.logger.info(f"Tantivy索引验证完成，文档数: {doc_count}")
 
             # 验证向量索引
