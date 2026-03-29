@@ -261,12 +261,12 @@ coll = COLLECT(
 
 # ===== 打印构建信息 =====
 print(f"\n{'='*60}")
-print(f"打包完成: FileTools v{APP_VERSION}")
-print(f"构建模式: {BUILD_MODE}")
+print(f"Build complete: FileTools v{APP_VERSION}")
+print(f"Build mode: {BUILD_MODE}")
 if BUILD_MODE == 'slim':
-    print("说明: 最小化版本，仅包含文件搜索功能")
+    print("Info: Slim version, search only")
 elif BUILD_MODE == 'cpu':
-    print("说明: CPU 版本，包含完整 AI 功能")
+    print("Info: CPU version, full AI features")
 elif BUILD_MODE == 'gpu':
-    print("说明: GPU 版本，支持 CUDA 加速")
+    print("Info: GPU version, CUDA acceleration")
 print(f"{'='*60}\n")
