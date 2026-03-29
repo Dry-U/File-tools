@@ -302,7 +302,6 @@ class TextChunker:
         # 处理最后剩余的段落
         if current_chunk_paras:
             chunk_text = '\n\n'.join(current_chunk_paras)
-            last_para_start = content.find(current_chunk_paras[0], chunk_start)
             chunks.append((chunk_text, chunk_start, current_pos))
 
         return chunks

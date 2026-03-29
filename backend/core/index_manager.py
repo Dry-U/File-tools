@@ -931,7 +931,6 @@ class IndexManager:
                     elif hasattr(writer, 'delete_documents'):
                         writer.delete_documents('path', file_path)
                         writer.commit()
-                        deleted_from_tantivy = True
                     else:
                         self.logger.warning("Tantivy writer不支持删除操作，跳过文本索引删除")
                 break  # 成功则退出重试循环

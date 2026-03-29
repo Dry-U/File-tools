@@ -313,8 +313,6 @@ class FileMonitor:
                 for attempt in range(max_retries):
                     if os.path.exists(event_path) and os.path.isfile(event_path):
                         try:
-                            # 尝试获取文件大小，确保文件可读
-                            file_size = os.path.getsize(event_path)
                             # 对于刚创建/修改的文件，等待一下确保写入完成
                             time.sleep(retry_delay)
                             break

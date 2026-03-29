@@ -21,6 +21,7 @@ on:
 
 env:
   PYTHONUNBUFFERED: 1
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
   # ==================== 代码质量检查 ====================

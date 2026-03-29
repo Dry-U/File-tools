@@ -255,7 +255,7 @@ class ConfigValidator:
             if section not in self.config:
                 continue
 
-            for field in fields:
+            for field_name in fields:
                 value = self._get_value(section, field, None)
                 if value is None or value == '':
                     is_critical = section in ['system']
@@ -269,11 +269,11 @@ class ConfigValidator:
                         )
                     else:
                         result.add_warning(
-                            message=f'必要配置项缺失: [{section}].{field}',
+                            message=f'必要配置项缺失: [{section}].{field_name}',
                             section=section,
-                            key=field,
+                            key=field_name,
                             code='MISSING_REQUIRED_FIELD',
-                            suggestion=f'在配置文件中设置 {section}.{field}'
+                            suggestion=f'在配置文件中设置 {section}.{field_name}'
                         )
 
     def _validate_paths(self, result: ValidationResult) -> None:
@@ -288,8 +288,8 @@ class ConfigValidator:
             ('index', 'metadata_path'),
         ]
 
-        for section, field in path_fields:
-            path_str = self._get_value(section, field, None)
+        for section, field_name in path_fields:
+            path_str = self._get_value(section, field_name, None)
             if not path_str:
                 continue
 

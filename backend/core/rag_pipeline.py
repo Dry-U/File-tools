@@ -819,7 +819,6 @@ class RAGPipeline:
         abstract_section = ""
         intro_section = ""
         conclusion_section = ""
-        main_content = []
 
         i = 0
         while i < len(lines):
@@ -1148,7 +1147,6 @@ class RAGPipeline:
             return {"answer": self._render_template(self.fallback_response, query), "sources": []}
 
         # 使用 ThreadPoolExecutor 实现更可靠的超时控制
-        chunks: List[str] = []
         try:
             # 获取配置的超时时间，默认为120秒
             timeout = self.config_loader.getint('ai_model', 'request_timeout', 120)

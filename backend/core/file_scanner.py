@@ -954,9 +954,6 @@ class FileScanner:
         if filters is None:
             filters = {}
 
-        # 保存原始统计信息
-        original_stats = self.scan_stats.copy()
-
         # 重置统计信息
         self.scan_stats = {
             'total_files_scanned': 0,
@@ -971,7 +968,6 @@ class FileScanner:
 
         # 根据过滤器执行扫描
         scan_paths = filters.get('scan_paths', self.scan_paths)
-        file_types = filters.get('file_types', None)
 
         for path in scan_paths:
             if self._is_stop_requested():
