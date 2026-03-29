@@ -3,7 +3,8 @@ import json
 from typing import Optional, Generator, Dict, Any
 from enum import Enum
 import requests
-from requests.adapters import HTTPAdapter, Retry
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 
 from backend.utils.logger import setup_logger
 from backend.utils.config_loader import ConfigLoader
