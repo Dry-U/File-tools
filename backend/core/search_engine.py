@@ -13,15 +13,9 @@ import fnmatch
 import logging
 import traceback
 from datetime import datetime
-from collections import OrderedDict
-from typing import List, Dict, Any, Optional, Tuple, Union
-import numpy as np
-from threading import RLock
+from typing import List, Dict, Any, Optional, Tuple
 
 from backend.core.constants import (
-    DEFAULT_MAX_RESULTS,
-    DEFAULT_TEXT_WEIGHT,
-    DEFAULT_VECTOR_WEIGHT,
     DEFAULT_CACHE_TTL,
     DEFAULT_CACHE_SIZE,
     DEFAULT_RERANK_BASE_WEIGHT,
@@ -179,6 +173,10 @@ class SearchEngine:
 
         # 保存当前查询以供后续使用
         self.current_query = query
+
+        # 确保 filters 不为 None
+        if filters is None:
+            filters = {}
 
         # 执行多路召回搜索
         all_text_results, all_vector_results = self._execute_multi_recall(expanded_queries, filters)
@@ -703,7 +701,7 @@ class SearchEngine:
             self.logger.error(f"获取搜索建议失败: {str(e)}")
             return []
     
-    def get_search_stats(self) -> dict[str, any]:
+    def get_search_stats(self) -> Dict[str, Any]:
         """获取搜索统计信息"""
         # 这是一个简化实现，可以根据实际需求扩展
         stats = {

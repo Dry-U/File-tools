@@ -245,7 +245,6 @@ input[type="date"]::-webkit-calendar-picker-indicator {
     opacity: 0;
     cursor: pointer;
     z-index: 10;
-    pointer-events: none;
     /* 修复旧版浏览器默认样式问题 */
     border: none;
     background: transparent;
@@ -1393,10 +1392,11 @@ input[type="date"]::-webkit-calendar-picker-indicator {
     display: block !important;
 }
 
-/* Settings Modal Tab Panes - Fixed Height with Scroll */
+/* Settings Modal Tab Panes - Responsive Height with Scroll */
 #v-pills-tabContent {
-    height: 380px !important;
-    max-height: 380px !important;
+    max-height: 50vh !important;
+    min-height: 200px;
+    height: auto !important;
     overflow-x: hidden !important;
     overflow-y: auto !important;
     padding-right: 10px !important;
@@ -1884,6 +1884,9 @@ input[type="date"]::-webkit-calendar-picker-indicator {
 .modal-sm .modal-content {
     border-radius: 12px !important;
     overflow: hidden !important;
+    background-color: var(--llama-bg) !important;
+    border: 1px solid var(--llama-border) !important;
+    color: var(--llama-text-main) !important;
 }
 
 /* Modal header for small modals */
@@ -2062,6 +2065,7 @@ input[type="date"]::-webkit-calendar-picker-indicator {
     opacity: 1;
 }
 
+
 /* 新建对话按钮 */
 .new-chat-btn {
     width: 100%;
@@ -2201,23 +2205,29 @@ input[type="date"]::-webkit-calendar-picker-indicator {
 #previewModal .modal-dialog {
     max-width: 90vw !important;
     width: 90vw !important;
-    height: 90vh !important;
+    max-height: 90vh !important;
+    height: auto !important;
     margin: auto !important;
 }
 
 #previewModal .modal-content {
-    height: 90vh !important;
     max-height: 90vh !important;
+    height: auto !important;
     display: flex !important;
     flex-direction: column !important;
+    background-color: var(--llama-bg) !important;
+    border: 1px solid var(--llama-border) !important;
+    color: var(--llama-text-main) !important;
 }
 
 #previewModal .modal-header {
     flex-shrink: 0 !important;
+    padding: 1rem !important;
 }
 
 #previewModal .modal-footer {
     flex-shrink: 0 !important;
+    padding: 0.5rem 1rem !important;
 }
 
 #previewModal .modal-body {
@@ -2225,7 +2235,7 @@ input[type="date"]::-webkit-calendar-picker-indicator {
     overflow: auto !important;
     overflow-x: hidden !important;
     padding: 0 !important;
-    min-height: 0 !important;
+    min-height: 200px !important;
     max-height: calc(90vh - 120px) !important;
 }
 
@@ -2327,6 +2337,7 @@ input[type="date"]::-webkit-calendar-picker-indicator {
     from {
         transform: rotate(0deg);
     }
+
     to {
         transform: rotate(360deg);
     }

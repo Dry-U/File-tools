@@ -20,18 +20,22 @@ def mock_config_wsl():
     def mock_get(_section=None, key=None, default=None):
         """Mock get 方法"""
         if _section == 'ai_model':
-            if key == 'api_url':
+            if key == 'api.api_url':
                 return 'http://localhost:8000/v1/chat/completions'
-            elif key == 'api_key':
+            elif key == 'api.api_key':
                 return ''
             elif key == 'api.model_name':
                 return 'deepseek-ai/DeepSeek-V2.5'
-            elif key == 'system_prompt':
+            elif key == 'api.system_prompt':
                 return ''
             elif key == 'mode':
                 return 'api'
             elif key == 'api.provider':
                 return 'siliconflow'
+            elif key == 'api.max_tokens':
+                return 2048
+            elif key == 'api.max_context':
+                return 8192
         return default
 
     def mock_getint(_section=None, key=None, default=0):

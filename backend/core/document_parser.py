@@ -2,9 +2,7 @@
 # -*- coding: utf-8 -*-
 """文档解析器模块 - 处理多种格式文档的内容提取"""
 import os
-import time
 import logging
-import signal
 from functools import wraps
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeoutError
 
@@ -204,7 +202,7 @@ class DocumentParser:
         """提取文件文本内容"""
         if not os.path.exists(file_path):
             self.logger.error(f"文件不存在: {file_path}")
-            return f"错误: 文件不存在"
+            return "错误: 文件不存在"
         
         file_ext = os.path.splitext(file_path)[1].lower()[1:]  # 获取文件扩展名，去除点号
         
@@ -358,7 +356,7 @@ class DocumentParser:
                         return extracted[:max_text_length] + "\n... (内容已截断)"
                 except Exception as te:
                     self.logger.warning(f"无法使用textract解析PDF文件 {file_path}: {str(te)}")
-            return f"错误: 无法解析PDF内容"
+            return "错误: 无法解析PDF内容"
 
         # 最终检查文本长度
         if len(text) > max_text_length:
@@ -498,7 +496,7 @@ class DocumentParser:
                 except Exception as te:
                     error_msg = str(te)
                     if "127" in error_msg or "antiword" in error_msg:
-                        self.logger.warning(f"解析.doc失败: 缺少 'antiword' 工具。请确保系统已安装 antiword 或 Microsoft Word。")
+                        self.logger.warning("解析.doc失败: 缺少 'antiword' 工具。请确保系统已安装 antiword 或 Microsoft Word。")
                         return "错误: 无法解析.doc内容 (缺少 Microsoft Word 或 antiword 工具)"
                     self.logger.warning(f"无法使用textract解析.doc文件 {file_path}: {str(te)}")
             return "错误: 无法解析.doc内容 (缺少 pywin32 依赖或非Windows环境)"
@@ -533,7 +531,7 @@ class DocumentParser:
                 except Exception as te:
                     error_msg = str(te)
                     if "127" in error_msg or "antiword" in error_msg:
-                         self.logger.warning(f"解析.doc失败: 缺少 'antiword' 工具。请确保系统已安装 antiword 或 Microsoft Word。")
+                         self.logger.warning("解析.doc失败: 缺少 'antiword' 工具。请确保系统已安装 antiword 或 Microsoft Word。")
                          return "错误: 无法解析.doc内容 (缺少 Microsoft Word 或 antiword 工具)"
                     self.logger.warning(f"无法使用textract解析.doc文件 {file_path}: {str(te)}")
             
@@ -733,7 +731,7 @@ class DocumentParser:
                 self.logger.warning(f"无法使用textract解析文件 {file_path}: {str(te)}")
         # 如果没有textract或解析失败，返回错误信息
         self.logger.error(f"通用解析失败 {file_path}: 不支持的格式或缺少textract依赖")
-        return f"错误: 无法解析文件内容（不支持的格式）"
+        return "错误: 无法解析文件内容（不支持的格式）"
     
     def _extract_pdf_metadata(self, file_path):
         """提取PDF文件特定的元数据"""

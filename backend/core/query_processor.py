@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """查询预处理模块 - 扩展查询、同义词、缩写展开"""
 import re
-from typing import List, Dict, Set
+from typing import List
 import logging
 
 logger = logging.getLogger(__name__)

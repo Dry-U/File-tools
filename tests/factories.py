@@ -1,7 +1,6 @@
 """测试数据工厂 - 用于生成测试数据"""
 from typing import Dict, Any, List, Optional
 import random
-import string
 from datetime import datetime, timedelta
 
 
@@ -292,7 +291,7 @@ class SearchResultFactory:
             path = f"/test/{filename}"
 
         if content is None:
-            content = f"This is search result content with some matching text."
+            content = "This is search result content with some matching text."
 
         if score is None:
             score = round(random.uniform(0.5, 1.0), 2)

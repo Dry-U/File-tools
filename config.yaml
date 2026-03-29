@@ -73,7 +73,7 @@ file_scanner:
   max_file_size: 100
   recursive: true
   scan_paths:
-  - D:\Garbage\Career\Senior\Thesis
+  - ~/Documents
   scan_threads: 4
 index:
   batch_size: 100
@@ -100,7 +100,7 @@ interface:
 monitor:
   debounce_time: 0.1
   directories:
-  - D:\Garbage\Career\Senior\Thesis
+  - ~/Documents
   enabled: true
   ignored_patterns: .git;.svn;.hg;__pycache__;.idea;.vscode;node_modules;venv;env;.DS_Store;Thumbs.db
   max_workers: 2

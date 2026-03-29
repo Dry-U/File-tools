@@ -8,8 +8,8 @@
 """
 
 import re
-from typing import List, Dict, Any, Optional, Callable
-from dataclasses import dataclass
+from typing import List, Dict, Any, Optional
+from dataclasses import dataclass, field
 import logging
 
 logger = logging.getLogger(__name__)
@@ -25,7 +25,7 @@ class TextChunk:
     start_pos: int         # 在原文档中的起始位置
     end_pos: int           # 在原文档中的结束位置
     char_count: int        # 字符数
-    metadata: Dict[str, Any] = None  # 额外元数据
+    metadata: Optional[Dict[str, Any]] = field(default=None)  # 额外元数据
 
     def __post_init__(self):
         if self.metadata is None:
@@ -50,10 +50,10 @@ class TextChunker:
     def __init__(
         self,
         strategy: str = 'semantic',
-        chunk_size: int = None,
-        chunk_overlap: int = None,
-        min_chunk_size: int = None,
-        max_chunk_size: int = None
+        chunk_size: Optional[int] = None,
+        chunk_overlap: Optional[int] = None,
+        min_chunk_size: Optional[int] = None,
+        max_chunk_size: Optional[int] = None
     ):
         """
         初始化分块器
@@ -89,7 +89,7 @@ class TextChunker:
         content: str,
         doc_path: str,
         doc_filename: str,
-        doc_metadata: Dict[str, Any] = None
+        doc_metadata: Optional[Dict[str, Any]] = None
     ) -> List[TextChunk]:
         """
         对文档进行分块

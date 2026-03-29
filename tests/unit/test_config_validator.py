@@ -1,8 +1,6 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 """测试配置验证模块"""
-import pytest
-from pathlib import Path
 from backend.utils.config_validator import (
     ValidationIssue,
     ValidationResult,

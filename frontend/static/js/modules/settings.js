@@ -7,6 +7,8 @@ const FileToolsSettings = (function() {
     'use strict';
 
     let initialSettings = null;
+    // 缓存完整的 provider keys，避免切换 provider 后其他 keys 丢失
+    let cachedProviderKeys = { siliconflow: '', deepseek: '', custom: '' };
 
     // API 提供商默认配置
     const API_PROVIDER_DEFAULTS = {
@@ -86,6 +88,7 @@ const FileToolsSettings = (function() {
             setValue('modelNameInput', apiConfig.model_name || '');
             // 从 keys 对象获取当前 provider 的 key
             const keys = apiConfig.keys || {};
+            cachedProviderKeys = { ...keys };
             const currentKey = keys[apiConfig.provider] || apiConfig.api_key || '';
             setValue('apiKeyInput', currentKey);
         }
@@ -171,7 +174,10 @@ const FileToolsSettings = (function() {
 
         const provider = getValue('apiProviderSelect', 'siliconflow');
         const apiKey = getValue('apiKeyInput', '');
-        
+
+        // 更新当前 provider 的 key 到缓存
+        cachedProviderKeys[provider] = apiKey;
+
         return {
             ai_mode: document.getElementById('modeAPI')?.checked ? 'api' : 'local',
             ai_model: {
@@ -181,12 +187,7 @@ const FileToolsSettings = (function() {
                     api_url: getValue('apiUrlInput', ''),
                     model_name: getValue('modelNameInput', ''),
                     api_key: apiKey,
-                    // 同时保存到 keys.{provider} 确保兼容
-                    keys: {
-                        siliconflow: provider === 'siliconflow' ? apiKey : '',
-                        deepseek: provider === 'deepseek' ? apiKey : '',
-                        custom: provider === 'custom' ? apiKey : ''
-                    }
+                    keys: { ...cachedProviderKeys }
                 },
                 sampling: {
                     temperature: getFloat('tempRange', 0.7),
@@ -232,13 +233,22 @@ const FileToolsSettings = (function() {
                 body: JSON.stringify(settings)
             });
 
-            if (response.ok) {
-                FileToolsUtils.showToast('设置已保存', 'success');
-                initialSettings = settings;
+            const result = await response.json();
+
+            if (response.ok && result.status === 'success') {
                 FileToolsUtils.hideModal(document.getElementById('settingsModal'));
+                setTimeout(function() {
+                    FileToolsUtils.showToast('设置已保存', 'success');
+                }, 300);
+                initialSettings = getCurrentSettings();
+                // 重新缓存 provider keys
+                cachedProviderKeys = { ...settings.ai_model.api.keys };
+            } else if (response.ok && result.status === 'warning') {
+                FileToolsUtils.showToast(result.message || '参数未变更', 'info');
+                initialSettings = getCurrentSettings();
+                cachedProviderKeys = { ...settings.ai_model.api.keys };
             } else {
-                const error = await response.json();
-                throw new Error(error.detail || '保存失败');
+                throw new Error(result.detail || '保存失败');
             }
         } catch (error) {
             console.error('保存设置失败:', error);
@@ -262,10 +272,15 @@ const FileToolsSettings = (function() {
         const provider = document.getElementById('apiProviderSelect').value;
         const urlInput = document.getElementById('apiUrlInput');
         const modelInput = document.getElementById('modelNameInput');
+        const keyInput = document.getElementById('apiKeyInput');
 
         if (API_PROVIDER_DEFAULTS[provider]) {
             urlInput.value = API_PROVIDER_DEFAULTS[provider].url;
             modelInput.value = API_PROVIDER_DEFAULTS[provider].model;
+        }
+        // 切换时从缓存恢复对应 provider 的 key
+        if (keyInput && cachedProviderKeys[provider] !== undefined) {
+            keyInput.value = cachedProviderKeys[provider];
         }
     }
 
@@ -450,15 +465,24 @@ const FileToolsSettings = (function() {
      */
     function showRebuildModal() {
         const rebuildModalEl = document.getElementById('rebuildIndexModal');
+        const modalBody = document.getElementById('rebuildModalBody');
+        const modalFooter = document.getElementById('rebuildModalFooter');
+        const closeBtn = document.getElementById('rebuildCloseBtn');
 
-        document.getElementById('rebuildModalBody').innerHTML = `
+        // 重置为初始状态（使用 HTML 中定义的静态内容）
+        modalBody.innerHTML = `
             <p class="mb-0 small">确定要重建文件索引吗？<br>这可能需要一些时间。</p>
+            <div class="alert alert-warning mt-3 mb-0 py-2 px-2 small text-start" style="font-size: 0.75rem;">
+                <i class="bi bi-info-circle me-1"></i>
+                重建期间请勿操作文件，如有文件监控冲突可暂时关闭监控。
+            </div>
         `;
-        document.getElementById('rebuildModalFooter').innerHTML = `
+        modalFooter.style.display = '';
+        modalFooter.innerHTML = `
             <button type="button" class="btn btn-sm btn-outline-secondary border-0" data-bs-dismiss="modal">取消</button>
             <button type="button" class="btn btn-sm btn-primary px-3" id="rebuildConfirmBtn">确定</button>
         `;
-        document.getElementById('rebuildCloseBtn').style.display = 'block';
+        closeBtn.style.display = 'block';
 
         // 绑定确认按钮事件
         const confirmBtn = document.getElementById('rebuildConfirmBtn');

@@ -8,8 +8,7 @@ import threading
 from typing import TYPE_CHECKING, Optional
 from concurrent.futures import ThreadPoolExecutor
 from watchdog.observers import Observer
-from watchdog.events import FileSystemEventHandler, FileSystemEvent
-from datetime import datetime
+from watchdog.events import FileSystemEventHandler
 
 if TYPE_CHECKING:
     from backend.core.index_manager import IndexManager
@@ -370,7 +369,6 @@ class FileMonitor:
             # 构建文档对象（模拟FileScanner中的逻辑）
             from pathlib import Path
             from datetime import datetime
-            import os
             
             file_path_obj = Path(file_path)
             

@@ -21,6 +21,15 @@ def event_loop():
     loop.close()
 
 
+@pytest.fixture(autouse=True)
+def reset_config_loader():
+    """自动重置ConfigLoader单例，确保每个测试使用独立配置"""
+    from backend.utils.config_loader import ConfigLoader
+    ConfigLoader.reset_instance()
+    yield
+    ConfigLoader.reset_instance()
+
+
 @pytest.fixture
 def temp_config():
     """创建临时配置用于测试"""

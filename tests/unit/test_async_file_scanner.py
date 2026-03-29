@@ -2,11 +2,7 @@
 # -*- coding: utf-8 -*-
 """测试异步文件扫描功能"""
 import pytest
-import asyncio
-import tempfile
-import os
-from pathlib import Path
-from unittest.mock import Mock, MagicMock, patch
+from unittest.mock import Mock, patch
 
 from backend.core.file_scanner import FileScanner, AIOFILES_AVAILABLE
 

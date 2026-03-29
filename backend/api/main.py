@@ -2,8 +2,6 @@
 FastAPI 应用主文件 - 初始化和生命周期管理
 """
 
-import os
-import sys
 import time
 import threading
 from pathlib import Path
@@ -12,7 +10,7 @@ from typing import Optional
 from collections import OrderedDict
 
 from fastapi import FastAPI
-from fastapi.responses import JSONResponse, HTMLResponse
+from fastapi.responses import JSONResponse, HTMLResponse, Response
 from fastapi.exceptions import RequestValidationError
 from fastapi import Request
 
@@ -213,7 +211,6 @@ async def add_security_headers(request, call_next):
 async def lifespan(app: FastAPI):
     """应用启动时初始化核心组件（优化启动速度）"""
     import asyncio
-    from concurrent.futures import ThreadPoolExecutor
 
     # 存储主事件循环，供后台线程回调使用
     app.state.main_loop = asyncio.get_event_loop()
@@ -423,8 +420,8 @@ async def favicon():
     """提供 favicon 图标"""
     favicon_path = Path("frontend/static/favicon.ico")
     if favicon_path.exists():
-        return HTMLResponse(content=favicon_path.read_bytes(), media_type="image/x-icon")
-    return HTMLResponse(content=b"", status_code=204)
+        return Response(content=favicon_path.read_bytes(), media_type="image/x-icon")
+    return Response(status_code=204)
 
 
 @app.get("/")

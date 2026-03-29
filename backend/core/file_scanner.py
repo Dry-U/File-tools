@@ -9,13 +9,10 @@ import time
 import asyncio
 from datetime import datetime
 from pathlib import Path
-from typing import List, Dict, Set, Optional, Any, Tuple, Callable
+from typing import List, Dict, Optional, Any, Tuple, Callable
 import logging
 import fnmatch
-import mimetypes
-import tantivy
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from functools import lru_cache
 import threading
 
 from backend.utils.config_loader import ConfigLoader

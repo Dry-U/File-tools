@@ -1,8 +1,5 @@
 # backend/core/model_manager.py
-import os
 import json
-import time
-import hashlib
 from typing import Optional, Generator, Dict, Any
 from enum import Enum
 import requests
@@ -80,7 +77,7 @@ class ModelManager:
             mode_str = config_loader.get('ai_model', 'mode', 'local')
             self.mode = ModelMode(mode_str)
         except ValueError:
-            logger.warning(f"Invalid mode configured, defaulting to local")
+            logger.warning("Invalid mode configured, defaulting to local")
             self.mode = ModelMode.LOCAL
 
         # 安全配置
@@ -400,7 +397,7 @@ class ModelManager:
             yield f"错误：{str(e)}"
         except ContextLengthError as e:
             logger.error(f"上下文超长: {e}")
-            yield f"错误：内容过长，请缩短输入或精简文档"
+            yield "错误：内容过长，请缩短输入或精简文档"
         except Exception as e:
             logger.error(f"生成失败: {e}")
             yield f"错误：{str(e)}"

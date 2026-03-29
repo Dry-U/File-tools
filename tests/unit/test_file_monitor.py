@@ -2,10 +2,9 @@
 # -*- coding: utf-8 -*-
 """文件监控功能测试"""
 import pytest
-import tempfile
 import sys
 from pathlib import Path
-from unittest.mock import Mock, patch
+from unittest.mock import Mock
 
 # 添加项目根目录到路径
 sys.path.insert(0, str(Path(__file__).parent.parent))

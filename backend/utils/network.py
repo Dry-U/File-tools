@@ -2,8 +2,6 @@
 网络工具函数 - 安全地获取和验证客户端 IP
 """
 import ipaddress
-import re
-from typing import Optional
 from fastapi import Request
 
 

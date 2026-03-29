@@ -1,8 +1,6 @@
-import pytest
-import tempfile
 import sys
 from pathlib import Path
-from unittest.mock import Mock, patch
+from unittest.mock import Mock
 
 # 添加项目根目录到Python路径
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -236,7 +234,7 @@ def test_search_method():
     try:
         results = search_engine.search("test query")
         assert isinstance(results, list)
-    except Exception as e:
+    except Exception:
         # 如果由于缺少依赖而失败，这也是可以接受的
         pass
 

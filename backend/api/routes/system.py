@@ -13,6 +13,7 @@ from backend.utils.logger import get_logger
 from backend.api.dependencies import (
     get_config_loader, get_index_manager, get_file_scanner, get_rate_limiter
 )
+from backend.utils.network import get_client_ip
 from backend.api.models import HealthCheckResponse
 
 logger = get_logger(__name__)
@@ -62,7 +63,7 @@ async def rebuild_index(
     # 限流检查
     limiter = get_rate_limiter()
     if config_loader.getboolean('security', 'rate_limiter.enabled', True):
-        client_ip = request.client.host if request.client else "unknown"
+        client_ip = get_client_ip(request, config_loader)
         max_req = config_loader.getint(
             'security', 'rate_limiter.rebuild_limit', 1)
         window = config_loader.getint(

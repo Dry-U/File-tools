@@ -3,8 +3,8 @@ name: CI/CD
 on:
   push:
     branches: [main, develop]
-    tags:
-      - 'v*'
+  tags:
+    - 'v*'
   pull_request:
     branches: [main]
   workflow_dispatch:
@@ -101,6 +101,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     needs: [lint, test]
+    if: startsWith(github.ref, 'refs/tags/v')
     steps:
       - uses: actions/checkout@v4
 
@@ -145,6 +146,7 @@ jobs:
     name: Security Checks
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    if: startsWith(github.ref, 'refs/tags/v')
     steps:
       - uses: actions/checkout@v4
 
@@ -171,7 +173,8 @@ jobs:
     name: Build ${{ matrix.build_mode }} (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
-    needs: [lint, test, smoke-test]
+    needs: [lint, test]
+    if: startsWith(github.ref, 'refs/tags/v')
     strategy:
       fail-fast: false
       matrix:

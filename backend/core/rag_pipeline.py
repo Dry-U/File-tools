@@ -1,19 +1,11 @@
 # src/core/rag_pipeline.py
 import os
 import re
+import hashlib
 import secrets
 import time
-from typing import Dict, List, Any, Optional, Callable
+from typing import Dict, List, Any, Optional
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeoutError
-
-# 修复 torch DLL 加载问题
-try:
-    import torch
-    torch_lib_path = os.path.join(os.path.dirname(torch.__file__), 'lib')
-    if os.path.exists(torch_lib_path) and hasattr(os, 'add_dll_directory'):
-        os.add_dll_directory(torch_lib_path)
-except Exception:
-    pass
 
 from backend.utils.logger import setup_logger
 from backend.utils.config_loader import ConfigLoader
@@ -272,7 +264,7 @@ class RAGPipeline:
         clean = re.sub(r'<[^>]+>', '', text or '')
         return clean.replace('\xa0', ' ').strip()
 
-    def _build_history(self, session_id: str, budget: int) -> (str, int):
+    def _build_history(self, session_id: str, budget: int) -> tuple[str, int]:
         # 从数据库获取会话历史
         messages = self.chat_db.get_session_messages(session_id)
         if not messages or budget <= 0:
@@ -505,7 +497,7 @@ class RAGPipeline:
                     # 内容提炼：提取关键信息片段
                     max_allowed_chars = self.vram_manager.adjust_context_size(self.max_context_chars)
                     if len(processed_content) > max_allowed_chars:
-                        if any(keyword in query.lower() for keyword in ['摘要', '概述', '总结', '概要', '总结', 'abstract', 'summary', 'overview']):
+                        if any(keyword in query.lower() for keyword in ['摘要', '概述', '总结', '概要', 'abstract', 'summary', 'overview']):
                             processed_content = self._generate_document_summary(
                                 processed_content,
                                 max_summary_chars=max_allowed_chars
@@ -660,17 +652,24 @@ class RAGPipeline:
                     if len(content) > max_content_len:
                         content = content[:max_content_len] + "..."
 
-                    # 计算查询和内容的嵌入向量
-                    query_embedding = next(embedding_model.embed([query]))
+                    # 缓存查询嵌入向量，避免同一查询对每个候选文档重复计算
+                    if not hasattr(self, '_query_embedding_cache'):
+                        self._query_embedding_cache = {}  # {query_str: embedding}
+
+                    if query not in self._query_embedding_cache:
+                        self._query_embedding_cache[query] = list(embedding_model.embed([query]))[0]
+                    query_embedding = self._query_embedding_cache[query]
+
                     content_embedding = next(embedding_model.embed([content]))
 
                     # 计算余弦相似度
                     if SKLEARN_AVAILABLE:
                         query_vec = np.array(query_embedding).reshape(1, -1)
                         content_vec = np.array(content_embedding).reshape(1, -1)
-                        similarity = cosine_similarity(query_vec, content_vec)[0][0]
-                        # 转换为百分制
-                        return float(similarity * 100.0)
+                        result = cosine_similarity(query_vec, content_vec)
+                        if result is not None and len(result) > 0 and len(result[0]) > 0:
+                            similarity = result[0][0]
+                            return float(similarity * 100.0)
                     else:
                         if not self._warned_no_sklearn:
                             logger.warning("sklearn not available, falling back to Jaccard similarity")
@@ -707,8 +706,8 @@ class RAGPipeline:
         processed_content_hashes = set()
 
         for candidate in candidates:
-            # 创建内容的简短哈希以便于比较
-            content_hash = hash(candidate['content'][:100])  # 只使用内容的前100字符做哈希
+            # 使用稳定的哈希算法（hashlib 而非内置 hash，避免跨进程不一致）
+            content_hash = hashlib.md5(candidate['content'][:100].encode('utf-8')).hexdigest()
 
             # 如果内容与已选择的文档相似度高，则跳过（避免重复信息）
             if content_hash not in processed_content_hashes:
@@ -1120,7 +1119,6 @@ class RAGPipeline:
         history_text, used_history = self._build_history(session_key, history_budget)
 
         # 计算文档预算
-        doc_budget: Optional[int] = None
         if self.max_context_chars_total > 0:
             doc_budget = max(self.max_context_chars_total - used_history, 0)
             if doc_budget <= 0:
@@ -1271,7 +1269,7 @@ class RAGPipeline:
 
         return answer.strip()
 
-    def get_session_stats(self, session_id: str = None) -> Dict[str, Any]:
+    def get_session_stats(self, session_id: Optional[str] = None) -> Dict[str, Any]:
         """获取会话统计信息"""
         session_key = session_id or ''
         messages = self.chat_db.get_session_messages(session_key)
@@ -1291,7 +1289,7 @@ class RAGPipeline:
             'max_history_chars': self.max_history_chars
         }
 
-    def clear_session(self, session_id: str = None) -> bool:
+    def clear_session(self, session_id: Optional[str] = None) -> bool:
         """清空指定会话的历史记录"""
         session_key = session_id or ''
         return self.chat_db.delete_session(session_key)

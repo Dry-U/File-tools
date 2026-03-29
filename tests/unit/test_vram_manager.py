@@ -2,7 +2,7 @@
 import pytest
 import sys
 import os
-from unittest.mock import Mock, patch, MagicMock
+from unittest.mock import Mock, patch
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
@@ -130,7 +130,7 @@ class TestVRAMManager:
         assert 'gpu_info' in stats
 
     @patch('backend.core.vram_manager.gpu_available', True)
-    @patch('backend.core.vram_manager.GPUtil')
+    @patch('backend.core.vram_manager.GPUtil', create=True)
     def test_get_gpu_info_available(self, mock_gputil, vram_manager):
         """测试获取GPU信息（GPU可用）"""
         mock_gpu = Mock()

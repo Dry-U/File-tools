@@ -8,6 +8,8 @@ const FileToolsDirectory = (function() {
 
     // 目录数据
     let directoriesData = { directories: [] };
+    // 防止重复打开对话框
+    let isBrowsing = false;
 
     /**
      * 加载目录列表
@@ -66,22 +68,47 @@ const FileToolsDirectory = (function() {
 
     /**
      * 浏览并添加目录
+     * 优先使用 pywebview 原生对话框，降级到后端 Tkinter 方案
      */
     async function browseAndAddDirectory() {
+        if (isBrowsing) return;
+        isBrowsing = true;
         try {
-            const result = await fetch('/api/directories/browse', { method: 'POST' });
-            const data = await result.json();
+            let selectedPath = null;
 
-            if (data.canceled) return;
-            if (!data.path) {
-                FileToolsUtils.showToast('未选择目录', 'warning');
-                return;
+            // 优先使用 pywebview 原生文件对话框
+            if (window.pywebview && window.pywebview.api && window.pywebview.api.select_directory) {
+                try {
+                    const result = await window.pywebview.api.select_directory();
+                    if (result.canceled) return;
+                    if (result.success && result.path) {
+                        selectedPath = result.path;
+                    } else {
+                        FileToolsUtils.showToast(result.message || '未选择目录', 'warning');
+                        return;
+                    }
+                } catch (e) {
+                    console.warn('pywebview 原生对话框失败，降级到后端方案:', e);
+                    selectedPath = null;
+                }
+            }
+
+            // 降级：通过后端 API 打开 Tkinter 对话框
+            if (!selectedPath) {
+                const browseResult = await fetch('/api/directories/browse', { method: 'POST' });
+                const data = await browseResult.json();
+                if (data.canceled) return;
+                if (!data.path) {
+                    FileToolsUtils.showToast('未选择目录', 'warning');
+                    return;
+                }
+                selectedPath = data.path;
             }
 
             const response = await fetch('/api/directories', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ path: data.path })
+                body: JSON.stringify({ path: selectedPath })
             });
 
             const resultData = await response.json();
@@ -104,6 +131,8 @@ const FileToolsDirectory = (function() {
         } catch (error) {
             console.error('Browse and add directory error:', error);
             FileToolsUtils.showToast('添加目录失败: ' + error.message, 'error');
+        } finally {
+            isBrowsing = false;
         }
     }
 

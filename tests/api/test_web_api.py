@@ -5,7 +5,7 @@ Web API 端点测试
 """
 import pytest
 from pathlib import Path
-from unittest.mock import Mock, patch, MagicMock
+from unittest.mock import Mock, patch
 from fastapi.testclient import TestClient
 
 # 在导入 app 之前先 mock 相关组件
@@ -33,7 +33,7 @@ with patch('backend.utils.config_loader.ConfigLoader', return_value=mock_config_
      patch('backend.core.search_engine.SearchEngine'), \
      patch('backend.core.file_scanner.FileScanner'), \
      patch('backend.core.file_monitor.FileMonitor'):
-    from backend.api.main import app, get_rate_limiter, RateLimiter
+    from backend.api.main import app, RateLimiter
 
 
 @pytest.fixture
@@ -530,7 +530,6 @@ class TestPathSecurity:
     def test_is_path_allowed_valid(self):
         """测试有效路径"""
         from backend.api.dependencies import is_path_allowed
-        from pathlib import Path
         config = Mock()
         config.get.return_value = "/allowed/path"
 

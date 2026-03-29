@@ -136,13 +136,16 @@ const FileToolsUtils = (function() {
         const toastEl = document.createElement('div');
         toastEl.className = `toast align-items-center text-white bg-${type === 'error' ? 'danger' : type} border-0`;
         toastEl.setAttribute('role', 'alert');
-        toastEl.innerHTML = `
-            <div class="d-flex">
-                <div class="toast-body">${escapeHtml(message)}</div>
-                <button type="button" class="btn btn-sm btn-outline-light border-0 me-2 m-auto py-0 px-1" data-bs-dismiss="toast"><i class="bi bi-x-lg"></i></button>
-            </div>
-        `;
-        document.body.appendChild(toastEl);
+        toastEl.innerHTML = `<div class="toast-body">${escapeHtml(message)}</div>`;
+
+        // 确保存在 toast 容器
+        let container = document.querySelector('.toast-container');
+        if (!container) {
+            container = document.createElement('div');
+            container.className = 'toast-container';
+            document.body.appendChild(container);
+        }
+        container.appendChild(toastEl);
 
         if (typeof bootstrap !== 'undefined' && bootstrap.Toast) {
             const toast = new bootstrap.Toast(toastEl, { delay: 3000 });

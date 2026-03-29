@@ -11,7 +11,6 @@ import time
 from typing import Dict, Any, Optional, Callable
 from functools import wraps
 from dataclasses import dataclass, field
-from collections import deque
 from threading import Lock
 
 from backend.utils.logger import get_logger

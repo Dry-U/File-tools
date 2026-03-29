@@ -9,7 +9,7 @@
 import time
 import hashlib
 from collections import OrderedDict
-from typing import Dict, Any, Optional, Generic, TypeVar
+from typing import Dict, Any, Optional, TypeVar
 from threading import RLock
 
 from backend.utils.logger import get_logger

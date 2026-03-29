@@ -22,8 +22,19 @@ const FileToolsSearch = (function() {
 
         // 1. 文件类型
         const activeTypeBtns = document.querySelectorAll('.file-type-btn.active');
-        if (activeTypeBtns.length > 0) {
-            filters.file_types = Array.from(activeTypeBtns).map(btn => '.' + btn.dataset.type);
+        const allTypeBtns = document.querySelectorAll('.file-type-btn');
+        if (activeTypeBtns.length > 0 && activeTypeBtns.length < allTypeBtns.length) {
+            // 展开复合类型（如 ppt,pptx → .ppt,.pptx）
+            const types = [];
+            activeTypeBtns.forEach(btn => {
+                const typeStr = btn.dataset.type;
+                if (typeStr.includes(',')) {
+                    typeStr.split(',').forEach(t => types.push('.' + t.trim()));
+                } else {
+                    types.push('.' + typeStr);
+                }
+            });
+            filters.file_types = types;
         }
 
         // 2. 文件大小 (MB -> Bytes)
@@ -223,15 +234,11 @@ const FileToolsSearch = (function() {
 
             // 处理内容格式：PDF/DOCX解析后的纯文本需要适当处理
             if (content && typeof content === 'string') {
-                // 转义HTML特殊字符以防止XSS
-                content = FileToolsUtils.escapeHtml(content);
-
-                // 处理换行和空格，保持段落格式
-                // 将多个连续换行合并为段落分隔
+                // 处理换行，保持段落格式
                 content = content.replace(/\n{3,}/g, '\n\n');
 
-                // 在pre标签中显示，保持原始格式
-                modalContent.innerHTML = content;
+                // 使用textContent和<pre>标签保持格式同时防止XSS
+                modalContent.textContent = content;
             } else {
                 modalContent.innerHTML = '<div class="text-muted">文件内容为空</div>';
             }

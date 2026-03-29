@@ -76,8 +76,8 @@ class ConfigLoader:
         logger.debug("ConfigLoader 单例已重置")
 
     def __init__(self, config_path: Optional[str] = None):
-        # 避免重复初始化
-        if hasattr(self, '_initialized'):
+        # 避免重复初始化 - 使用实例字典检查而非hasattr（因为_initialized是类属性）
+        if '_initialized' in self.__dict__:
             return
         self._initialized = True
 
@@ -226,6 +226,10 @@ class ConfigLoader:
         使用机器特定的信息（如机器名、用户名等）派生密钥，
         结合随机盐值，提高安全性。
         """
+        # 缓存密钥，避免每次都执行昂贵的 PBKDF2 运算
+        if hasattr(self, '_cached_encryption_key'):
+            return self._cached_encryption_key
+
         # 收集机器特定信息
         machine_info = self._get_machine_fingerprint()
 
@@ -249,13 +253,16 @@ class ConfigLoader:
                 iterations=480000,  # OWASP 2023 推荐
             )
             key = base64.urlsafe_b64encode(kdf.derive(key_material))
+            self._cached_encryption_key = key
             return key
         else:
             # 降级方案：使用简单的哈希，但结合盐值
             h = hashlib.sha256()
             h.update(salt)
             h.update(key_material)
-            return base64.urlsafe_b64encode(h.digest())
+            key = base64.urlsafe_b64encode(h.digest())
+            self._cached_encryption_key = key
+            return key
 
     def _encrypt_value(self, value: str) -> str:
         """加密单个值"""

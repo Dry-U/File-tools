@@ -1,11 +1,9 @@
 """
 Web API 简单测试 - 不导入完整app
 """
-import pytest
 import sys
-import os
 from pathlib import Path
-from unittest.mock import Mock, patch
+from unittest.mock import Mock
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 

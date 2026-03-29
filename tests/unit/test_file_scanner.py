@@ -1,5 +1,4 @@
 import pytest
-from pathlib import Path
 from unittest.mock import Mock
 
 from backend.core.file_scanner import FileScanner

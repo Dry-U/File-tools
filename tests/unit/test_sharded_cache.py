@@ -1,7 +1,6 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 """测试分片缓存模块"""
-import pytest
 import time
 import threading
 from backend.core.sharded_cache import Shard, ShardedCache, LRUCache

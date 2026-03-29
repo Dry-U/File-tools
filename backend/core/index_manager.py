@@ -9,12 +9,11 @@ import jieba
 import hnswlib
 import numpy as np
 from datetime import datetime
-from typing import List, Dict, Any, Optional
+from typing import Dict, Any
 import json
 import threading
-from contextlib import contextmanager
 
-from backend.core.text_chunker import TextChunker, TextChunk
+from backend.core.text_chunker import TextChunker
 
 # 常量定义
 MAX_ENCODE_LENGTH = 2000  # 文本编码最大长度限制
@@ -397,7 +396,7 @@ class IndexManager:
 
         if needs_rebuild:
             try:
-                self.logger.info(f'检测到{', '.join(rebuild_reason)}，重建索引以支持新功能')
+                self.logger.info(f'检测到{", ".join(rebuild_reason)}，重建索引以支持新功能')
                 self.rebuild_index()
                 self.schema_updated = True
 
@@ -962,8 +961,6 @@ class IndexManager:
             return content[:200] + '...' if content and len(content) > 200 else (content or '')
 
         try:
-            import re
-            import jieba
             
             # 构建关键词集合
             keywords = self._extract_keywords(query)
@@ -1045,7 +1042,6 @@ class IndexManager:
     
     def _find_matches(self, content, patterns, keywords):
         """在内容中查找匹配项"""
-        import re
         
         def _expand_ascii_span(text: str, start: int, end: int):
             # 向左右扩展，确保高亮完整的ASCII单词（如JavaScript）
@@ -1149,7 +1145,6 @@ class IndexManager:
     
     def _apply_highlights(self, text, patterns):
         """在文本中应用高亮标记"""
-        import re
         import html
 
         def _expand_ascii_span(text: str, start: int, end: int):
@@ -1668,7 +1663,6 @@ class IndexManager:
 
             # 检查索引是否已初始化
             if getattr(self, 'hnsw', None) is not None:
-                import tempfile
                 # 使用临时文件，然后原子性地移动到目标位置以避免损坏
                 index_file = os.path.join(
                     self.hnsw_index_path, 'vector_index.bin')
@@ -1942,7 +1936,6 @@ class IndexManager:
             try:
                 searcher = self.tantivy_index.searcher()
                 # 执行一个简单查询来加载索引数据
-                from tantivy import Query
                 query = self.tantivy_index.parse_query("*", ["content"])
                 _ = searcher.search(query, limit)
                 stats['tantivy_warmed'] = limit

@@ -16,9 +16,8 @@ from typing import Optional, Dict, Any, Union, Literal
 import threading
 import time
 from functools import wraps
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass
 from enum import Enum
-import re
 
 def sanitize_log_message(msg: str) -> str:
     """

@@ -491,7 +491,7 @@ class ConfigValidator:
                         message=f'配置值超出范围: [{section}].{key} = {value} (应在 {min_val}-{max_val} 之间)',
                         section=f'{section}.{key}',
                         code='NUMERIC_RANGE_ERROR',
-                        suggestion=f'调整配置值到有效范围'
+                        suggestion='调整配置值到有效范围'
                     )
             except (ValueError, TypeError):
                 result.add_error(

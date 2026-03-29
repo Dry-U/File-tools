@@ -1,10 +1,7 @@
-import pytest
 import tempfile
-import os
 import sys
 from pathlib import Path
-from unittest.mock import Mock, patch
-import numpy as np
+from unittest.mock import Mock
 
 # 添加项目根目录到Python路径
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -78,7 +75,6 @@ def test_add_document():
         
         # 准备测试文档
         import time
-        from datetime import datetime
         current_time = int(time.time())
         test_doc = {
             'path': f'{tmpdir}/test.txt',

@@ -130,6 +130,20 @@ class WebViewAPI:
         except Exception as e:
             return {"success": False, "message": f"打开链接失败: {e}"}
 
+    def select_directory(self):
+        """打开系统目录选择对话框"""
+        import webview
+        try:
+            result = webview.windows[0].create_file_dialog(
+                dialog_type=webview.FOLDER_DIALOG
+            )
+            if result and len(result) > 0:
+                import os
+                return {"success": True, "path": os.path.abspath(result[0]), "canceled": False}
+            return {"success": True, "canceled": True}
+        except Exception as e:
+            return {"success": False, "message": f"选择目录失败: {e}"}
+
 
 def run_desktop_app():
     """运行桌面应用"""

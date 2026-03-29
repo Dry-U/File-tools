@@ -3,6 +3,7 @@
 """
 
 import os
+import sys
 import errno
 from pathlib import Path
 import numpy as np
@@ -36,8 +37,11 @@ def safe_read_file(path: str, max_length: int = MAX_PREVIEW_LENGTH) -> str:
         UnicodeDecodeError: 如果文件编码不支持
     """
     try:
-        # 使用 O_NOFOLLOW 标志打开文件，如果路径是符号链接则失败
-        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+        # Windows 不支持 O_NOFOLLOW，直接使用 O_RDONLY
+        open_flags = os.O_RDONLY
+        if hasattr(os, 'O_NOFOLLOW') and sys.platform != 'win32':
+            open_flags |= os.O_NOFOLLOW
+        fd = os.open(path, open_flags)
         with os.fdopen(fd, 'r', encoding='utf-8') as f:
             content = f.read(max_length)
             # 如果文件内容超过最大长度，添加提示

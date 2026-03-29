@@ -2,15 +2,13 @@
 聊天/对话相关路由
 """
 
-from typing import Any, Dict, List, Optional
 from fastapi import APIRouter, HTTPException, Request, Depends
 
 from backend.api.models import ChatRequest, ChatResponse
 from backend.utils.config_loader import ConfigLoader
 from backend.utils.logger import get_logger
-from backend.utils.network import get_client_ip, is_valid_ip
+from backend.utils.network import get_client_ip
 from backend.api.dependencies import get_rag_pipeline, get_config_loader, get_rate_limiter
-from backend.api.main import app
 
 logger = get_logger(__name__)
 router = APIRouter()
@@ -52,16 +50,17 @@ async def chat(
             return {"answer": "AI问答功能未启用。请在配置文件中设置 ai_model.enabled = true。", "sources": []}
 
         # 如果正在后台初始化，使用 asyncio.Event 等待
-        if getattr(app.state, 'rag_initializing', False):
+        _app = http_request.app
+        if getattr(_app.state, 'rag_initializing', False):
             import asyncio
             try:
                 # 使用事件等待，最多10秒
                 await asyncio.wait_for(
-                    getattr(app.state, 'rag_ready_event', asyncio.Event()).wait(),
+                    getattr(_app.state, 'rag_ready_event', asyncio.Event()).wait(),
                     timeout=10.0
                 )
-                if app.state.rag_pipeline:
-                    rag_pipeline = app.state.rag_pipeline
+                if _app.state.rag_pipeline:
+                    rag_pipeline = _app.state.rag_pipeline
                 else:
                     raise HTTPException(
                         status_code=503, detail="RAG管道初始化失败")

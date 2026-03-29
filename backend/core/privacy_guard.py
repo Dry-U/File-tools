@@ -5,7 +5,7 @@
 import re
 import hashlib
 from collections import OrderedDict
-from typing import Dict, Tuple, List, Optional
+from typing import Tuple, List
 from backend.utils.logger import setup_logger
 
 logger = setup_logger()

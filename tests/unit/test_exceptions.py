@@ -1,7 +1,6 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 """测试自定义异常模块"""
-import pytest
 from backend.core.exceptions import (
     FileToolsError,
     PathTraversalError,

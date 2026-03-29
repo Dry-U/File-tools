@@ -291,7 +291,7 @@ def safe_read_file(file_path: str, config_loader: ConfigLoader,
         OSError: 读取失败
     """
     if not is_path_allowed(file_path, config_loader):
-        raise PermissionError(f"路径不在允许的访问范围内")
+        raise PermissionError("路径不在允许的访问范围内")
 
     path = Path(file_path)
 
