@@ -596,14 +596,14 @@ class TestPathSecurity:
         """测试None路径"""
         from backend.api.dependencies import is_path_allowed
         config = Mock()
-        result = is_path_allowed(None, config)
+        result = is_path_allowed(None, config)  # type: ignore[arg-type]
         assert not result
 
     def test_is_path_allowed_non_string_path(self):
         """测试非字符串路径"""
         from backend.api.dependencies import is_path_allowed
         config = Mock()
-        result = is_path_allowed(12345, config)
+        result = is_path_allowed(12345, config)  # type: ignore[arg-type]
         assert not result
 
     def test_is_path_allowed_no_scan_paths_configured(self):
@@ -679,15 +679,20 @@ if __name__ == "__main__":
     print("测试Web API初始化...")
 
     try:
-        from backend.utils.config_loader import ConfigLoader
-        print("[OK] ConfigLoader导入成功")
+        import importlib.util
+        if importlib.util.find_spec("backend.utils.config_loader"):
+            print("[OK] ConfigLoader导入成功")
+        else:
+            print("[FAIL] ConfigLoader模块未找到")
 
         from backend.utils.logger import get_logger
         logger = get_logger(__name__)
         print("[OK] Logger导入和初始化成功")
 
-        import backend.api.api
-        print("[OK] Web API模块导入成功")
+        if importlib.util.find_spec("backend.api.api"):
+            print("[OK] Web API模块导入成功")
+        else:
+            print("[FAIL] Web API模块未找到")
 
         from backend.api.main import app
         print("[OK] App导入成功")

@@ -9,12 +9,12 @@ from typing import List, Dict, Any
 # 添加项目根目录到Python路径（只需在顶层 conftest.py 中添加一次）
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-# CI 环境下 tantivy 的 Rust 编译库可能使用不可用的 CPU 指令集（如 AVX-512），
+# CI 环境下 tantivy/hnswlib 的 Rust 编译库可能使用不可用的 CPU 指令集（如 AVX-512），
 # 导致 import 时发生 Illegal instruction 崩溃（Python 无法捕获）。
-# 在 CI 或显式设置 CI_MOCK_NATIVE 时，用 mock 替代 tantivy 原生模块。
+# 在 CI 或显式设置 CI_MOCK_NATIVE 时，用 mock 替代原生模块。
 _CI_ENV = os.environ.get('CI', '') == 'true' or os.environ.get('CI_MOCK_NATIVE', '') == 'true'
 if _CI_ENV:
-    for _mod_name in ['tantivy', 'tantivy.tantivy']:
+    for _mod_name in ['tantivy', 'tantivy.tantivy', 'hnswlib']:
         if _mod_name not in sys.modules:
             sys.modules[_mod_name] = MagicMock()
 

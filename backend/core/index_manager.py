@@ -5,9 +5,7 @@ import os
 import shutil
 import time
 import logging
-import tantivy
 import jieba
-import hnswlib
 import numpy as np
 from datetime import datetime
 from typing import Dict, Any
@@ -47,6 +45,12 @@ class IndexManager:
     def __init__(self, config_loader):
         self.config_loader = config_loader
         self.logger = logging.getLogger(__name__)
+
+        # Lazy import native modules to prevent SIGILL on incompatible CI runners
+        import tantivy as _tantivy_mod
+        import hnswlib as _hnswlib_mod
+        self._tantivy = _tantivy_mod
+        self._hnswlib = _hnswlib_mod
         
         # 初始化配置
         self._init_config()
@@ -259,7 +263,7 @@ class IndexManager:
             self.logger.warning(f"检查索引模式版本失败: {str(e)}")
 
     def _init_tantivy_index(self):
-        schema_builder = tantivy.SchemaBuilder()
+        schema_builder = self._tantivy.SchemaBuilder()
         self.t_path = schema_builder.add_text_field(
             'path', stored=True, tokenizer_name='raw')
         self.t_filename = schema_builder.add_text_field(
@@ -285,21 +289,21 @@ class IndexManager:
             # 检查索引路径是否存在，如果不存在，则创建
             if not os.path.exists(self.tantivy_index_path):
                 os.makedirs(self.tantivy_index_path, exist_ok=True)
-                self.tantivy_index = tantivy.Index(
+                self.tantivy_index = self._tantivy.Index(
                     self.schema, path=self.tantivy_index_path)
             else:
-                self.tantivy_index = tantivy.Index(
+                self.tantivy_index = self._tantivy.Index(
                     self.schema, path=self.tantivy_index_path)
         except Exception as e:
             self.logger.error(f"初始化Tantivy索引失败: {str(e)}")
             # 如果指定路径失败，尝试在内存中创建新索引，但仍尝试重新创建文件目录
             try:
                 os.makedirs(self.tantivy_index_path, exist_ok=True)
-                self.tantivy_index = tantivy.Index(
+                self.tantivy_index = self._tantivy.Index(
                     self.schema, path=self.tantivy_index_path)
             except Exception as e2:
                 self.logger.error(f"创建索引目录或初始化索引失败: {str(e2)}")
-                self.tantivy_index = tantivy.Index(self.schema)
+                self.tantivy_index = self._tantivy.Index(self.schema)
 
     def _init_hnsw_index(self):
         """初始化HNSW向量索引"""
@@ -321,7 +325,7 @@ class IndexManager:
 
                 # 检查向量维度是否匹配
                 if self.embedding_model:
-                    self.hnsw = hnswlib.Index(
+                    self.hnsw = self._hnswlib.Index(
                         space='cosine', dim=self.vector_dim)
                     max_elements = max(self.next_id + 1024, 1024)
                     self.hnsw.load_index(index_file, max_elements=max_elements)
@@ -339,7 +343,7 @@ class IndexManager:
 
     def _create_new_hnsw_index(self):
         try:
-            self.hnsw = hnswlib.Index(space='cosine', dim=self.vector_dim)
+            self.hnsw = self._hnswlib.Index(space='cosine', dim=self.vector_dim)
             self.hnsw.init_index(max_elements=1024, ef_construction=200, M=16)
             self.hnsw.set_ef(200)
             self.vector_metadata = {}
@@ -537,7 +541,7 @@ class IndexManager:
         content_chars_source = raw_text[:50000]
         content_chars = ' '.join([c for c in content_chars_source])
 
-        tdoc = tantivy.Document(
+        tdoc = self._tantivy.Document(
             path=document['path'],
             filename=[seg_filename],
             filename_chars=[fname_chars],
@@ -596,7 +600,7 @@ class IndexManager:
             content_chars_source = raw_text
             content_chars = ' '.join([c for c in content_chars_source])
             with self.tantivy_index.writer() as writer:
-                tdoc = tantivy.Document(
+                tdoc = self._tantivy.Document(
                     path=document['path'],
                     filename=[seg_filename],
                     filename_chars=[fname_chars],
