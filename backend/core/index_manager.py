@@ -211,7 +211,7 @@ class IndexManager:
                             ):
                                 yield emb[0]
                             elif isinstance(emb, np.ndarray):
-                                if getattr(emb, 'ndim', 0) > 1:
+                                if getattr(emb, "ndim", 0) > 1:
                                     yield emb[0]
                                 else:
                                     yield emb
@@ -232,7 +232,7 @@ class IndexManager:
                         ):
                             yield emb[0]
                         elif isinstance(emb, np.ndarray):
-                            if getattr(emb, 'ndim', 0) > 1:
+                            if getattr(emb, "ndim", 0) > 1:
                                 yield emb[0]
                             else:
                                 yield emb
