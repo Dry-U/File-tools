@@ -224,8 +224,9 @@ a.binaries = filter_binaries(a.binaries)
 pyz = PYZ(a.pure, optimize=2)
 
 # ===== UPX 压缩配置 =====
-upx_enabled = True
-upx_exclude_list = ['vcruntime140.dll', 'python3*.dll', 'msvcp*.dll']
+# UPX often corrupts DLLs causing "Failed to load Python DLL" errors, disable it
+upx_enabled = False
+upx_exclude_list = []
 
 # ===== 创建可执行文件 =====
 exe = EXE(
@@ -235,7 +236,7 @@ exe = EXE(
     name='FileTools',
     debug=False,
     bootloader_ignore_signals=False,
-    strip=True,
+    strip=False,  # strip can remove necessary symbols and cause DLL loading failures
     upx=upx_enabled,
     upx_exclude=upx_exclude_list,
     runtime_tmpdir=None,
@@ -253,7 +254,7 @@ coll = COLLECT(
     exe,
     a.binaries,
     a.datas,
-    strip=True,
+    strip=False,  # strip can remove necessary symbols and cause DLL loading failures
     upx=upx_enabled,
     upx_exclude=upx_exclude_list,
     name=f'FileTools-v{APP_VERSION}-{BUILD_MODE}'

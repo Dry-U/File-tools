@@ -259,41 +259,167 @@ jobs:
           export FILETOOLS_BUILD_MODE=${FILETOOLS_BUILD_MODE}
           pyinstaller file-tools.spec --noconfirm --clean
 
-      - name: Create package archive
+      - name: Clean up build output
+        shell: bash
+        run: |
+          # Remove any .py source files that may have been included
+          find dist -name "*.py" -type f -delete 2>/dev/null || true
+          # Remove __pycache__ directories
+          find dist -name "__pycache__" -type d -exec rm -rf {} + 2>/dev/null || true
+          echo "Build output cleaned"
+
+      - name: Verify build output (Windows)
+        if: matrix.os == 'windows-latest'
+        shell: bash
+        run: |
+          ARCHIVE_DIR="FileTools-v${FILETOOLS_VERSION}-${{ matrix.build_mode }}"
+          if [ -f "dist/${ARCHIVE_DIR}/FileTools.exe" ]; then
+            echo "FileTools.exe found"
+          else
+            echo "ERROR: FileTools.exe not found"
+            ls -la "dist/${ARCHIVE_DIR}/" 2>/dev/null || echo "Directory not found"
+            exit 1
+          fi
+          # Check python311.dll exists
+          if [ -f "dist/${ARCHIVE_DIR}/FileTools.exe" ]; then
+            echo "Build output OK"
+          fi
+
+      - name: Verify build output (Linux)
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          ARCHIVE_DIR="FileTools-v${FILETOOLS_VERSION}-${{ matrix.build_mode }}"
+          if [ -f "dist/${ARCHIVE_DIR}/FileTools" ]; then
+            echo "FileTools binary found"
+            chmod +x "dist/${ARCHIVE_DIR}/FileTools"
+            echo "Build output OK"
+          else
+            echo "ERROR: FileTools binary not found"
+            ls -la "dist/${ARCHIVE_DIR}/" 2>/dev/null || echo "Directory not found"
+            exit 1
+          fi
+
+      - name: Create NSIS installer (Windows)
+        if: matrix.os == 'windows-latest'
         shell: bash
         env:
           FILETOOLS_VERSION: ${{ env.FILETOOLS_VERSION }}
           FILETOOLS_BUILD_MODE: ${{ env.FILETOOLS_BUILD_MODE }}
         run: |
-          PACKAGE_NAME="FileTools-${{ matrix.build_mode }}-v${FILETOOLS_VERSION}-${{ matrix.os }}"
-          ARCHIVE_DIR="FileTools-v${FILETOOLS_VERSION}-${{ matrix.build_mode }}"
+          # Install NSIS via Chocolatey
+          choco install nsis -y --no-progress
+          # Generate NSIS script and build installer
+          python scripts/build_installer.py \
+            --mode "${{ matrix.build_mode }}" \
+            --version "${FILETOOLS_VERSION}"
 
-          if [ "$RUNNER_OS" == "Windows" ]; then
-            cd dist
-            7z a "../${PACKAGE_NAME}.zip" "${ARCHIVE_DIR}"
-            cd ..
-          else
-            cd dist
-            tar -czf "../${PACKAGE_NAME}.tar.gz" "${ARCHIVE_DIR}"
-            cd ..
-          fi
-
-          echo "Created package: ${PACKAGE_NAME}"
-
-      - name: Create installer (Windows)
+      - name: Create portable zip (Windows)
         if: matrix.os == 'windows-latest'
+        shell: bash
+        env:
+          FILETOOLS_VERSION: ${{ env.FILETOOLS_VERSION }}
+          FILETOOLS_BUILD_MODE: ${{ env.FILETOOLS_BUILD_MODE }}
         run: |
-          echo "Creating NSIS installer..."
-          powershell -Command "Get-ChildItem -Path 'dist/FileTools-*' -Recurse | Select-Object FullName | Out-File -Encoding utf8 'dist/files_list.txt'"
+          ARCHIVE_DIR="FileTools-v${FILETOOLS_VERSION}-${{ matrix.build_mode }}"
+          PACKAGE_NAME="FileTools-${{ matrix.build_mode }}-v${FILETOOLS_VERSION}-windows-x64-portable.zip"
+          cd dist
+          7z a "../${PACKAGE_NAME}" "${ARCHIVE_DIR}"
+          cd ..
+          echo "Created: ${PACKAGE_NAME}"
+
+      - name: Create .deb package (Linux)
+        if: matrix.os == 'ubuntu-latest'
+        shell: bash
+        env:
+          FILETOOLS_VERSION: ${{ env.FILETOOLS_VERSION }}
+          FILETOOLS_BUILD_MODE: ${{ env.FILETOOLS_BUILD_MODE }}
+        run: |
+          ARCHIVE_DIR="FileTools-v${FILETOOLS_VERSION}-${{ matrix.build_mode }}"
+          DEB_NAME="filetools-${{ matrix.build_mode }}"
+          DEB_VERSION="${FILETOOLS_VERSION}"
+          DEB_ARCH="amd64"
+          DEB_PKG="${DEB_NAME}_${DEB_VERSION}_${DEB_ARCH}.deb"
+
+          PKG_ROOT="debbuild/${DEB_PKG}"
+          mkdir -p "${PKG_ROOT}/DEBIAN"
+          mkdir -p "${PKG_ROOT}/opt/filetools"
+          mkdir -p "${PKG_ROOT}/usr/share/applications"
+          mkdir -p "${PKG_ROOT}/usr/local/bin"
+
+          # Copy build output
+          cp -r "dist/${ARCHIVE_DIR}/"* "${PKG_ROOT}/opt/filetools/"
+
+          # Control file
+          cat > "${PKG_ROOT}/DEBIAN/control" << EOF
+          Package: ${DEB_NAME}
+          Version: ${DEB_VERSION}
+          Architecture: ${DEB_ARCH}
+          Maintainer: Darian <dry-u@users.noreply.github.com>
+          Description: FileTools (${{ matrix.build_mode }} edition) - Intelligent file search and RAG system
+           A hybrid file retrieval and RAG system with dual-engine search,
+           supporting text (BM25) and vector (HNSW) search.
+           Mode: ${{ matrix.build_mode }}
+          Section: utils
+          Priority: optional
+          EOF
+
+          # Post-install script
+          cat > "${PKG_ROOT}/DEBIAN/postinst" << 'EOF'
+          #!/bin/bash
+          chmod +x /opt/filetools/FileTools
+          ln -sf /opt/filetools/FileTools /usr/local/bin/filetools 2>/dev/null || true
+          EOF
+          chmod 755 "${PKG_ROOT}/DEBIAN/postinst"
+
+          # Pre-remove script
+          cat > "${PKG_ROOT}/DEBIAN/prerm" << 'EOF'
+          #!/bin/bash
+          rm -f /usr/local/bin/filetools 2>/dev/null || true
+          EOF
+          chmod 755 "${PKG_ROOT}/DEBIAN/prerm"
+
+          # Desktop entry
+          cat > "${PKG_ROOT}/usr/share/applications/filetools.desktop" << EOF
+          [Desktop Entry]
+          Name=FileTools
+          Comment=Intelligent file search and RAG system
+          Exec=/opt/filetools/FileTools
+          Icon=filetools
+          Terminal=false
+          Type=Application
+          Categories=Utility;FileTools;
+          EOF
+
+          # Build .deb
+          dpkg-deb --build --root-owner-group "${PKG_ROOT}"
+          mv "debbuild/${DEB_PKG}" "dist/${DEB_PKG}"
+
+          echo "Created: dist/${DEB_PKG}"
+
+      - name: Create tar.gz archive (Linux)
+        if: matrix.os == 'ubuntu-latest'
+        shell: bash
+        env:
+          FILETOOLS_VERSION: ${{ env.FILETOOLS_VERSION }}
+          FILETOOLS_BUILD_MODE: ${{ env.FILETOOLS_BUILD_MODE }}
+        run: |
+          ARCHIVE_DIR="FileTools-v${FILETOOLS_VERSION}-${{ matrix.build_mode }}"
+          PACKAGE_NAME="FileTools-${{ matrix.build_mode }}-v${FILETOOLS_VERSION}-linux-x64-portable.tar.gz"
+          cd dist
+          tar -czf "../${PACKAGE_NAME}" "${ARCHIVE_DIR}"
+          cd ..
+          echo "Created: ${PACKAGE_NAME}"
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
         with:
           name: file-tools-${{ matrix.build_mode }}-${{ matrix.os }}-v${{ env.FILETOOLS_VERSION }}
           path: |
-            *.zip
-            *.tar.gz
-          if-no-files-found: error
+            dist/*.zip
+            dist/*.exe
+            dist/*.tar.gz
+            dist/*.deb
+          if-no-files-found: warn
           retention-days: 30
 
   # ==================== 发布 ====================
@@ -325,18 +451,39 @@ jobs:
           body: |
             ## FileTools v${{ github.ref_name }}
 
-            ### 下载版本说明
+            ### 版本说明
 
-            - **CPU 版本**: 适合无 GPU 的环境，包含完整的 AI 功能
-            - **GPU 版本**: 适合有 NVIDIA GPU 的环境，性能更优
-            - **Slim 版本**: 最小化安装，适合只需要文件搜索功能的用户
+            | 版本 | 说明 | 适用场景 |
+            |------|------|----------|
+            | **Slim** | 最小化版本，仅文件搜索 | 轻量使用，无 AI 需求 |
+            | **CPU** | 完整 AI 功能，纯 CPU 推理 | 无 GPU 的普通电脑 |
+            | **GPU** | 完整 AI 功能，CUDA 加速 | 有 NVIDIA GPU 的环境 |
 
-            ### 安装说明
+            ### 下载文件说明
 
-            Windows: 解压后运行 `FileTools.exe`
-            Linux: 解压后运行 `./FileTools`
+            #### Windows (x64)
+            - `*-Setup.exe` — NSIS 安装程序（推荐）
+              - 自动安装到 `C:\Program Files\FileTools\`
+              - 创建桌面快捷方式和开始菜单
+              - 支持控制面板卸载
+            - `*-portable.zip` — 便携版压缩包
+              - 解压到任意目录，直接运行 `FileTools.exe`
 
-            更详细的安装说明请参考项目文档。
+            #### Linux (x64, Ubuntu/Debian)
+            - `*.deb` — Debian/Ubuntu 安装包（推荐）
+              - `sudo dpkg -i filetools-<mode>_<version>_amd64.deb`
+              - 安装到 `/opt/filetools/`，创建 `filetools` 命令行入口
+            - `*-portable.tar.gz` — 便携版压缩包
+              - `tar -xzf *.tar.gz && cd FileTools-* && ./FileTools`
+
+            > `_internal/` 文件夹包含 Python 运行时依赖，请勿删除。这是正常结构。
+
+            ### 快速开始
+
+            1. 下载对应平台和版本的安装包
+            2. Windows: 运行 Setup.exe 或解压 portable.zip
+            3. Linux: `sudo dpkg -i *.deb` 或解压 tar.gz
+            4. 启动后浏览器自动打开 `http://127.0.0.1:8000`
 
   # ==================== 版本号自动提交 ====================
   version-bump:
