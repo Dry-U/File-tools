@@ -198,7 +198,7 @@ def filter_binaries(binaries):
         if not any(pattern in name for pattern in excluded_patterns):
             filtered.append(binary)
         else:
-            print(f"[过滤] 排除二进制: {name}")
+            print(f"[filter] excluded binary: {name}")
 
     return filtered
 

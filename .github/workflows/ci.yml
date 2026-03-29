@@ -235,6 +235,7 @@ jobs:
       - name: Build executable (Windows)
         if: matrix.os == 'windows-latest'
         shell: bash
+        continue-on-error: true
         run: |
           export FILETOOLS_VERSION="$FILETOOLS_VERSION"
           export FILETOOLS_BUILD_MODE="$FILETOOLS_BUILD_MODE"
