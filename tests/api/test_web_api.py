@@ -560,7 +560,7 @@ class TestPathSecurity:
         from backend.api.dependencies import is_path_allowed
         config = Mock()
         result = is_path_allowed("//etc/passwd", config)
-        assert result == False
+        assert not result
 
     def test_is_path_allowed_null_byte(self):
         """测试空字节注入攻击"""

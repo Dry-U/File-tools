@@ -927,7 +927,6 @@ class IndexManager:
                     if hasattr(writer, 'delete_query'):
                         writer.delete_query(query)
                         writer.commit()
-                        deleted_from_tantivy = True
                     elif hasattr(writer, 'delete_documents'):
                         writer.delete_documents('path', file_path)
                         writer.commit()

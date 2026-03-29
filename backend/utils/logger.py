@@ -471,7 +471,6 @@ def performance_monitor(metric_name: str, description: str = ""):
         def wrapper(*args, **kwargs):
             logger = get_logger(func.__module__)
             start_time = time.time()
-            start_memory = 0  # 简化实现，实际应用中可使用psutil
             
             try:
                 result = func(*args, **kwargs)
