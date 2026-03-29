@@ -7,14 +7,16 @@ from unittest.mock import Mock, MagicMock
 from typing import List, Dict, Any
 
 # 添加项目根目录到Python路径（只需在顶层 conftest.py 中添加一次）
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 # CI 环境下 tantivy/hnswlib 的 Rust 编译库可能使用不可用的 CPU 指令集（如 AVX-512），
 # 导致 import 时发生 Illegal instruction 崩溃（Python 无法捕获）。
 # 在 CI 或显式设置 CI_MOCK_NATIVE 时，用 mock 替代原生模块。
-_CI_ENV = os.environ.get('CI', '') == 'true' or os.environ.get('CI_MOCK_NATIVE', '') == 'true'
+_CI_ENV = (
+    os.environ.get("CI", "") == "true" or os.environ.get("CI_MOCK_NATIVE", "") == "true"
+)
 if _CI_ENV:
-    for _mod_name in ['tantivy', 'tantivy.tantivy', 'hnswlib']:
+    for _mod_name in ["tantivy", "tantivy.tantivy", "hnswlib"]:
         if _mod_name not in sys.modules:
             sys.modules[_mod_name] = MagicMock()
 
@@ -25,6 +27,7 @@ from backend.utils.config_loader import ConfigLoader
 def event_loop():
     """创建事件循环用于异步测试"""
     import asyncio
+
     loop = asyncio.get_event_loop_policy().new_event_loop()
     yield loop
     loop.close()
@@ -34,6 +37,7 @@ def event_loop():
 def reset_config_loader():
     """自动重置ConfigLoader单例，确保每个测试使用独立配置"""
     from backend.utils.config_loader import ConfigLoader
+
     ConfigLoader.reset_instance()
     yield
     ConfigLoader.reset_instance()
@@ -48,40 +52,28 @@ def temp_config():
 
         # Setup basic config values
         config_data = {
-            'system': {
-                'data_dir': tmpdir
+            "system": {"data_dir": tmpdir},
+            "index": {
+                "tantivy_path": f"{tmpdir}/tantivy",
+                "hnsw_path": f"{tmpdir}/hnsw",
+                "metadata_path": f"{tmpdir}/metadata",
             },
-            'index': {
-                'tantivy_path': f'{tmpdir}/tantivy',
-                'hnsw_path': f'{tmpdir}/hnsw',
-                'metadata_path': f'{tmpdir}/metadata'
+            "search": {"text_weight": 0.5, "vector_weight": 0.5, "max_results": 10},
+            "embedding": {"enabled": False},
+            "ai_model": {
+                "enabled": False,
+                "interface_type": "api",
+                "api_url": "http://localhost:8080/v1/chat/completions",
+                "context_size": 4096,
+                "request_timeout": 30,
             },
-            'search': {
-                'text_weight': 0.5,
-                'vector_weight': 0.5,
-                'max_results': 10
+            "chat_history": {"db_path": f"{tmpdir}/chat_history.db"},
+            "file_scanner": {
+                "scan_paths": [tmpdir],
+                "batch_size": 100,
+                "max_file_size": 100 * 1024 * 1024,
             },
-            'embedding': {
-                'enabled': False
-            },
-            'ai_model': {
-                'enabled': False,
-                'interface_type': 'api',
-                'api_url': 'http://localhost:8080/v1/chat/completions',
-                'context_size': 4096,
-                'request_timeout': 30
-            },
-            'chat_history': {
-                'db_path': f'{tmpdir}/chat_history.db'
-            },
-            'file_scanner': {
-                'scan_paths': [tmpdir],
-                'batch_size': 100,
-                'max_file_size': 100 * 1024 * 1024
-            },
-            'monitor': {
-                'enabled': False
-            }
+            "monitor": {"enabled": False},
         }
 
         # Setup mock methods
@@ -91,9 +83,15 @@ def temp_config():
             return config_data.get(section, {}).get(key, default)
 
         config.get.side_effect = get_side_effect
-        config.getint.side_effect = lambda section, key, default=0: int(config_data.get(section, {}).get(key, default))
-        config.getfloat.side_effect = lambda section, key, default=0.0: float(config_data.get(section, {}).get(key, default))
-        config.getboolean.side_effect = lambda section, key, default=False: bool(config_data.get(section, {}).get(key, default))
+        config.getint.side_effect = lambda section, key, default=0: int(
+            config_data.get(section, {}).get(key, default)
+        )
+        config.getfloat.side_effect = lambda section, key, default=0.0: float(
+            config_data.get(section, {}).get(key, default)
+        )
+        config.getboolean.side_effect = lambda section, key, default=False: bool(
+            config_data.get(section, {}).get(key, default)
+        )
 
         yield config
 
@@ -101,13 +99,17 @@ def temp_config():
 @pytest.fixture
 def generate_test_data(tmp_path):
     """生成测试数据文件"""
+
     def _generate(count):
         data_dir = tmp_path / "test_data"
         data_dir.mkdir(exist_ok=True)
 
         for i in range(count):
             file_path = data_dir / f"doc_{i}.txt"
-            file_path.write_text(f"This is test document {i} with some content for searching.", encoding='utf-8')
+            file_path.write_text(
+                f"This is test document {i} with some content for searching.",
+                encoding="utf-8",
+            )
 
         return str(data_dir)
 
@@ -148,7 +150,7 @@ def sample_documents() -> List[Dict[str, Any]]:
             "content": "This is a test document about Python programming.",
             "file_type": "txt",
             "size": 1024,
-            "modified": 1700000000
+            "modified": 1700000000,
         },
         {
             "path": "/test/doc2.txt",
@@ -156,7 +158,7 @@ def sample_documents() -> List[Dict[str, Any]]:
             "content": "This document discusses machine learning concepts.",
             "file_type": "txt",
             "size": 2048,
-            "modified": 1700000100
+            "modified": 1700000100,
         },
         {
             "path": "/test/report.pdf",
@@ -164,8 +166,8 @@ def sample_documents() -> List[Dict[str, Any]]:
             "content": "Annual report for 2024 with financial data.",
             "file_type": "pdf",
             "size": 10240,
-            "modified": 1700000200
-        }
+            "modified": 1700000200,
+        },
     ]
 
 
@@ -179,7 +181,7 @@ def sample_search_results() -> List[Dict[str, Any]]:
             "content": "Python programming guide",
             "score": 0.95,
             "file_type": "txt",
-            "highlights": ["Python programming"]
+            "highlights": ["Python programming"],
         },
         {
             "path": "/test/doc2.txt",
@@ -187,8 +189,8 @@ def sample_search_results() -> List[Dict[str, Any]]:
             "content": "Machine learning basics",
             "score": 0.85,
             "file_type": "txt",
-            "highlights": ["Machine learning"]
-        }
+            "highlights": ["Machine learning"],
+        },
     ]
 
 
@@ -202,7 +204,7 @@ def mock_search_engine():
             "filename": "doc1.txt",
             "content": "Test content",
             "score": 0.9,
-            "file_type": "txt"
+            "file_type": "txt",
         }
     ]
     return mock

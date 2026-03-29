@@ -1,11 +1,12 @@
 """
 聊天功能UI测试 - Playwright
 """
+
 import pytest
 import sys
 import os
 
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')))
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
 
 
 @pytest.mark.e2e
@@ -18,7 +19,9 @@ class TestUIChat:
         page.wait_for_load_state("networkidle")
 
         # 查找并点击聊天模式切换按钮
-        chat_button = page.locator('button:has-text("聊天"), button:has-text("Chat"), [data-testid="chat-mode"], .chat-tab').first
+        chat_button = page.locator(
+            'button:has-text("聊天"), button:has-text("Chat"), [data-testid="chat-mode"], .chat-tab'
+        ).first
 
         if chat_button.is_visible():
             chat_button.click()
@@ -37,11 +40,15 @@ class TestUIChat:
         self.navigate_to_chat(page)
 
         # 查找聊天输入框
-        chat_input = page.locator('textarea, input[placeholder*="消息"], input[placeholder*="message"], input[placeholder*="提问"]').first
+        chat_input = page.locator(
+            'textarea, input[placeholder*="消息"], input[placeholder*="message"], input[placeholder*="提问"]'
+        ).first
 
         # 如果找不到textarea，尝试找任何文本输入
         if not chat_input.is_visible():
-            chat_input = page.locator('input[type="text"]').nth(1)  # 第二个输入框可能是聊天输入
+            chat_input = page.locator('input[type="text"]').nth(
+                1
+            )  # 第二个输入框可能是聊天输入
 
         assert chat_input.is_visible() or page.locator('input[type="text"]').count() > 0
 
@@ -50,7 +57,7 @@ class TestUIChat:
         self.navigate_to_chat(page)
 
         # 查找聊天输入框
-        chat_input = page.locator('textarea').first
+        chat_input = page.locator("textarea").first
         if not chat_input.is_visible():
             chat_input = page.locator('input[type="text"]').nth(1)
 
@@ -72,7 +79,7 @@ class TestUIChat:
         self.navigate_to_chat(page)
 
         # 查找聊天输入框
-        chat_input = page.locator('textarea').first
+        chat_input = page.locator("textarea").first
         if not chat_input.is_visible():
             chat_input = page.locator('input[type="text"]').nth(1)
 
@@ -91,12 +98,14 @@ class TestUIChat:
         self.navigate_to_chat(page)
 
         # 查找聊天历史容器
-        history_container = page.locator('.chat-history, .messages-container, [class*="chat"], [class*="message"]').first
+        history_container = page.locator(
+            '.chat-history, .messages-container, [class*="chat"], [class*="message"]'
+        ).first
 
         # 历史容器可能存在也可能不存在
         if history_container.is_visible():
             # 获取消息列表
-            page.locator('.message, .chat-message').all()
+            page.locator(".message, .chat-message").all()
             # 消息数量应该大于等于0
 
         assert page.url.startswith("http://127.0.0.1:8000")
@@ -106,7 +115,7 @@ class TestUIChat:
         self.navigate_to_chat(page)
 
         # 查找聊天输入框
-        chat_input = page.locator('textarea').first
+        chat_input = page.locator("textarea").first
         if not chat_input.is_visible():
             chat_input = page.locator('input[type="text"]').nth(1)
 
@@ -125,7 +134,7 @@ class TestUIChat:
         self.navigate_to_chat(page)
 
         # 查找聊天输入框
-        chat_input = page.locator('textarea').first
+        chat_input = page.locator("textarea").first
         if not chat_input.is_visible():
             chat_input = page.locator('input[type="text"]').nth(1)
 
@@ -143,7 +152,9 @@ class TestUIChat:
         self.navigate_to_chat(page)
 
         # 查找新建聊天按钮
-        new_chat_button = page.locator('button:has-text("新建"), button:has-text("New"), button:has-text("+"), .new-chat').first
+        new_chat_button = page.locator(
+            'button:has-text("新建"), button:has-text("New"), button:has-text("+"), .new-chat'
+        ).first
 
         if new_chat_button.is_visible():
             new_chat_button.click()
@@ -156,11 +167,13 @@ class TestUIChat:
         self.navigate_to_chat(page)
 
         # 查找会话列表
-        session_list = page.locator('.session-list, .chat-sessions, [class*="session"]').first
+        session_list = page.locator(
+            '.session-list, .chat-sessions, [class*="session"]'
+        ).first
 
         # 会话列表可能存在也可能不存在
         if session_list.is_visible():
-            page.locator('.session-item, .chat-session').all()
+            page.locator(".session-item, .chat-session").all()
             # 会话数量应该大于等于0
 
         assert page.url.startswith("http://127.0.0.1:8000")
@@ -170,14 +183,18 @@ class TestUIChat:
         self.navigate_to_chat(page)
 
         # 查找清空按钮
-        clear_button = page.locator('button:has-text("清空"), button:has-text("Clear"), .clear-chat').first
+        clear_button = page.locator(
+            'button:has-text("清空"), button:has-text("Clear"), .clear-chat'
+        ).first
 
         if clear_button.is_visible():
             clear_button.click()
             page.wait_for_timeout(500)
 
             # 可能需要确认
-            confirm_button = page.locator('button:has-text("确认"), button:has-text("Confirm"), button:has-text("Yes"), .confirm').first
+            confirm_button = page.locator(
+                'button:has-text("确认"), button:has-text("Confirm"), button:has-text("Yes"), .confirm'
+            ).first
             if confirm_button.is_visible():
                 confirm_button.click()
                 page.wait_for_timeout(500)
@@ -190,13 +207,17 @@ class TestUIChat:
         page.wait_for_load_state("networkidle")
 
         # 切换到聊天模式
-        chat_button = page.locator('button:has-text("聊天"), button:has-text("Chat"), .chat-tab').first
+        chat_button = page.locator(
+            'button:has-text("聊天"), button:has-text("Chat"), .chat-tab'
+        ).first
         if chat_button.is_visible():
             chat_button.click()
             page.wait_for_timeout(500)
 
         # 切换回搜索模式
-        search_button = page.locator('button:has-text("搜索"), button:has-text("Search"), .search-tab').first
+        search_button = page.locator(
+            'button:has-text("搜索"), button:has-text("Search"), .search-tab'
+        ).first
         if search_button.is_visible():
             search_button.click()
             page.wait_for_timeout(500)
@@ -208,11 +229,13 @@ class TestUIChat:
         self.navigate_to_chat(page)
 
         # 查找输入框和发送按钮
-        chat_input = page.locator('textarea').first
+        chat_input = page.locator("textarea").first
         if not chat_input.is_visible():
             chat_input = page.locator('input[type="text"]').nth(1)
 
-        send_button = page.locator('button:has-text("发送"), button:has-text("Send"), .send-button, [data-testid="send"]').first
+        send_button = page.locator(
+            'button:has-text("发送"), button:has-text("Send"), .send-button, [data-testid="send"]'
+        ).first
 
         if chat_input.is_visible() and send_button.is_visible():
             chat_input.fill("Test message")
@@ -238,7 +261,9 @@ class TestUIChat:
         self.navigate_to_chat(page)
 
         # 查找聊天容器
-        chat_container = page.locator('.chat-container, .messages-container, [class*="chat"]').first
+        chat_container = page.locator(
+            '.chat-container, .messages-container, [class*="chat"]'
+        ).first
 
         if chat_container.is_visible():
             # 尝试滚动

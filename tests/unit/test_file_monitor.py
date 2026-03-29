@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 """文件监控功能测试"""
+
 import pytest
 import sys
 from pathlib import Path
@@ -17,10 +18,10 @@ def mock_config():
     """创建模拟配置"""
     config = Mock()
     config.get.side_effect = lambda section, key, default=None: {
-        ('monitor', 'directories', ''): '',
-        ('monitor', 'enabled', True): True,
-        ('monitor', 'debounce_time', 0.5): 0.1,
-        ('monitor', 'ignored_patterns', '.git;.svn'): '.git;.svn;__pycache__',
+        ("monitor", "directories", ""): "",
+        ("monitor", "enabled", True): True,
+        ("monitor", "debounce_time", 0.5): 0.1,
+        ("monitor", "ignored_patterns", ".git;.svn"): ".git;.svn;__pycache__",
     }.get((section, key, default), default)
     config.getboolean.return_value = True
     config.getfloat.return_value = 0.1
@@ -34,12 +35,12 @@ class TestFileMonitorInitialization:
         """测试监控器初始化"""
         # 使用真实的配置字典
         config = {
-            'monitor': {
-                'directories': '',
-                'enabled': True,
-                'debounce_time': 0.1,
-                'ignored_patterns': '.git;.svn',
-                'refresh_interval': 1,
+            "monitor": {
+                "directories": "",
+                "enabled": True,
+                "debounce_time": 0.1,
+                "ignored_patterns": ".git;.svn",
+                "refresh_interval": 1,
             }
         }
         mock_index_manager = Mock()
@@ -55,7 +56,7 @@ class TestFileChangeHandler:
     def test_handler_creation(self):
         """测试处理器创建"""
         mock_monitor = Mock()
-        ignored_patterns = ['.git', '__pycache__']
+        ignored_patterns = [".git", "__pycache__"]
         handler = FileChangeHandler(mock_monitor, ignored_patterns)
 
         assert handler is not None
@@ -89,4 +90,4 @@ class TestFileChangeHandler:
 
 
 if __name__ == "__main__":
-    pytest.main([__file__, '-v'])
+    pytest.main([__file__, "-v"])

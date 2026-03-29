@@ -14,7 +14,12 @@ from backend.api.models import SearchRequest, SearchResult
 from backend.utils.config_loader import ConfigLoader
 from backend.utils.logger import get_logger
 from backend.utils.network import get_client_ip
-from backend.api.dependencies import get_search_engine, get_config_loader, get_rate_limiter, get_index_manager
+from backend.api.dependencies import (
+    get_search_engine,
+    get_config_loader,
+    get_rate_limiter,
+    get_index_manager,
+)
 from backend.core.constants import ALLOWED_MIME_TYPES, MAX_PREVIEW_LENGTH
 
 logger = get_logger(__name__)
@@ -23,14 +28,14 @@ router = APIRouter()
 
 def safe_read_file(path: str, max_length: int = MAX_PREVIEW_LENGTH) -> str:
     """使用 O_NOFOLLOW 标志安全读取文件，防止符号链接攻击
-    
+
     Args:
         path: 文件路径
         max_length: 最大读取长度
-        
+
     Returns:
         文件内容
-        
+
     Raises:
         OSError: 如果文件不存在或无权限
         PermissionError: 如果权限不足
@@ -39,10 +44,10 @@ def safe_read_file(path: str, max_length: int = MAX_PREVIEW_LENGTH) -> str:
     try:
         # Windows 不支持 O_NOFOLLOW，直接使用 O_RDONLY
         open_flags = os.O_RDONLY
-        if hasattr(os, 'O_NOFOLLOW') and sys.platform != 'win32':
+        if hasattr(os, "O_NOFOLLOW") and sys.platform != "win32":
             open_flags |= os.O_NOFOLLOW
         fd = os.open(path, open_flags)
-        with os.fdopen(fd, 'r', encoding='utf-8') as f:
+        with os.fdopen(fd, "r", encoding="utf-8") as f:
             content = f.read(max_length)
             # 如果文件内容超过最大长度，添加提示
             if f.read(1):  # 检查是否还有更多内容
@@ -60,7 +65,7 @@ async def search(
     request: SearchRequest,
     http_request: Request,
     search_engine=Depends(get_search_engine),
-    config_loader: ConfigLoader = Depends(get_config_loader)
+    config_loader: ConfigLoader = Depends(get_config_loader),
 ):
     """使用搜索引擎执行搜索
 
@@ -75,14 +80,14 @@ async def search(
     """
     # 限流检查
     limiter = get_rate_limiter()
-    if config_loader.getboolean('security', 'rate_limiter.enabled', True):
+    if config_loader.getboolean("security", "rate_limiter.enabled", True):
         # 获取客户端IP（使用安全方式）
         client_ip = get_client_ip(http_request, config_loader)
-        max_req = config_loader.getint(
-            'security', 'rate_limiter.search_limit', 20)
-        window = config_loader.getint(
-            'security', 'rate_limiter.search_window', 60)
-        if not limiter.is_allowed(f"search:{client_ip}", max_requests=max_req, window=window):
+        max_req = config_loader.getint("security", "rate_limiter.search_limit", 20)
+        window = config_loader.getint("security", "rate_limiter.search_window", 60)
+        if not limiter.is_allowed(
+            f"search:{client_ip}", max_requests=max_req, window=window
+        ):
             raise HTTPException(status_code=429, detail="搜索过于频繁，请稍后再试")
 
     try:
@@ -117,7 +122,7 @@ async def search(
                 for key, value in obj.items():
                     converted_value = convert_types(value)
                     # 确保分数不超过100
-                    if key == 'score':
+                    if key == "score":
                         try:
                             # 先检查是否是数字类型
                             if converted_value is None:
@@ -134,7 +139,7 @@ async def search(
                             converted_value = 0.0
                     result_dict[key] = converted_value
                 return result_dict
-            elif hasattr(obj, 'isoformat'):  # datetime对象
+            elif hasattr(obj, "isoformat"):  # datetime对象
                 return obj.isoformat()
             else:
                 return obj
@@ -143,12 +148,16 @@ async def search(
         for result in results:
             converted_result = convert_types(result)
             if isinstance(converted_result, dict):
-                formatted_results.append({
-                    "file_name": os.path.basename(str(converted_result.get("path", ""))),
-                    "path": str(converted_result.get("path", "")),
-                    "score": converted_result.get("score", 0.0),
-                    "snippet": converted_result.get("snippet", "")
-                })
+                formatted_results.append(
+                    {
+                        "file_name": os.path.basename(
+                            str(converted_result.get("path", ""))
+                        ),
+                        "path": str(converted_result.get("path", "")),
+                        "score": converted_result.get("score", 0.0),
+                        "snippet": converted_result.get("snippet", ""),
+                    }
+                )
 
         return formatted_results
     except HTTPException:
@@ -162,7 +171,7 @@ async def search(
 async def preview_file(
     request: Request,
     index_manager=Depends(get_index_manager),
-    config_loader: ConfigLoader = Depends(get_config_loader)
+    config_loader: ConfigLoader = Depends(get_config_loader),
 ):
     """预览文件内容，带有路径遍历保护"""
     from backend.api.dependencies import is_path_allowed
@@ -174,14 +183,21 @@ async def preview_file(
         if not path:
             raise HTTPException(
                 status_code=400,
-                detail={"error": {"code": "PATH_REQUIRED", "message": "未提供文件路径"}}
+                detail={
+                    "error": {"code": "PATH_REQUIRED", "message": "未提供文件路径"}
+                },
             )
 
         # 验证路径是否在允许的目录内
         if not is_path_allowed(path, config_loader):
             raise HTTPException(
                 status_code=403,
-                detail={"error": {"code": "PATH_NOT_ALLOWED", "message": "文件路径超出允许范围"}}
+                detail={
+                    "error": {
+                        "code": "PATH_NOT_ALLOWED",
+                        "message": "文件路径超出允许范围",
+                    }
+                },
             )
 
         # 路径已经由 is_path_allowed 验证和标准化
@@ -195,7 +211,7 @@ async def preview_file(
         if normalized_path.is_dir():
             raise HTTPException(
                 status_code=400,
-                detail={"error": {"code": "IS_DIRECTORY", "message": "无法预览目录"}}
+                detail={"error": {"code": "IS_DIRECTORY", "message": "无法预览目录"}},
             )
 
         # 检查文件是否存在
@@ -203,34 +219,48 @@ async def preview_file(
             logger.warning("预览文件不存在")
             raise HTTPException(
                 status_code=404,
-                detail={"error": {"code": "FILE_NOT_FOUND", "message": "文件不存在"}}
+                detail={"error": {"code": "FILE_NOT_FOUND", "message": "文件不存在"}},
             )
 
         # 检查文件大小以防止加载过大文件
         max_preview_size = config_loader.getint(
-            'interface', 'max_preview_size', 5242880)  # 默认5MB
+            "interface", "max_preview_size", 5242880
+        )  # 默认5MB
         try:
             file_size = normalized_path.stat().st_size
             if file_size > max_preview_size:
                 raise HTTPException(
                     status_code=413,
-                    detail={"error": {"code": "FILE_TOO_LARGE", "message": f"文件过大（超过{max_preview_size/1024/1024:.0f}MB），无法预览"}}
+                    detail={
+                        "error": {
+                            "code": "FILE_TOO_LARGE",
+                            "message": f"文件过大（超过{max_preview_size/1024/1024:.0f}MB），无法预览",
+                        }
+                    },
                 )
         except (OSError, IOError) as e:
             logger.error(f"无法读取文件信息: {e}")
             raise HTTPException(
                 status_code=500,
-                detail={"error": {"code": "FILE_INFO_ERROR", "message": "无法读取文件信息"}}
+                detail={
+                    "error": {"code": "FILE_INFO_ERROR", "message": "无法读取文件信息"}
+                },
             )
 
         # MIME 类型检查
         import mimetypes
+
         mime_type, _ = mimetypes.guess_type(str(normalized_path))
         if mime_type and mime_type not in ALLOWED_MIME_TYPES:
             logger.warning(f"不支持的 MIME 类型: {mime_type}")
             raise HTTPException(
                 status_code=415,
-                detail={"error": {"code": "UNSUPPORTED_TYPE", "message": f"不支持的文件类型 ({mime_type})"}}
+                detail={
+                    "error": {
+                        "code": "UNSUPPORTED_TYPE",
+                        "message": f"不支持的文件类型 ({mime_type})",
+                    }
+                },
             )
 
         # 首先尝试从索引管理器获取内容（支持PDF/DOCX等）
@@ -248,27 +278,42 @@ async def preview_file(
         except UnicodeDecodeError:
             raise HTTPException(
                 status_code=415,
-                detail={"error": {"code": "ENCODING_ERROR", "message": "文件编码不支持或不是文本文件"}}
+                detail={
+                    "error": {
+                        "code": "ENCODING_ERROR",
+                        "message": "文件编码不支持或不是文本文件",
+                    }
+                },
             )
         except PermissionError as e:
             if "符号链接" in str(e):
                 logger.warning(f"拒绝符号链接访问: {normalized_path.name}")
                 raise HTTPException(
                     status_code=403,
-                    detail={"error": {"code": "SYMLINK_DENIED", "message": "不允许访问符号链接"}}
+                    detail={
+                        "error": {
+                            "code": "SYMLINK_DENIED",
+                            "message": "不允许访问符号链接",
+                        }
+                    },
                 )
             else:
                 logger.warning(f"无权限读取文件: {normalized_path.name}")
                 raise HTTPException(
                     status_code=403,
-                    detail={"error": {"code": "PERMISSION_DENIED", "message": "无权限读取文件"}}
+                    detail={
+                        "error": {
+                            "code": "PERMISSION_DENIED",
+                            "message": "无权限读取文件",
+                        }
+                    },
                 )
         except Exception as e:
             # 安全日志：不泄露文件路径
             logger.error(f"读取文件失败: {e}")
             raise HTTPException(
                 status_code=500,
-                detail={"error": {"code": "READ_ERROR", "message": "读取文件失败"}}
+                detail={"error": {"code": "READ_ERROR", "message": "读取文件失败"}},
             )
 
     except HTTPException:
@@ -277,5 +322,5 @@ async def preview_file(
         logger.error(f"预览文件时出错: {e}")
         raise HTTPException(
             status_code=500,
-            detail={"error": {"code": "PREVIEW_ERROR", "message": "预览处理失败"}}
+            detail={"error": {"code": "PREVIEW_ERROR", "message": "预览处理失败"}},
         ) from e

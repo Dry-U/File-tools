@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 """测试分片缓存模块"""
+
 import time
 import threading
 from backend.core.sharded_cache import Shard, ShardedCache, LRUCache
@@ -59,8 +60,8 @@ class TestShard:
         shard.put("key2", "value2")
 
         stats = shard.get_stats()
-        assert stats['size'] == 2
-        assert stats['max_size'] == 10
+        assert stats["size"] == 2
+        assert stats["max_size"] == 10
 
 
 class TestShardedCache:
@@ -90,12 +91,12 @@ class TestShardedCache:
         cache.get("nonexistent")
 
         stats = cache.get_stats()
-        assert stats['total_size'] == 2
-        assert stats['max_size'] == 100
-        assert stats['num_shards'] == 4
-        assert stats['hits'] == 1
-        assert stats['misses'] == 1
-        assert stats['hit_rate'] == 0.5
+        assert stats["total_size"] == 2
+        assert stats["max_size"] == 100
+        assert stats["num_shards"] == 4
+        assert stats["hits"] == 1
+        assert stats["misses"] == 1
+        assert stats["hit_rate"] == 0.5
 
     def test_sharded_cache_clear(self):
         """测试清空缓存"""
@@ -110,7 +111,7 @@ class TestShardedCache:
         assert cache.get("key2") is None
 
         stats = cache.get_stats()
-        assert stats['total_size'] == 0
+        assert stats["total_size"] == 0
         # 注意：clear 不清除统计信息
 
     def test_sharded_cache_concurrent_access(self):
@@ -165,7 +166,7 @@ class TestLRUCache:
         cache.get("key2")  # 未命中
 
         stats = cache.get_stats()
-        assert stats['size'] == 1
-        assert stats['hits'] == 1
-        assert stats['misses'] == 1
-        assert stats['hit_rate'] == 0.5
+        assert stats["size"] == 1
+        assert stats["hits"] == 1
+        assert stats["misses"] == 1
+        assert stats["hit_rate"] == 0.5

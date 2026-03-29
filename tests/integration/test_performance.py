@@ -9,6 +9,7 @@ from backend.core.search_engine import SearchEngine
 
 TEST_QUERIES = ["测试内容", "关键条款", "文档总结"]
 
+
 class PerformanceBenchmark:
     def __init__(self, config):
         self.config = config
@@ -22,18 +23,18 @@ class PerformanceBenchmark:
 
         # 索引时间
         start = time.monotonic()
-        for file in Path(test_dir).glob('*.txt'):
+        for file in Path(test_dir).glob("*.txt"):
             # For IndexManager, we use add_document method instead
             doc_content = file.read_text()
             document = {
-                'path': str(file),
-                'filename': file.name,
-                'content': doc_content,
-                'file_type': 'text',
-                'size': file.stat().st_size,
-                'created': None,
-                'modified': None,
-                'keywords': ''
+                "path": str(file),
+                "filename": file.name,
+                "content": doc_content,
+                "file_type": "text",
+                "size": file.stat().st_size,
+                "created": None,
+                "modified": None,
+                "keywords": "",
             }
             self.indexer.add_document(document)
         index_time = time.monotonic() - start
@@ -49,12 +50,13 @@ class PerformanceBenchmark:
         mem_usage = process.memory_info().rss / 1024**2  # MB
 
         self.results[f"scale_{scale}"] = {
-            'index_time': index_time,
-            'avg_query_time': np.mean(query_times),
-            'p99_query_time': np.percentile(query_times, 99),
-            'max_memory': mem_usage
+            "index_time": index_time,
+            "avg_query_time": np.mean(query_times),
+            "p99_query_time": np.percentile(query_times, 99),
+            "max_memory": mem_usage,
         }
         return self.results
+
 
 @pytest.mark.performance
 def test_performance_scalability(generate_test_data, temp_config):
@@ -64,6 +66,6 @@ def test_performance_scalability(generate_test_data, temp_config):
         results = benchmark.test_scalability(scale, test_dir)
 
         # 断言性能约束（基于文档5.2）- 调整阈值以适应测试环境
-        assert results[f"scale_{scale}"]['avg_query_time'] < 1.0  # ≤1秒（调整）
-        assert results[f"scale_{scale}"]['index_time'] < 300  # 增加到5分钟（调整）
-        assert results[f"scale_{scale}"]['max_memory'] < 6000  # <6GB
+        assert results[f"scale_{scale}"]["avg_query_time"] < 1.0  # ≤1秒（调整）
+        assert results[f"scale_{scale}"]["index_time"] < 300  # 增加到5分钟（调整）
+        assert results[f"scale_{scale}"]["max_memory"] < 6000  # <6GB

@@ -13,18 +13,18 @@ from backend.api.dependencies import (
     get_file_scanner,
     get_rag_pipeline,
     get_file_monitor,
-    is_path_allowed
+    is_path_allowed,
 )
 
 __all__ = [
-    'app',
-    'get_rate_limiter',
-    'RateLimiter',
-    'get_config_loader',
-    'get_index_manager',
-    'get_search_engine',
-    'get_file_scanner',
-    'get_rag_pipeline',
-    'get_file_monitor',
-    'is_path_allowed'
+    "app",
+    "get_rate_limiter",
+    "RateLimiter",
+    "get_config_loader",
+    "get_index_manager",
+    "get_search_engine",
+    "get_file_scanner",
+    "get_rag_pipeline",
+    "get_file_monitor",
+    "is_path_allowed",
 ]

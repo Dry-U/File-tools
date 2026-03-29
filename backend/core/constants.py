@@ -26,19 +26,23 @@ DEFAULT_RERANK_RECENCY_WEIGHT = 0.10
 DEFAULT_RERANK_LENGTH_WEIGHT = 0.05
 
 # 确保权重总和为1.0的验证
-assert abs(
-    DEFAULT_RERANK_BASE_WEIGHT +
-    DEFAULT_RERANK_FILENAME_WEIGHT +
-    DEFAULT_RERANK_KEYWORD_WEIGHT +
-    DEFAULT_RERANK_RECENCY_WEIGHT +
-    DEFAULT_RERANK_LENGTH_WEIGHT - 1.0
-) < 1e-6, "重排权重总和必须等于1.0"
+assert (
+    abs(
+        DEFAULT_RERANK_BASE_WEIGHT
+        + DEFAULT_RERANK_FILENAME_WEIGHT
+        + DEFAULT_RERANK_KEYWORD_WEIGHT
+        + DEFAULT_RERANK_RECENCY_WEIGHT
+        + DEFAULT_RERANK_LENGTH_WEIGHT
+        - 1.0
+    )
+    < 1e-6
+), "重排权重总和必须等于1.0"
 
 # ============================================================================
 # 文件名变体关键词
 # ============================================================================
 
-FILENAME_VARIANT_KEYWORDS = ['说明', '文档', '指南', '手册', '介绍', '简介']
+FILENAME_VARIANT_KEYWORDS = ["说明", "文档", "指南", "手册", "介绍", "简介"]
 
 # ============================================================================
 # 评分阈值常量
@@ -84,21 +88,23 @@ MAX_PREVIEW_LENGTH = 500000  # 字符 - 预览完整文档内容
 # MIME 类型白名单 (用于文件预览安全)
 # ============================================================================
 
-ALLOWED_MIME_TYPES = frozenset([
-    'text/plain',
-    'text/markdown',
-    'text/csv',
-    'text/xml',
-    'application/json',
-    'application/xml',
-    'application/pdf',
-    'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-    'application/msword',
-    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-    'application/vnd.ms-excel',
-    'application/vnd.openxmlformats-officedocument.presentationml.presentation',
-    'application/vnd.ms-powerpoint',
-])
+ALLOWED_MIME_TYPES = frozenset(
+    [
+        "text/plain",
+        "text/markdown",
+        "text/csv",
+        "text/xml",
+        "application/json",
+        "application/xml",
+        "application/pdf",
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "application/msword",
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "application/vnd.ms-excel",
+        "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+        "application/vnd.ms-powerpoint",
+    ]
+)
 
 # ============================================================================
 # 日志相关常量

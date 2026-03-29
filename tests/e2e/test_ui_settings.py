@@ -1,11 +1,12 @@
 """
 设置面板UI测试 - Playwright
 """
+
 import pytest
 import sys
 import os
 
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')))
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
 
 
 @pytest.mark.e2e
@@ -18,7 +19,9 @@ class TestUISettings:
         page.wait_for_load_state("networkidle")
 
         # 查找设置按钮
-        settings_button = page.locator('button:has-text("设置"), button:has-text("Settings"), .settings-button, [data-testid="settings"], .settings-icon').first
+        settings_button = page.locator(
+            'button:has-text("设置"), button:has-text("Settings"), .settings-button, [data-testid="settings"], .settings-icon'
+        ).first
 
         if settings_button.is_visible():
             settings_button.click()
@@ -29,17 +32,23 @@ class TestUISettings:
         self.open_settings(page)
 
         # 查找设置面板
-        settings_panel = page.locator('.settings-panel, .settings-modal, [class*="settings"], [data-testid="settings-panel"]').first
+        settings_panel = page.locator(
+            '.settings-panel, .settings-modal, [class*="settings"], [data-testid="settings-panel"]'
+        ).first
 
         # 设置面板应该可见或页面应该正常
-        assert settings_panel.is_visible() or page.url.startswith("http://127.0.0.1:8000")
+        assert settings_panel.is_visible() or page.url.startswith(
+            "http://127.0.0.1:8000"
+        )
 
     def test_settings_panel_close(self, page):
         """测试设置面板关闭"""
         self.open_settings(page)
 
         # 查找关闭按钮
-        close_button = page.locator('button:has-text("关闭"), button:has-text("Close"), button:has-text("×"), .close-button, [data-testid="close"]').first
+        close_button = page.locator(
+            'button:has-text("关闭"), button:has-text("Close"), button:has-text("×"), .close-button, [data-testid="close"]'
+        ).first
 
         if close_button.is_visible():
             close_button.click()
@@ -52,10 +61,14 @@ class TestUISettings:
         self.open_settings(page)
 
         # 查找AI模型设置区域
-        page.locator('.ai-settings, [class*="ai-model"], [data-testid="ai-settings"]').first
+        page.locator(
+            '.ai-settings, [class*="ai-model"], [data-testid="ai-settings"]'
+        ).first
 
         # 查找启用AI复选框
-        enable_checkbox = page.locator('input[type="checkbox"][name*="enable"], input[type="checkbox"][id*="ai"]').first
+        enable_checkbox = page.locator(
+            'input[type="checkbox"][name*="enable"], input[type="checkbox"][id*="ai"]'
+        ).first
 
         if enable_checkbox.is_visible():
             # 切换启用状态
@@ -69,7 +82,9 @@ class TestUISettings:
         self.open_settings(page)
 
         # 查找API URL输入框
-        api_url_input = page.locator('input[name*="api_url"], input[name*="api-url"], input[placeholder*="URL"]').first
+        api_url_input = page.locator(
+            'input[name*="api_url"], input[name*="api-url"], input[placeholder*="URL"]'
+        ).first
 
         if api_url_input.is_visible():
             # 输入测试URL
@@ -85,7 +100,9 @@ class TestUISettings:
         self.open_settings(page)
 
         # 查找API密钥输入框
-        api_key_input = page.locator('input[type="password"], input[name*="api_key"], input[name*="api-key"]').first
+        api_key_input = page.locator(
+            'input[type="password"], input[name*="api_key"], input[name*="api-key"]'
+        ).first
 
         if api_key_input.is_visible():
             # 输入测试密钥
@@ -100,7 +117,9 @@ class TestUISettings:
         self.open_settings(page)
 
         # 查找temperature滑块
-        temp_slider = page.locator('input[type="range"][name*="temperature"], input[type="range"][name*="temp"]').first
+        temp_slider = page.locator(
+            'input[type="range"][name*="temperature"], input[type="range"][name*="temp"]'
+        ).first
 
         if temp_slider.is_visible():
             # 设置值
@@ -115,7 +134,9 @@ class TestUISettings:
         self.open_settings(page)
 
         # 查找max tokens输入框
-        max_tokens_input = page.locator('input[name*="max_tokens"], input[name*="max-tokens"], input[type="number"]').first
+        max_tokens_input = page.locator(
+            'input[name*="max_tokens"], input[name*="max-tokens"], input[type="number"]'
+        ).first
 
         if max_tokens_input.is_visible():
             # 输入值
@@ -130,7 +151,9 @@ class TestUISettings:
         self.open_settings(page)
 
         # 查找保存按钮
-        save_button = page.locator('button:has-text("保存"), button:has-text("Save"), .save-button, [data-testid="save"]').first
+        save_button = page.locator(
+            'button:has-text("保存"), button:has-text("Save"), .save-button, [data-testid="save"]'
+        ).first
 
         if save_button.is_visible():
             save_button.click()
@@ -143,14 +166,18 @@ class TestUISettings:
         self.open_settings(page)
 
         # 查找重置按钮
-        reset_button = page.locator('button:has-text("重置"), button:has-text("Reset"), .reset-button').first
+        reset_button = page.locator(
+            'button:has-text("重置"), button:has-text("Reset"), .reset-button'
+        ).first
 
         if reset_button.is_visible():
             reset_button.click()
             page.wait_for_timeout(500)
 
             # 可能需要确认
-            confirm_button = page.locator('button:has-text("确认"), button:has-text("Confirm"), .confirm').first
+            confirm_button = page.locator(
+                'button:has-text("确认"), button:has-text("Confirm"), .confirm'
+            ).first
             if confirm_button.is_visible():
                 confirm_button.click()
                 page.wait_for_timeout(500)
@@ -162,7 +189,9 @@ class TestUISettings:
         self.open_settings(page)
 
         # 查找提供商下拉菜单
-        provider_select = page.locator('select[name*="provider"], select[name*="model"]').first
+        provider_select = page.locator(
+            'select[name*="provider"], select[name*="model"]'
+        ).first
 
         if provider_select.is_visible():
             # 选择一个选项
@@ -177,7 +206,9 @@ class TestUISettings:
         self.open_settings(page)
 
         # 查找系统提示词文本框
-        system_prompt = page.locator('textarea[name*="system_prompt"], textarea[name*="system-prompt"], textarea[placeholder*="system"]').first
+        system_prompt = page.locator(
+            'textarea[name*="system_prompt"], textarea[name*="system-prompt"], textarea[placeholder*="system"]'
+        ).first
 
         if system_prompt.is_visible():
             # 输入测试提示词
@@ -212,7 +243,9 @@ class TestUISettings:
         page.locator('.directory-list, [class*="directory"]').first
 
         # 查找添加目录按钮
-        add_dir_button = page.locator('button:has-text("添加目录"), button:has-text("Add Directory"), .add-directory').first
+        add_dir_button = page.locator(
+            'button:has-text("添加目录"), button:has-text("Add Directory"), .add-directory'
+        ).first
 
         if add_dir_button.is_visible():
             add_dir_button.click()
@@ -225,7 +258,9 @@ class TestUISettings:
         self.open_settings(page)
 
         # 查找测试连接按钮
-        test_button = page.locator('button:has-text("测试"), button:has-text("Test"), button:has-text("连接"), .test-connection').first
+        test_button = page.locator(
+            'button:has-text("测试"), button:has-text("Test"), button:has-text("连接"), .test-connection'
+        ).first
 
         if test_button.is_visible():
             test_button.click()
@@ -238,7 +273,9 @@ class TestUISettings:
         self.open_settings(page)
 
         # 修改一个设置
-        api_url_input = page.locator('input[name*="api_url"], input[name*="api-url"]').first
+        api_url_input = page.locator(
+            'input[name*="api_url"], input[name*="api-url"]'
+        ).first
 
         if api_url_input.is_visible():
             test_url = "http://example.com/api"
@@ -246,7 +283,9 @@ class TestUISettings:
             page.wait_for_timeout(300)
 
             # 保存设置
-            save_button = page.locator('button:has-text("保存"), button:has-text("Save"), .save-button').first
+            save_button = page.locator(
+                'button:has-text("保存"), button:has-text("Save"), .save-button'
+            ).first
             if save_button.is_visible():
                 save_button.click()
                 page.wait_for_timeout(1000)
@@ -258,7 +297,9 @@ class TestUISettings:
         self.open_settings(page)
 
         # 查找高级设置切换
-        advanced_toggle = page.locator('button:has-text("高级"), button:has-text("Advanced"), .advanced-toggle, [data-testid="advanced"]').first
+        advanced_toggle = page.locator(
+            'button:has-text("高级"), button:has-text("Advanced"), .advanced-toggle, [data-testid="advanced"]'
+        ).first
 
         if advanced_toggle.is_visible():
             advanced_toggle.click()

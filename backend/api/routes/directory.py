@@ -9,12 +9,18 @@ from pathlib import Path
 from fastapi import APIRouter, HTTPException, Depends
 
 from backend.api.models import (
-    DirectoryPath, DirectoryResponse, BrowseResponse, DirectoriesListResponse, DirectoryInfo
+    DirectoryPath,
+    DirectoryResponse,
+    BrowseResponse,
+    DirectoriesListResponse,
+    DirectoryInfo,
 )
 from backend.utils.config_loader import ConfigLoader
 from backend.utils.logger import get_logger
 from backend.api.dependencies import (
-    get_config_loader, get_file_monitor, get_file_scanner
+    get_config_loader,
+    get_file_monitor,
+    get_file_scanner,
 )
 
 logger = get_logger(__name__)
@@ -32,7 +38,7 @@ def _normalize_path_list(paths: list) -> list:
         规范化后的绝对路径列表
     """
     if isinstance(paths, str):
-        paths = [p.strip() for p in paths.split(';') if p.strip()]
+        paths = [p.strip() for p in paths.split(";") if p.strip()]
     return [os.path.abspath(str(p)) for p in paths]
 
 
@@ -59,12 +65,12 @@ def _validate_directory_path(path: str) -> tuple[bool, str]:
         return False, f"无效的路径格式: {path}"
 
     # Windows 特殊检查
-    if sys.platform == 'win32':
+    if sys.platform == "win32":
         # 禁止UNC路径（网络共享）除非明确允许
-        if normalized.startswith('\\\\'):
+        if normalized.startswith("\\\\"):
             return False, "不支持网络共享路径"
         # 检查驱动器格式
-        if len(normalized) >= 2 and normalized[1] == ':':
+        if len(normalized) >= 2 and normalized[1] == ":":
             drive = normalized[0].upper()
             if not drive.isalpha():
                 return False, f"无效的驱动器号: {drive}"
@@ -80,7 +86,7 @@ def _estimate_file_count(path: str, max_count: int = 9999) -> int:
             return 0
 
         count = 0
-        for item in path_obj.rglob('*'):
+        for item in path_obj.rglob("*"):
             if item.is_file():
                 count += 1
                 if count >= max_count:
@@ -93,15 +99,17 @@ def _estimate_file_count(path: str, max_count: int = 9999) -> int:
 @router.get("/directories")
 async def get_directories(
     config_loader: ConfigLoader = Depends(get_config_loader),
-    file_monitor=Depends(get_file_monitor)
+    file_monitor=Depends(get_file_monitor),
 ) -> DirectoriesListResponse:
     """获取当前管理的目录列表"""
     try:
         # 获取扫描路径和监控目录
         scan_paths = _normalize_path_list(
-            config_loader.get('file_scanner', 'scan_paths', []))
+            config_loader.get("file_scanner", "scan_paths", [])
+        )
         monitored_dirs = _normalize_path_list(
-            file_monitor.get_monitored_directories() if file_monitor else [])
+            file_monitor.get_monitored_directories() if file_monitor else []
+        )
 
         # 合并所有目录（去重）
         all_paths = set(scan_paths + monitored_dirs)
@@ -114,20 +122,24 @@ async def get_directories(
             is_monitoring = path in monitored_dirs
             file_count = _estimate_file_count(path) if exists else 0
 
-            directories.append(DirectoryInfo(
-                path=path,
-                exists=exists,
-                is_scanning=is_scanning,
-                is_monitoring=is_monitoring,
-                file_count=file_count
-            ))
+            directories.append(
+                DirectoryInfo(
+                    path=path,
+                    exists=exists,
+                    is_scanning=is_scanning,
+                    is_monitoring=is_monitoring,
+                    file_count=file_count,
+                )
+            )
 
         return DirectoriesListResponse(directories=directories)
     except HTTPException:
         raise
     except Exception as e:
         logger.error(f"获取目录列表错误: {str(e)}")
-        raise HTTPException(status_code=500, detail="获取目录列表失败，请稍后重试") from e
+        raise HTTPException(
+            status_code=500, detail="获取目录列表失败，请稍后重试"
+        ) from e
 
 
 @router.post("/directories")
@@ -135,7 +147,7 @@ async def add_directory(
     request: DirectoryPath,
     config_loader: ConfigLoader = Depends(get_config_loader),
     file_monitor=Depends(get_file_monitor),
-    file_scanner=Depends(get_file_scanner)
+    file_scanner=Depends(get_file_scanner),
 ) -> DirectoryResponse:
     """添加新目录（同时添加为扫描路径和监控目录）"""
     try:
@@ -149,22 +161,23 @@ async def add_directory(
 
         # 验证路径存在性和类型
         if not os.path.exists(expanded_path):
-            raise HTTPException(
-                status_code=400, detail=f"路径不存在: {expanded_path}")
+            raise HTTPException(status_code=400, detail=f"路径不存在: {expanded_path}")
         if not os.path.isdir(expanded_path):
             raise HTTPException(
-                status_code=400, detail=f"路径不是目录: {expanded_path}")
+                status_code=400, detail=f"路径不是目录: {expanded_path}"
+            )
 
         # 检查是否已存在
         scan_paths = _normalize_path_list(
-            config_loader.get('file_scanner', 'scan_paths', []))
+            config_loader.get("file_scanner", "scan_paths", [])
+        )
         existing_paths = scan_paths
         if expanded_path in existing_paths:
             return DirectoryResponse(
                 status="success",
                 message="目录已在列表中",
                 path=expanded_path,
-                needs_rebuild=False
+                needs_rebuild=False,
             )
 
         # 添加到扫描路径
@@ -172,7 +185,7 @@ async def add_directory(
 
         # 更新 file_scanner 的扫描路径
         if file_scanner:
-            if hasattr(file_scanner, 'scan_paths'):
+            if hasattr(file_scanner, "scan_paths"):
                 if expanded_path not in file_scanner.scan_paths:
                     file_scanner.scan_paths.append(expanded_path)
 
@@ -182,11 +195,12 @@ async def add_directory(
 
         # 更新配置中的监控目录
         monitor_dirs = _normalize_path_list(
-            config_loader.get('monitor', 'directories', []))
+            config_loader.get("monitor", "directories", [])
+        )
 
         if expanded_path not in monitor_dirs:
             monitor_dirs.append(expanded_path)
-            config_loader.set('monitor', 'directories', monitor_dirs)
+            config_loader.set("monitor", "directories", monitor_dirs)
 
         # 保存配置
         config_loader.save()
@@ -195,7 +209,7 @@ async def add_directory(
             status="success",
             message="目录已添加",
             path=expanded_path,
-            needs_rebuild=True
+            needs_rebuild=True,
         )
     except HTTPException:
         raise
@@ -208,7 +222,7 @@ async def add_directory(
 async def remove_directory(
     request: DirectoryPath,
     config_loader: ConfigLoader = Depends(get_config_loader),
-    file_monitor=Depends(get_file_monitor)
+    file_monitor=Depends(get_file_monitor),
 ) -> DirectoryResponse:
     """删除目录（同时从扫描路径和监控目录中移除）"""
     try:
@@ -229,9 +243,10 @@ async def remove_directory(
 
         # 更新配置中的监控目录
         monitor_dirs = _normalize_path_list(
-            config_loader.get('monitor', 'directories', []))
+            config_loader.get("monitor", "directories", [])
+        )
         monitor_dirs = [d for d in monitor_dirs if d != expanded_path]
-        config_loader.set('monitor', 'directories', monitor_dirs)
+        config_loader.set("monitor", "directories", monitor_dirs)
 
         # 保存配置
         config_loader.save()
@@ -240,7 +255,7 @@ async def remove_directory(
             status="success",
             message="目录已删除",
             path=expanded_path,
-            needs_rebuild=False
+            needs_rebuild=False,
         )
     except HTTPException:
         raise
@@ -262,7 +277,7 @@ def _show_directory_dialog() -> str | None:
     # 创建隐藏的Tk窗口
     root = tk.Tk()
     root.withdraw()
-    root.attributes('-topmost', True)
+    root.attributes("-topmost", True)
 
     try:
         # 打开目录选择对话框
@@ -283,15 +298,12 @@ async def browse_directory() -> BrowseResponse:
 
         if selected_path:
             return BrowseResponse(
-                status="success",
-                path=os.path.abspath(selected_path),
-                canceled=False
+                status="success", path=os.path.abspath(selected_path), canceled=False
             )
         else:
-            return BrowseResponse(
-                status="success",
-                canceled=True
-            )
+            return BrowseResponse(status="success", canceled=True)
     except Exception as e:
         logger.error(f"打开目录选择对话框错误: {str(e)}")
-        raise HTTPException(status_code=500, detail="打开目录选择对话框失败，请稍后重试") from e
+        raise HTTPException(
+            status_code=500, detail="打开目录选择对话框失败，请稍后重试"
+        ) from e

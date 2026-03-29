@@ -21,7 +21,7 @@ class FileToolsError(Exception):
         message: str,
         error_code: Optional[str] = None,
         details: Optional[Dict[str, Any]] = None,
-        cause: Optional[Exception] = None
+        cause: Optional[Exception] = None,
     ):
         super().__init__(message)
         self.message = message
@@ -48,6 +48,7 @@ class FileToolsError(Exception):
 # 安全相关异常
 # ============================================================================
 
+
 class SecurityError(FileToolsError):
     """安全相关异常基类"""
 
@@ -63,7 +64,7 @@ class PathTraversalError(SecurityError):
             f"检测到路径遍历尝试: {path}",
             error_code="PATH_TRAVERSAL",
             details={"path": path},
-            **kwargs
+            **kwargs,
         )
 
 
@@ -82,13 +83,14 @@ class RateLimitExceeded(SecurityError):
             f"请求过于频繁，限制: {limit}/{window}秒",
             error_code="RATE_LIMIT_EXCEEDED",
             details={"limit": limit, "window": window},
-            **kwargs
+            **kwargs,
         )
 
 
 # ============================================================================
 # 配置相关异常
 # ============================================================================
+
 
 class ConfigError(FileToolsError):
     """配置相关异常基类"""
@@ -105,19 +107,21 @@ class ConfigNotFoundError(ConfigError):
             f"配置文件未找到: {path}",
             error_code="CONFIG_NOT_FOUND",
             details={"path": path},
-            **kwargs
+            **kwargs,
         )
 
 
 class ConfigValidationError(ConfigError):
     """配置验证失败"""
 
-    def __init__(self, message: str, validation_errors: Optional[list] = None, **kwargs):
+    def __init__(
+        self, message: str, validation_errors: Optional[list] = None, **kwargs
+    ):
         super().__init__(
             message,
             error_code="CONFIG_VALIDATION_FAILED",
             details={"validation_errors": validation_errors or []},
-            **kwargs
+            **kwargs,
         )
 
 
@@ -131,6 +135,7 @@ class ConfigEncryptionError(ConfigError):
 # ============================================================================
 # 索引相关异常
 # ============================================================================
+
 
 class IndexError(FileToolsError):
     """索引相关异常基类"""
@@ -147,7 +152,7 @@ class IndexNotFoundError(IndexError):
             f"索引未找到: {index_path}",
             error_code="INDEX_NOT_FOUND",
             details={"index_path": index_path},
-            **kwargs
+            **kwargs,
         )
 
 
@@ -173,13 +178,14 @@ class DocumentIndexingError(IndexError):
             f"文档索引失败: {document_path}" + (f" - {reason}" if reason else ""),
             error_code="DOCUMENT_INDEXING_FAILED",
             details={"document_path": document_path, "reason": reason},
-            **kwargs
+            **kwargs,
         )
 
 
 # ============================================================================
 # 搜索相关异常
 # ============================================================================
+
 
 class SearchError(FileToolsError):
     """搜索相关异常基类"""
@@ -196,7 +202,7 @@ class QueryParsingError(SearchError):
             f"查询解析失败: {query}" + (f" - {reason}" if reason else ""),
             error_code="QUERY_PARSE_ERROR",
             details={"query": query, "reason": reason},
-            **kwargs
+            **kwargs,
         )
 
 
@@ -210,6 +216,7 @@ class VectorSearchError(SearchError):
 # ============================================================================
 # 文件扫描相关异常
 # ============================================================================
+
 
 class FileScannerError(FileToolsError):
     """文件扫描相关异常基类"""
@@ -226,7 +233,7 @@ class FileAccessError(FileScannerError):
             f"无法访问文件: {file_path}" + (f" - {reason}" if reason else ""),
             error_code="FILE_ACCESS_ERROR",
             details={"file_path": file_path, "reason": reason},
-            **kwargs
+            **kwargs,
         )
 
 
@@ -238,7 +245,7 @@ class FileParseError(FileScannerError):
             f"文件解析失败: {file_path}" + (f" ({parser})" if parser else ""),
             error_code="FILE_PARSE_ERROR",
             details={"file_path": file_path, "parser": parser, "reason": reason},
-            **kwargs
+            **kwargs,
         )
 
 
@@ -252,13 +259,14 @@ class FileTooLargeError(FileScannerError):
             f"文件过大 ({size_mb:.1f}MB > {max_mb:.1f}MB): {file_path}",
             error_code="FILE_TOO_LARGE",
             details={"file_path": file_path, "size": size, "max_size": max_size},
-            **kwargs
+            **kwargs,
         )
 
 
 # ============================================================================
 # RAG 相关异常
 # ============================================================================
+
 
 class RAGError(FileToolsError):
     """RAG相关异常基类"""
@@ -278,7 +286,7 @@ class ModelNotAvailableError(RAGError):
             message,
             error_code="MODEL_NOT_AVAILABLE",
             details={"model_name": model_name},
-            **kwargs
+            **kwargs,
         )
 
 
@@ -297,7 +305,7 @@ class ContextExceededError(RAGError):
             f"上下文长度超限 ({current_length} > {max_length})",
             error_code="CONTEXT_EXCEEDED",
             details={"current_length": current_length, "max_length": max_length},
-            **kwargs
+            **kwargs,
         )
 
 
@@ -309,7 +317,7 @@ class SessionNotFoundError(RAGError):
             f"会话未找到: {session_id}",
             error_code="SESSION_NOT_FOUND",
             details={"session_id": session_id},
-            **kwargs
+            **kwargs,
         )
 
 
@@ -317,10 +325,13 @@ class SessionNotFoundError(RAGError):
 # 外部服务相关异常
 # ============================================================================
 
+
 class ExternalServiceError(FileToolsError):
     """外部服务相关异常基类"""
 
-    def __init__(self, message: str, error_code: str = "EXTERNAL_SERVICE_ERROR", **kwargs):
+    def __init__(
+        self, message: str, error_code: str = "EXTERNAL_SERVICE_ERROR", **kwargs
+    ):
         super().__init__(message, error_code=error_code, **kwargs)
 
 
@@ -335,7 +346,7 @@ class APIError(ExternalServiceError):
             message,
             error_code="API_ERROR",
             details={"endpoint": endpoint, "status_code": status_code},
-            **kwargs
+            **kwargs,
         )
 
 
@@ -347,13 +358,14 @@ class TimeoutError(ExternalServiceError):
             f"操作超时: {operation} ({timeout}s)",
             error_code="TIMEOUT",
             details={"operation": operation, "timeout": timeout},
-            **kwargs
+            **kwargs,
         )
 
 
 # ============================================================================
 # 资源相关异常
 # ============================================================================
+
 
 class ResourceError(FileToolsError):
     """资源相关异常基类"""
@@ -370,7 +382,7 @@ class InsufficientMemoryError(ResourceError):
             f"内存不足 (需要 {required}MB, 可用 {available}MB)",
             error_code="INSUFFICIENT_MEMORY",
             details={"required_mb": required, "available_mb": available},
-            **kwargs
+            **kwargs,
         )
 
 
@@ -382,13 +394,14 @@ class DiskSpaceError(ResourceError):
             f"磁盘空间不足: {path} (需要 {required}MB, 可用 {available}MB)",
             error_code="DISK_SPACE_ERROR",
             details={"path": path, "required_mb": required, "available_mb": available},
-            **kwargs
+            **kwargs,
         )
 
 
 # ============================================================================
 # 实用函数
 # ============================================================================
+
 
 def handle_exception(exc: Exception) -> Dict[str, Any]:
     """

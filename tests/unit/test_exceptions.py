@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 """测试自定义异常模块"""
+
 from backend.core.exceptions import (
     FileToolsError,
     PathTraversalError,
@@ -39,7 +40,9 @@ class TestFileToolsError:
 
     def test_to_dict(self):
         """测试转换为字典"""
-        err = FileToolsError("Test error", error_code="TEST_001", details={"key": "value"})
+        err = FileToolsError(
+            "Test error", error_code="TEST_001", details={"key": "value"}
+        )
         d = err.to_dict()
         assert d["error"] is True
         assert d["error_code"] == "TEST_001"

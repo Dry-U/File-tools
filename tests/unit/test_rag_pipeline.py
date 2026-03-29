@@ -1,10 +1,11 @@
 """RAG Pipeline 单元测试"""
+
 import pytest
 import sys
 import os
 from unittest.mock import Mock, patch
 
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 from backend.core.rag_pipeline import RAGPipeline, DEFAULT_PROMPT
 
@@ -26,14 +27,14 @@ class TestRAGPipeline:
         """创建模拟模型管理器"""
         mm = Mock()
         mm.get_model_limits.return_value = {
-            'max_docs': 5,
-            'chunk_size': 2000,
-            'max_context': 4000,
-            'max_tokens': 500,
-            'temperature': 0.7,
-            'min_doc_score': 0.3
+            "max_docs": 5,
+            "chunk_size": 2000,
+            "max_context": 4000,
+            "max_tokens": 500,
+            "temperature": 0.7,
+            "min_doc_score": 0.3,
         }
-        mm.get_mode.return_value = Mock(value='api')
+        mm.get_mode.return_value = Mock(value="api")
         mm.generate.return_value = iter(["测试", "回答"])
         return mm
 
@@ -43,10 +44,10 @@ class TestRAGPipeline:
         se = Mock()
         se.search.return_value = [
             {
-                'path': '/test/doc1.txt',
-                'filename': 'doc1.txt',
-                'content': '测试文档内容',
-                'score': 0.9
+                "path": "/test/doc1.txt",
+                "filename": "doc1.txt",
+                "content": "测试文档内容",
+                "score": 0.9,
             }
         ]
         return se
@@ -54,10 +55,12 @@ class TestRAGPipeline:
     @pytest.fixture
     def rag_pipeline(self, mock_model_manager, mock_config, mock_search_engine):
         """创建 RAGPipeline 实例"""
-        with patch('backend.core.rag_pipeline.ChatHistoryDB'):
-            with patch('backend.core.rag_pipeline.VRAMManager'):
-                with patch('backend.core.rag_pipeline.QueryProcessor'):
-                    pipeline = RAGPipeline(mock_model_manager, mock_config, mock_search_engine)
+        with patch("backend.core.rag_pipeline.ChatHistoryDB"):
+            with patch("backend.core.rag_pipeline.VRAMManager"):
+                with patch("backend.core.rag_pipeline.QueryProcessor"):
+                    pipeline = RAGPipeline(
+                        mock_model_manager, mock_config, mock_search_engine
+                    )
                     return pipeline
 
     def test_init(self, rag_pipeline):
@@ -140,12 +143,12 @@ class TestRAGPipeline:
 
     def test_is_small_talk_greeting(self, rag_pipeline):
         """测试问候语检测"""
-        rag_pipeline.greeting_keywords = ['hello', 'hi']
+        rag_pipeline.greeting_keywords = ["hello", "hi"]
         assert rag_pipeline._is_small_talk("hello")
 
     def test_is_small_talk_normal(self, rag_pipeline):
         """测试正常查询"""
-        rag_pipeline.greeting_keywords = ['hello']
+        rag_pipeline.greeting_keywords = ["hello"]
         assert not rag_pipeline._is_small_talk("python tutorial")
 
     def test_is_small_talk_empty(self, rag_pipeline):
@@ -171,14 +174,14 @@ class TestRAGPipeline:
     def test_format_document_section(self, rag_pipeline):
         """测试文档部分格式化"""
         doc = {
-            'filename': 'test.txt',
-            'path': '/test/test.txt',
-            'score': 0.9,
-            'content': 'Test content'
+            "filename": "test.txt",
+            "path": "/test/test.txt",
+            "score": 0.9,
+            "content": "Test content",
         }
         result = rag_pipeline._format_document_section(doc)
-        assert 'test.txt' in result
-        assert 'Test content' in result
+        assert "test.txt" in result
+        assert "Test content" in result
 
     def test_calculate_context_budget_none(self, rag_pipeline):
         """测试None预算"""
@@ -200,15 +203,15 @@ class TestRAGPipeline:
         context = "Test context"
         query = "Test query"
         result = rag_pipeline._format_prompt_with_template(context, query)
-        assert 'Test context' in result
-        assert 'Test query' in result
+        assert "Test context" in result
+        assert "Test query" in result
 
     def test_format_prompt_with_template_invalid(self, rag_pipeline):
         """测试无效模板"""
         rag_pipeline.prompt_template = "Invalid {unknown} template"
         result = rag_pipeline._format_prompt_with_template("context", "query")
         # 应该回退到默认模板
-        assert DEFAULT_PROMPT in result or 'context' in result
+        assert DEFAULT_PROMPT in result or "context" in result
 
     def test_remove_repeated_content(self, rag_pipeline):
         """测试重复内容移除"""
@@ -221,7 +224,7 @@ class TestRAGPipeline:
         """测试回答后处理"""
         answer = "1. Point one\n2. Point two"
         result = rag_pipeline._post_process_answer(answer, [])
-        assert '1.' not in result or '；' in result
+        assert "1." not in result or "；" in result
 
     def test_post_process_answer_with_sources(self, rag_pipeline):
         """测试带来源的回答后处理"""
@@ -232,25 +235,31 @@ class TestRAGPipeline:
 
     def test_get_session_stats(self, rag_pipeline):
         """测试获取会话统计"""
-        with patch.object(rag_pipeline.chat_db, 'get_session_messages', return_value=[
-            {'role': 'user', 'content': 'Hello'},
-            {'role': 'assistant', 'content': 'Hi'}
-        ]):
+        with patch.object(
+            rag_pipeline.chat_db,
+            "get_session_messages",
+            return_value=[
+                {"role": "user", "content": "Hello"},
+                {"role": "assistant", "content": "Hi"},
+            ],
+        ):
             stats = rag_pipeline.get_session_stats("test_session")
-            assert stats['turn_count'] == 1
-            assert stats['session_id'] == 'test_session'
+            assert stats["turn_count"] == 1
+            assert stats["session_id"] == "test_session"
 
     def test_clear_session(self, rag_pipeline):
         """测试清空会话"""
-        with patch.object(rag_pipeline.chat_db, 'delete_session', return_value=True):
+        with patch.object(rag_pipeline.chat_db, "delete_session", return_value=True):
             result = rag_pipeline.clear_session("test_session")
             assert result
 
     def test_get_all_sessions(self, rag_pipeline):
         """测试获取所有会话"""
-        with patch.object(rag_pipeline.chat_db, 'get_all_sessions', return_value=[
-            {'session_id': 'sess1', 'title': 'Session 1'}
-        ]):
+        with patch.object(
+            rag_pipeline.chat_db,
+            "get_all_sessions",
+            return_value=[{"session_id": "sess1", "title": "Session 1"}],
+        ):
             sessions = rag_pipeline.get_all_sessions()
             assert len(sessions) == 1
 
@@ -262,8 +271,8 @@ class TestRAGPipeline:
     def test_get_config(self, rag_pipeline):
         """测试获取配置"""
         config = rag_pipeline.get_config()
-        assert 'max_docs' in config
-        assert 'max_context_chars' in config
+        assert "max_docs" in config
+        assert "max_context_chars" in config
 
 
 class TestRAGPipelineQuery:
@@ -281,14 +290,14 @@ class TestRAGPipelineQuery:
     def mock_model_manager(self):
         mm = Mock()
         mm.get_model_limits.return_value = {
-            'max_docs': 5,
-            'chunk_size': 2000,
-            'max_context': 4000,
-            'max_tokens': 500,
-            'temperature': 0.7,
-            'min_doc_score': 0.3
+            "max_docs": 5,
+            "chunk_size": 2000,
+            "max_context": 4000,
+            "max_tokens": 500,
+            "temperature": 0.7,
+            "min_doc_score": 0.3,
         }
-        mm.get_mode.return_value = Mock(value='api')
+        mm.get_mode.return_value = Mock(value="api")
         mm.generate.return_value = iter(["测试", "回答"])
         return mm
 
@@ -297,69 +306,84 @@ class TestRAGPipelineQuery:
         se = Mock()
         se.search.return_value = [
             {
-                'path': '/test/doc1.txt',
-                'filename': 'doc1.txt',
-                'content': '测试文档内容',
-                'score': 0.9
+                "path": "/test/doc1.txt",
+                "filename": "doc1.txt",
+                "content": "测试文档内容",
+                "score": 0.9,
             }
         ]
         return se
 
     @pytest.fixture
     def rag_pipeline(self, mock_model_manager, mock_config, mock_search_engine):
-        with patch('backend.core.rag_pipeline.ChatHistoryDB'):
-            with patch('backend.core.rag_pipeline.VRAMManager') as mock_vram:
+        with patch("backend.core.rag_pipeline.ChatHistoryDB"):
+            with patch("backend.core.rag_pipeline.VRAMManager") as mock_vram:
                 mock_vram_instance = Mock()
                 mock_vram_instance.adjust_context_size.return_value = 2000
                 mock_vram.return_value = mock_vram_instance
-                with patch('backend.core.rag_pipeline.QueryProcessor'):
-                    pipeline = RAGPipeline(mock_model_manager, mock_config, mock_search_engine)
+                with patch("backend.core.rag_pipeline.QueryProcessor"):
+                    pipeline = RAGPipeline(
+                        mock_model_manager, mock_config, mock_search_engine
+                    )
                     pipeline.vram_manager = mock_vram_instance
                     return pipeline
 
     def test_query_reset_command(self, rag_pipeline):
         """测试重置命令"""
-        rag_pipeline.reset_commands = ['重置', 'reset']
+        rag_pipeline.reset_commands = ["重置", "reset"]
         result = rag_pipeline.query("重置")
-        assert result['answer'] == rag_pipeline.reset_response
+        assert result["answer"] == rag_pipeline.reset_response
 
     def test_query_small_talk(self, rag_pipeline):
         """测试闲聊"""
-        rag_pipeline.greeting_keywords = ['hello']
+        rag_pipeline.greeting_keywords = ["hello"]
         result = rag_pipeline.query("hello")
-        assert result['answer'] == rag_pipeline.greeting_response
+        assert result["answer"] == rag_pipeline.greeting_response
 
     def test_query_noise(self, rag_pipeline):
         """测试噪声查询"""
         result = rag_pipeline.query("a")
-        answer = result['answer']
+        answer = result["answer"]
         # 噪声查询应返回提示无法找到文档的回复
-        assert 'answer' in result
+        assert "answer" in result
         assert len(answer) > 0
 
     def test_query_empty_session(self, rag_pipeline):
         """测试空会话ID"""
-        with patch.object(rag_pipeline, '_collect_documents', return_value=[]):
-            with patch.object(rag_pipeline, '_build_history', return_value=('', 0)):
+        with patch.object(rag_pipeline, "_collect_documents", return_value=[]):
+            with patch.object(rag_pipeline, "_build_history", return_value=("", 0)):
                 result = rag_pipeline.query("test query")
-                assert 'answer' in result
-                assert 'sources' in result
+                assert "answer" in result
+                assert "sources" in result
 
     def test_query_with_documents(self, rag_pipeline):
         """测试带文档的查询"""
-        with patch.object(rag_pipeline, '_collect_documents', return_value=[
-            {'path': '/test/doc.txt', 'filename': 'doc.txt', 'content': 'Test', 'score': 0.9}
-        ]):
-            with patch.object(rag_pipeline, '_build_prompt', return_value='Test prompt'):
+        with patch.object(
+            rag_pipeline,
+            "_collect_documents",
+            return_value=[
+                {
+                    "path": "/test/doc.txt",
+                    "filename": "doc.txt",
+                    "content": "Test",
+                    "score": 0.9,
+                }
+            ],
+        ):
+            with patch.object(
+                rag_pipeline, "_build_prompt", return_value="Test prompt"
+            ):
                 result = rag_pipeline.query("test query")
-                assert 'answer' in result
+                assert "answer" in result
 
     def test_query_context_exhausted(self, rag_pipeline):
         """测试上下文耗尽"""
         rag_pipeline.max_context_chars_total = 100
-        with patch.object(rag_pipeline, '_build_history', return_value=('x' * 150, 150)):
+        with patch.object(
+            rag_pipeline, "_build_history", return_value=("x" * 150, 150)
+        ):
             result = rag_pipeline.query("test query")
-            assert result['answer'] == rag_pipeline.context_exhausted_response
+            assert result["answer"] == rag_pipeline.context_exhausted_response
 
 
 class TestRAGPipelineDocumentProcessing:
@@ -377,14 +401,14 @@ class TestRAGPipelineDocumentProcessing:
     def mock_model_manager(self):
         mm = Mock()
         mm.get_model_limits.return_value = {
-            'max_docs': 5,
-            'chunk_size': 2000,
-            'max_context': 4000,
-            'max_tokens': 500,
-            'temperature': 0.7,
-            'min_doc_score': 0.3
+            "max_docs": 5,
+            "chunk_size": 2000,
+            "max_context": 4000,
+            "max_tokens": 500,
+            "temperature": 0.7,
+            "min_doc_score": 0.3,
         }
-        mm.get_mode.return_value = Mock(value='api')
+        mm.get_mode.return_value = Mock(value="api")
         return mm
 
     @pytest.fixture
@@ -393,10 +417,12 @@ class TestRAGPipelineDocumentProcessing:
 
     @pytest.fixture
     def rag_pipeline(self, mock_model_manager, mock_config, mock_search_engine):
-        with patch('backend.core.rag_pipeline.ChatHistoryDB'):
-            with patch('backend.core.rag_pipeline.VRAMManager'):
-                with patch('backend.core.rag_pipeline.QueryProcessor'):
-                    return RAGPipeline(mock_model_manager, mock_config, mock_search_engine)
+        with patch("backend.core.rag_pipeline.ChatHistoryDB"):
+            with patch("backend.core.rag_pipeline.VRAMManager"):
+                with patch("backend.core.rag_pipeline.QueryProcessor"):
+                    return RAGPipeline(
+                        mock_model_manager, mock_config, mock_search_engine
+                    )
 
     def test_preprocess_content(self, rag_pipeline):
         """测试内容预处理"""
@@ -404,16 +430,18 @@ class TestRAGPipelineDocumentProcessing:
         query = "paragraph"
         result = rag_pipeline._preprocess_content(content, query)
         # 英文查询词会被 QUERY_TERM 标记包裹
-        assert 'QUERY_TERM' in result
-        assert 'paragraph' in result
+        assert "QUERY_TERM" in result
+        assert "paragraph" in result
 
     def test_calculate_multidimensional_relevance(self, rag_pipeline):
         """测试多维相关性计算"""
         query = "python"
         content = "Python programming guide"
-        result = {'score': 0.8}
+        result = {"score": 0.8}
         filename = "python_guide.txt"
-        score = rag_pipeline._calculate_multidimensional_relevance(query, content, result, filename)
+        score = rag_pipeline._calculate_multidimensional_relevance(
+            query, content, result, filename
+        )
         assert score > 0
 
     def test_calculate_semantic_relevance_fallback(self, rag_pipeline):
@@ -427,8 +455,18 @@ class TestRAGPipelineDocumentProcessing:
     def test_select_optimal_documents(self, rag_pipeline):
         """测试最优文档选择"""
         candidates = [
-            {'path': '/test/1.txt', 'filename': '1.txt', 'content': 'Content 1', 'score': 0.9},
-            {'path': '/test/2.txt', 'filename': '2.txt', 'content': 'Content 2', 'score': 0.8}
+            {
+                "path": "/test/1.txt",
+                "filename": "1.txt",
+                "content": "Content 1",
+                "score": 0.9,
+            },
+            {
+                "path": "/test/2.txt",
+                "filename": "2.txt",
+                "content": "Content 2",
+                "score": 0.8,
+            },
         ]
         result = rag_pipeline._select_optimal_documents(candidates)
         assert len(result) <= 2
@@ -462,14 +500,14 @@ class TestRAGPipelineHistory:
     def mock_model_manager(self):
         mm = Mock()
         mm.get_model_limits.return_value = {
-            'max_docs': 5,
-            'chunk_size': 2000,
-            'max_context': 4000,
-            'max_tokens': 500,
-            'temperature': 0.7,
-            'min_doc_score': 0.3
+            "max_docs": 5,
+            "chunk_size": 2000,
+            "max_context": 4000,
+            "max_tokens": 500,
+            "temperature": 0.7,
+            "min_doc_score": 0.3,
         }
-        mm.get_mode.return_value = Mock(value='api')
+        mm.get_mode.return_value = Mock(value="api")
         return mm
 
     @pytest.fixture
@@ -478,12 +516,14 @@ class TestRAGPipelineHistory:
 
     @pytest.fixture
     def rag_pipeline(self, mock_model_manager, mock_config, mock_search_engine):
-        with patch('backend.core.rag_pipeline.ChatHistoryDB') as mock_db:
+        with patch("backend.core.rag_pipeline.ChatHistoryDB") as mock_db:
             mock_db_instance = Mock()
             mock_db.return_value = mock_db_instance
-            with patch('backend.core.rag_pipeline.VRAMManager'):
-                with patch('backend.core.rag_pipeline.QueryProcessor'):
-                    pipeline = RAGPipeline(mock_model_manager, mock_config, mock_search_engine)
+            with patch("backend.core.rag_pipeline.VRAMManager"):
+                with patch("backend.core.rag_pipeline.QueryProcessor"):
+                    pipeline = RAGPipeline(
+                        mock_model_manager, mock_config, mock_search_engine
+                    )
                     pipeline.chat_db = mock_db_instance
                     return pipeline
 
@@ -491,24 +531,24 @@ class TestRAGPipelineHistory:
         """测试空历史"""
         rag_pipeline.chat_db.get_session_messages.return_value = []
         result, used = rag_pipeline._build_history("test_session", 1000)
-        assert result == ''
+        assert result == ""
         assert used == 0
 
     def test_build_history_with_messages(self, rag_pipeline):
         """测试带消息的历史"""
         rag_pipeline.chat_db.get_session_messages.return_value = [
-            {'role': 'user', 'content': 'Hello'},
-            {'role': 'assistant', 'content': 'Hi'}
+            {"role": "user", "content": "Hello"},
+            {"role": "assistant", "content": "Hi"},
         ]
         result, used = rag_pipeline._build_history("test_session", 1000)
-        assert 'Hello' in result
-        assert 'Hi' in result
+        assert "Hello" in result
+        assert "Hi" in result
 
     def test_build_history_exceeds_budget(self, rag_pipeline):
         """测试超出预算的历史"""
         rag_pipeline.chat_db.get_session_messages.return_value = [
-            {'role': 'user', 'content': 'A' * 500},
-            {'role': 'assistant', 'content': 'B' * 500}
+            {"role": "user", "content": "A" * 500},
+            {"role": "assistant", "content": "B" * 500},
         ]
         result, used = rag_pipeline._build_history("test_session", 100)
         assert used <= 100
@@ -517,8 +557,12 @@ class TestRAGPipelineHistory:
         """测试记住对话轮次"""
         rag_pipeline.chat_db.session_exists.return_value = True
         rag_pipeline._remember_turn("test_session", "Hello", "Hi")
-        rag_pipeline.chat_db.add_message.assert_any_call("test_session", 'user', "Hello")
-        rag_pipeline.chat_db.add_message.assert_any_call("test_session", 'assistant', "Hi")
+        rag_pipeline.chat_db.add_message.assert_any_call(
+            "test_session", "user", "Hello"
+        )
+        rag_pipeline.chat_db.add_message.assert_any_call(
+            "test_session", "assistant", "Hi"
+        )
 
     def test_reset_session(self, rag_pipeline):
         """测试重置会话"""
@@ -541,14 +585,14 @@ class TestRAGPipelinePromptBuilding:
     def mock_model_manager(self):
         mm = Mock()
         mm.get_model_limits.return_value = {
-            'max_docs': 5,
-            'chunk_size': 2000,
-            'max_context': 4000,
-            'max_tokens': 500,
-            'temperature': 0.7,
-            'min_doc_score': 0.3
+            "max_docs": 5,
+            "chunk_size": 2000,
+            "max_context": 4000,
+            "max_tokens": 500,
+            "temperature": 0.7,
+            "min_doc_score": 0.3,
         }
-        mm.get_mode.return_value = Mock(value='api')
+        mm.get_mode.return_value = Mock(value="api")
         return mm
 
     @pytest.fixture
@@ -557,44 +601,63 @@ class TestRAGPipelinePromptBuilding:
 
     @pytest.fixture
     def rag_pipeline(self, mock_model_manager, mock_config, mock_search_engine):
-        with patch('backend.core.rag_pipeline.ChatHistoryDB'):
-            with patch('backend.core.rag_pipeline.VRAMManager'):
-                with patch('backend.core.rag_pipeline.QueryProcessor'):
-                    return RAGPipeline(mock_model_manager, mock_config, mock_search_engine)
+        with patch("backend.core.rag_pipeline.ChatHistoryDB"):
+            with patch("backend.core.rag_pipeline.VRAMManager"):
+                with patch("backend.core.rag_pipeline.QueryProcessor"):
+                    return RAGPipeline(
+                        mock_model_manager, mock_config, mock_search_engine
+                    )
 
     def test_build_prompt_empty(self, rag_pipeline):
         """测试空提示词"""
         result = rag_pipeline._build_prompt("query", [], "", None)
-        assert result == ''
+        assert result == ""
 
     def test_build_prompt_with_documents(self, rag_pipeline):
         """测试带文档的提示词"""
         documents = [
-            {'filename': 'test.txt', 'path': '/test.txt', 'content': 'Test content', 'score': 0.9}
+            {
+                "filename": "test.txt",
+                "path": "/test.txt",
+                "content": "Test content",
+                "score": 0.9,
+            }
         ]
         result = rag_pipeline._build_prompt("query", documents, "", 1000)
-        assert 'test.txt' in result
-        assert 'Test content' in result
+        assert "test.txt" in result
+        assert "Test content" in result
 
     def test_build_prompt_with_history(self, rag_pipeline):
         """测试带历史的提示词"""
         documents = [
-            {'filename': 'test.txt', 'path': '/test.txt', 'content': 'Test', 'score': 0.9}
+            {
+                "filename": "test.txt",
+                "path": "/test.txt",
+                "content": "Test",
+                "score": 0.9,
+            }
         ]
         result = rag_pipeline._build_prompt("query", documents, "Previous chat", 1000)
-        assert 'Previous chat' in result
+        assert "Previous chat" in result
 
     def test_extract_key_entities(self, rag_pipeline):
         """测试关键实体提取"""
         documents = [
-            {'filename': 'author_paper.pdf', 'path': '/test.pdf', 'content': 'Test', 'score': 0.9}
+            {
+                "filename": "author_paper.pdf",
+                "path": "/test.pdf",
+                "content": "Test",
+                "score": 0.9,
+            }
         ]
         result = rag_pipeline._extract_key_entities(documents)
-        assert 'author' in result or 'paper' in result
+        assert "author" in result or "paper" in result
 
     def test_truncate_content_if_needed(self, rag_pipeline):
         """测试内容截断"""
-        section = "--- 文件: test.txt ---\n路径: /test.txt\n相关性: 0.9\n内容:\n" + "A" * 1000
+        section = (
+            "--- 文件: test.txt ---\n路径: /test.txt\n相关性: 0.9\n内容:\n" + "A" * 1000
+        )
         content = "A" * 1000
         result = rag_pipeline._truncate_content_if_needed(section, content, 500, 0)
         assert len(result) <= 500
@@ -604,4 +667,4 @@ class TestRAGPipelinePromptBuilding:
         section = "--- 文件: test.txt ---\n内容:\nShort content"
         content = "Short content"
         result = rag_pipeline._truncate_content_if_needed(section, content, 1000, 0)
-        assert 'Short content' in result
+        assert "Short content" in result

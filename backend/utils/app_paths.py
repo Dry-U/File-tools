@@ -33,7 +33,7 @@ class AppPaths:
     @property
     def is_frozen(self) -> bool:
         """检查应用是否已打包（PyInstaller）"""
-        return getattr(sys, 'frozen', False)
+        return getattr(sys, "frozen", False)
 
     @property
     def app_dir(self) -> Path:
@@ -62,38 +62,38 @@ class AppPaths:
 
     def _get_user_data_dir(self) -> Path:
         """根据平台获取用户数据目录"""
-        if sys.platform == 'win32':
+        if sys.platform == "win32":
             # Windows: %APPDATA%
-            base = os.environ.get('APPDATA')
+            base = os.environ.get("APPDATA")
             if base:
                 return Path(base) / self.APP_NAME
             else:
-                return Path.home() / 'AppData' / 'Roaming' / self.APP_NAME
+                return Path.home() / "AppData" / "Roaming" / self.APP_NAME
 
-        elif sys.platform == 'darwin':
+        elif sys.platform == "darwin":
             # macOS
-            return Path.home() / 'Library' / 'Application Support' / self.APP_NAME
+            return Path.home() / "Library" / "Application Support" / self.APP_NAME
 
         else:
             # Linux 和其他 Unix
-            base = os.environ.get('XDG_DATA_HOME')
+            base = os.environ.get("XDG_DATA_HOME")
             if base:
                 return Path(base) / self.APP_NAME.lower()
             else:
-                return Path.home() / '.config' / self.APP_NAME.lower()
+                return Path.home() / ".config" / self.APP_NAME.lower()
 
     @property
     def config_path(self) -> Path:
         """获取配置文件路径"""
         if self._config_dir is None:
-            self._config_dir = self.user_data_dir / 'config.yaml'
+            self._config_dir = self.user_data_dir / "config.yaml"
         return self._config_dir
 
     @property
     def log_dir(self) -> Path:
         """获取日志目录"""
         if self._log_dir is None:
-            self._log_dir = self.user_data_dir / 'logs'
+            self._log_dir = self.user_data_dir / "logs"
             self._ensure_dir(self._log_dir)
         return self._log_dir
 
@@ -101,14 +101,14 @@ class AppPaths:
     def data_dir(self) -> Path:
         """获取数据目录（索引、元数据等）"""
         if self._data_dir is None:
-            self._data_dir = self.user_data_dir / 'data'
+            self._data_dir = self.user_data_dir / "data"
             self._ensure_dir(self._data_dir)
             # 创建子目录
-            self._ensure_dir(self._data_dir / 'tantivy_index')
-            self._ensure_dir(self._data_dir / 'hnsw_index')
-            self._ensure_dir(self._data_dir / 'metadata')
-            self._ensure_dir(self._data_dir / 'cache')
-            self._ensure_dir(self._data_dir / 'temp')
+            self._ensure_dir(self._data_dir / "tantivy_index")
+            self._ensure_dir(self._data_dir / "hnsw_index")
+            self._ensure_dir(self._data_dir / "metadata")
+            self._ensure_dir(self._data_dir / "cache")
+            self._ensure_dir(self._data_dir / "temp")
         return self._data_dir
 
     @property
@@ -116,20 +116,20 @@ class AppPaths:
         """获取缓存目录"""
         if self._cache_dir is None:
             # 优先使用系统缓存目录
-            if sys.platform == 'win32':
-                base = os.environ.get('LOCALAPPDATA')
+            if sys.platform == "win32":
+                base = os.environ.get("LOCALAPPDATA")
                 if base:
-                    self._cache_dir = Path(base) / self.APP_NAME / 'Cache'
+                    self._cache_dir = Path(base) / self.APP_NAME / "Cache"
                 else:
-                    self._cache_dir = self.user_data_dir / 'cache'
-            elif sys.platform == 'darwin':
-                self._cache_dir = Path.home() / 'Library' / 'Caches' / self.APP_NAME
+                    self._cache_dir = self.user_data_dir / "cache"
+            elif sys.platform == "darwin":
+                self._cache_dir = Path.home() / "Library" / "Caches" / self.APP_NAME
             else:
-                base = os.environ.get('XDG_CACHE_HOME')
+                base = os.environ.get("XDG_CACHE_HOME")
                 if base:
                     self._cache_dir = Path(base) / self.APP_NAME.lower()
                 else:
-                    self._cache_dir = Path.home() / '.cache' / self.APP_NAME.lower()
+                    self._cache_dir = Path.home() / ".cache" / self.APP_NAME.lower()
 
             self._ensure_dir(self._cache_dir)
         return self._cache_dir
@@ -144,27 +144,27 @@ class AppPaths:
         """
         if self.is_frozen:
             # PyInstaller 打包后的路径
-            meipass = getattr(sys, '_MEIPASS', None)
+            meipass = getattr(sys, "_MEIPASS", None)
             if meipass:
                 # 单文件模式：临时解压目录
-                frontend = Path(meipass) / 'frontend'
+                frontend = Path(meipass) / "frontend"
                 if frontend.exists():
                     return frontend
 
             # 单目录模式：应用目录下的 _internal
-            internal = self.app_dir / '_internal'
+            internal = self.app_dir / "_internal"
             if internal.exists():
-                frontend = internal / 'frontend'
+                frontend = internal / "frontend"
                 if frontend.exists():
                     return frontend
 
             # 直接在应用目录下
-            frontend = self.app_dir / 'frontend'
+            frontend = self.app_dir / "frontend"
             if frontend.exists():
                 return frontend
         else:
             # 开发环境
-            frontend = self.app_dir / 'frontend'
+            frontend = self.app_dir / "frontend"
             if frontend.exists():
                 return frontend
 
@@ -204,13 +204,13 @@ class AppPaths:
 
         # 尝试从应用目录的模板复制
         if self.is_frozen:
-            template = self.app_dir / 'templates' / 'config.yaml'
+            template = self.app_dir / "templates" / "config.yaml"
             if template.exists():
                 shutil.copy2(template, self.config_path)
                 return
 
         # 尝试从项目根目录复制
-        dev_config = self.app_dir / 'config.yaml'
+        dev_config = self.app_dir / "config.yaml"
         if dev_config.exists():
             shutil.copy2(dev_config, self.config_path)
             return
@@ -256,7 +256,7 @@ ai_model:
     temperature: 0.7
     max_tokens: 2048
 """
-        self.config_path.write_text(default_config, encoding='utf-8')
+        self.config_path.write_text(default_config, encoding="utf-8")
 
     def get_relative_path(self, path: Path) -> str:
         """获取相对于用户数据目录的路径（用于配置中存储）"""
@@ -275,7 +275,7 @@ def get_app_paths() -> AppPaths:
     return app_paths
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     # 测试
     paths = AppPaths()
     logger.info(f"应用目录: {paths.app_dir}")

@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 """测试配置验证模块"""
+
 from backend.utils.config_validator import (
     ValidationIssue,
     ValidationResult,
@@ -19,7 +20,7 @@ class TestValidationIssue:
             message="Test error",
             section="test",
             key="key",
-            suggestion="Fix it"
+            suggestion="Fix it",
         )
         assert issue.level == "error"
         assert issue.message == "Test error"
@@ -87,14 +88,8 @@ class TestConfigValidator:
         """测试验证有效配置"""
         validator = ConfigValidator()
         config = {
-            "file_scanner": {
-                "scan_paths": ["/test"],
-                "max_file_size": 100
-            },
-            "search": {
-                "text_weight": 0.6,
-                "vector_weight": 0.4
-            }
+            "file_scanner": {"scan_paths": ["/test"], "max_file_size": 100},
+            "search": {"text_weight": 0.6, "vector_weight": 0.4},
         }
 
         result = validator.validate(config)
@@ -120,14 +115,17 @@ class TestConfigValidator:
         validator = ConfigValidator()
 
         # 有效值
-        assert validator._validate_numeric_ranges(
-            {"text_weight": 0.5, "vector_weight": 0.5}
-        ) is True
+        assert (
+            validator._validate_numeric_ranges(
+                {"text_weight": 0.5, "vector_weight": 0.5}
+            )
+            is True
+        )
 
         # 超出范围
-        assert validator._validate_numeric_ranges(
-            {"text_weight": 1.5}  # > 1.0
-        ) is False
+        assert (
+            validator._validate_numeric_ranges({"text_weight": 1.5}) is False  # > 1.0
+        )
 
     def test_validate_ai_model_config(self):
         """测试验证 AI 模型配置"""
@@ -136,7 +134,7 @@ class TestConfigValidator:
             "ai_model": {
                 "provider": "siliconflow",
                 "api_url": "https://api.example.com",
-                "api_key": "test-key"
+                "api_key": "test-key",
             }
         }
 
@@ -155,7 +153,7 @@ class TestValidateConfigOrWarn:
             "file_scanner": {
                 "scan_paths": ["/test"],
             },
-            "search": {}
+            "search": {},
         }
 
         with caplog.at_level("WARNING"):

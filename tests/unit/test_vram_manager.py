@@ -1,10 +1,11 @@
 """VRAM Manager 单元测试"""
+
 import pytest
 import sys
 import os
 from unittest.mock import Mock, patch
 
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 from backend.core.vram_manager import VRAMManager
 
@@ -16,7 +17,7 @@ class TestVRAMManager:
     def mock_config(self):
         """创建模拟配置"""
         config = Mock()
-        config.get.return_value = './data/models'
+        config.get.return_value = "./data/models"
         config.getint.return_value = 512
         return config
 
@@ -41,47 +42,47 @@ class TestVRAMManager:
 
     def test_should_limit_context(self, vram_manager):
         """测试上下文限制判断"""
-        with patch.object(vram_manager, 'get_memory_usage', return_value=100):
+        with patch.object(vram_manager, "get_memory_usage", return_value=100):
             # 100MB < 512 * 0.7 = 358.4MB, 不应该限制
             assert not vram_manager.should_limit_context()
 
-        with patch.object(vram_manager, 'get_memory_usage', return_value=400):
+        with patch.object(vram_manager, "get_memory_usage", return_value=400):
             # 400MB > 358.4MB, 应该限制
             assert vram_manager.should_limit_context()
 
     def test_adjust_context_size_normal(self, vram_manager):
         """测试正常情况下的上下文大小调整"""
-        with patch.object(vram_manager, 'should_limit_context', return_value=False):
+        with patch.object(vram_manager, "should_limit_context", return_value=False):
             result = vram_manager.adjust_context_size(1000)
             assert result == 1000
 
     def test_adjust_context_size_limited(self, vram_manager):
         """测试内存受限时的上下文大小调整"""
-        with patch.object(vram_manager, 'should_limit_context', return_value=True):
+        with patch.object(vram_manager, "should_limit_context", return_value=True):
             result = vram_manager.adjust_context_size(1000)
             assert result == 500  # 减少到50%
 
     def test_adjust_context_size_minimum(self, vram_manager):
         """测试上下文大小最小值限制"""
-        with patch.object(vram_manager, 'should_limit_context', return_value=True):
+        with patch.object(vram_manager, "should_limit_context", return_value=True):
             result = vram_manager.adjust_context_size(500)
             assert result == 500  # 最小500
 
     def test_get_optimal_batch_size_high_memory(self, vram_manager):
         """测试高内存时的批处理大小"""
-        with patch.object(vram_manager, 'get_memory_usage', return_value=100):
+        with patch.object(vram_manager, "get_memory_usage", return_value=100):
             # 100/512 = 0.195 < 0.6, 应该返回4
             assert vram_manager.get_optimal_batch_size() == 4
 
     def test_get_optimal_batch_size_medium_memory(self, vram_manager):
         """测试中等内存时的批处理大小"""
-        with patch.object(vram_manager, 'get_memory_usage', return_value=350):
+        with patch.object(vram_manager, "get_memory_usage", return_value=350):
             # 350/512 = 0.68 > 0.6, 应该返回2
             assert vram_manager.get_optimal_batch_size() == 2
 
     def test_get_optimal_batch_size_low_memory(self, vram_manager):
         """测试低内存时的批处理大小"""
-        with patch.object(vram_manager, 'get_memory_usage', return_value=450):
+        with patch.object(vram_manager, "get_memory_usage", return_value=450):
             # 450/512 = 0.88 > 0.8, 应该返回1
             assert vram_manager.get_optimal_batch_size() == 1
 
@@ -122,15 +123,15 @@ class TestVRAMManager:
     def test_get_performance_stats(self, vram_manager):
         """测试获取性能统计"""
         stats = vram_manager.get_performance_stats()
-        assert 'memory_usage_mb' in stats
-        assert 'memory_limit_mb' in stats
-        assert 'cache_size' in stats
-        assert 'cache_limit' in stats
-        assert 'should_limit_context' in stats
-        assert 'gpu_info' in stats
+        assert "memory_usage_mb" in stats
+        assert "memory_limit_mb" in stats
+        assert "cache_size" in stats
+        assert "cache_limit" in stats
+        assert "should_limit_context" in stats
+        assert "gpu_info" in stats
 
-    @patch('backend.core.vram_manager.gpu_available', True)
-    @patch('backend.core.vram_manager.GPUtil', create=True)
+    @patch("backend.core.vram_manager.gpu_available", True)
+    @patch("backend.core.vram_manager.GPUtil", create=True)
     def test_get_gpu_info_available(self, mock_gputil, vram_manager):
         """测试获取GPU信息（GPU可用）"""
         mock_gpu = Mock()
@@ -144,16 +145,16 @@ class TestVRAMManager:
         mock_gputil.getGPUs.return_value = [mock_gpu]
 
         result = vram_manager.get_gpu_info()
-        assert result['available']
-        assert len(result['gpus']) == 1
-        assert result['gpus'][0]['name'] == "NVIDIA GTX 1080"
+        assert result["available"]
+        assert len(result["gpus"]) == 1
+        assert result["gpus"][0]["name"] == "NVIDIA GTX 1080"
 
-    @patch('backend.core.vram_manager.gpu_available', False)
+    @patch("backend.core.vram_manager.gpu_available", False)
     def test_get_gpu_info_unavailable(self, vram_manager):
         """测试获取GPU信息（GPU不可用）"""
         result = vram_manager.get_gpu_info()
-        assert not result['available']
-        assert result['gpus'] == []
+        assert not result["available"]
+        assert result["gpus"] == []
 
     def test_available_vram(self, vram_manager):
         """测试获取可用VRAM"""
@@ -183,7 +184,7 @@ class TestVRAMManagerEdgeCases:
     @pytest.fixture
     def mock_config(self):
         config = Mock()
-        config.get.return_value = './data/models'
+        config.get.return_value = "./data/models"
         config.getint.return_value = 512
         return config
 
@@ -200,14 +201,14 @@ class TestVRAMManagerEdgeCases:
 
     def test_negative_context_size(self, vram_manager):
         """测试负的上下文大小"""
-        with patch.object(vram_manager, 'should_limit_context', return_value=True):
+        with patch.object(vram_manager, "should_limit_context", return_value=True):
             result = vram_manager.adjust_context_size(-100)
             # 应该返回最小值
             assert result == 500
 
     def test_very_large_context_size(self, vram_manager):
         """测试非常大的上下文大小"""
-        with patch.object(vram_manager, 'should_limit_context', return_value=False):
+        with patch.object(vram_manager, "should_limit_context", return_value=False):
             result = vram_manager.adjust_context_size(1000000)
             assert result == 1000000
 
@@ -271,7 +272,9 @@ class TestVRAMManagerEdgeCases:
 
         # 验证写入数量
         expected_writes = num_writers * writes_per_thread
-        assert successful_writes[0] == expected_writes, f"写入次数不匹配: {successful_writes[0]} != {expected_writes}"
+        assert (
+            successful_writes[0] == expected_writes
+        ), f"写入次数不匹配: {successful_writes[0]} != {expected_writes}"
 
         # 验证没有异常
         assert len(errors) == 0, f"并发访问出现错误: {errors}"
@@ -292,7 +295,9 @@ class TestVRAMManagerEdgeCases:
                 expected_prefix = key.replace("_key", "_value").rsplit("_value", 1)[0]
                 expected_suffix = key.split("_key")[1]
                 expected_value = f"{expected_prefix}_value{expected_suffix}"
-                assert value == expected_value, f"数据不一致: {key} -> {value} != {expected_value}"
+                assert (
+                    value == expected_value
+                ), f"数据不一致: {key} -> {value} != {expected_value}"
                 found_keys.add(key)
 
         # 验证缓存状态

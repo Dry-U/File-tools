@@ -1,4 +1,5 @@
 """测试工具函数"""
+
 import time
 import asyncio
 import functools
@@ -12,7 +13,7 @@ def create_test_file(
     content: str,
     filename: str = "test.txt",
     directory: Optional[Path] = None,
-    encoding: str = "utf-8"
+    encoding: str = "utf-8",
 ) -> Path:
     """
     创建临时测试文件
@@ -35,9 +36,7 @@ def create_test_file(
 
 
 def create_test_binary_file(
-    size: int,
-    filename: str = "test.bin",
-    directory: Optional[Path] = None
+    size: int, filename: str = "test.bin", directory: Optional[Path] = None
 ) -> Path:
     """
     创建临时二进制测试文件
@@ -59,9 +58,7 @@ def create_test_binary_file(
 
 
 async def wait_for_condition(
-    condition: Callable[[], bool],
-    timeout: float = 5.0,
-    interval: float = 0.1
+    condition: Callable[[], bool], timeout: float = 5.0, interval: float = 0.1
 ) -> bool:
     """
     异步等待条件满足
@@ -86,7 +83,7 @@ def measure_performance(
     func: Optional[Callable] = None,
     *,
     threshold_ms: Optional[float] = None,
-    iterations: int = 1
+    iterations: int = 1,
 ) -> Callable:
     """
     性能测量装饰器
@@ -99,6 +96,7 @@ def measure_performance(
     Returns:
         装饰器函数
     """
+
     def decorator(f: Callable) -> Callable:
         @functools.wraps(f)
         def wrapper(*args, **kwargs) -> Any:
@@ -167,9 +165,7 @@ def assert_dict_subset(subset: dict, superset: dict) -> bool:
 
 
 def create_mock_file_stats(
-    size: int = 1024,
-    modified: float = 1700000000.0,
-    created: float = 1700000000.0
+    size: int = 1024, modified: float = 1700000000.0, created: float = 1700000000.0
 ):
     """
     创建模拟的文件统计信息
@@ -184,5 +180,6 @@ def create_mock_file_stats(
     """
     # 使用命名元组模拟 stat_result
     from collections import namedtuple
-    StatResult = namedtuple('StatResult', ['st_size', 'st_mtime', 'st_ctime'])
+
+    StatResult = namedtuple("StatResult", ["st_size", "st_mtime", "st_ctime"])
     return StatResult(st_size=size, st_mtime=modified, st_ctime=created)

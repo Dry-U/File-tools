@@ -3,24 +3,32 @@
 """
 Web API 端点测试
 """
+
 import pytest
 from pathlib import Path
 from unittest.mock import Mock, patch
 from fastapi.testclient import TestClient
 
+
 # 在导入 app 之前先 mock 相关组件
 # 配置 mock 返回值，支持链式调用
 def mock_get(section, key=None, default=None):
     defaults = {
-        ('system', 'data_dir'): './data',
-        ('system', 'log_level'): 'INFO',
-        ('system', 'log_max_size'): '10485760',
-        ('system', 'log_backup_count'): '5',
+        ("system", "data_dir"): "./data",
+        ("system", "log_level"): "INFO",
+        ("system", "log_max_size"): "10485760",
+        ("system", "log_backup_count"): "5",
     }
     # 处理 config.get('system') 返回整个 section 的情况
     if key is None or isinstance(key, dict):
-        return {'data_dir': './data', 'log_level': 'INFO', 'log_max_size': '10485760', 'log_backup_count': '5'}
+        return {
+            "data_dir": "./data",
+            "log_level": "INFO",
+            "log_max_size": "10485760",
+            "log_backup_count": "5",
+        }
     return defaults.get((section, key), default)
+
 
 mock_config_instance = Mock()
 mock_config_instance.get.side_effect = mock_get
@@ -28,11 +36,15 @@ mock_config_instance.getboolean.return_value = False
 mock_config_instance.getint.return_value = 100
 mock_config_instance.getfloat.return_value = 0.5
 
-with patch('backend.utils.config_loader.ConfigLoader', return_value=mock_config_instance), \
-     patch('backend.core.index_manager.IndexManager'), \
-     patch('backend.core.search_engine.SearchEngine'), \
-     patch('backend.core.file_scanner.FileScanner'), \
-     patch('backend.core.file_monitor.FileMonitor'):
+with (
+    patch(
+        "backend.utils.config_loader.ConfigLoader", return_value=mock_config_instance
+    ),
+    patch("backend.core.index_manager.IndexManager"),
+    patch("backend.core.search_engine.SearchEngine"),
+    patch("backend.core.file_scanner.FileScanner"),
+    patch("backend.core.file_monitor.FileMonitor"),
+):
     from backend.api.main import app, RateLimiter
 
 
@@ -46,6 +58,7 @@ def client():
 def mock_rate_limiter():
     """创建模拟限流器"""
     from collections import OrderedDict
+
     limiter = RateLimiter()
     limiter._requests = OrderedDict()
     return limiter
@@ -131,16 +144,20 @@ class TestSearchEndpoint:
                 "path": "/test/doc1.txt",
                 "filename": "doc1.txt",
                 "score": 0.9,
-                "snippet": "Test content"
+                "snippet": "Test content",
             }
         ]
         return engine
 
     def test_search_success(self, client, mock_search_engine):
         """测试成功搜索"""
-        with patch('backend.api.api.get_search_engine', return_value=mock_search_engine):
-            with patch('backend.api.api.get_rate_limiter', return_value=RateLimiter()):
-                response = client.post("/api/search", json={"query": "test", "filters": {}})
+        with patch(
+            "backend.api.api.get_search_engine", return_value=mock_search_engine
+        ):
+            with patch("backend.api.api.get_rate_limiter", return_value=RateLimiter()):
+                response = client.post(
+                    "/api/search", json={"query": "test", "filters": {}}
+                )
                 assert response.status_code == 200
                 results = response.json()
                 assert len(results) > 0
@@ -148,15 +165,17 @@ class TestSearchEndpoint:
 
     def test_search_empty_query(self, client, mock_search_engine):
         """测试空查询"""
-        with patch('backend.api.api.get_search_engine', return_value=mock_search_engine):
-            with patch('backend.api.api.get_rate_limiter', return_value=RateLimiter()):
+        with patch(
+            "backend.api.api.get_search_engine", return_value=mock_search_engine
+        ):
+            with patch("backend.api.api.get_rate_limiter", return_value=RateLimiter()):
                 response = client.post("/api/search", json={"query": "", "filters": {}})
                 assert response.status_code == 400
                 assert "不能为空" in response.json()["detail"]
 
     def test_search_no_query_field(self, client):
         """测试缺少query字段"""
-        with patch('backend.api.api.get_rate_limiter', return_value=RateLimiter()):
+        with patch("backend.api.api.get_rate_limiter", return_value=RateLimiter()):
             response = client.post("/api/search", json={"filters": {}})
             assert response.status_code == 200  # 会获取None作为query
 
@@ -164,9 +183,11 @@ class TestSearchEndpoint:
         """测试搜索限流"""
         limiter = Mock()
         limiter.is_allowed.return_value = False
-        with patch('backend.api.api.get_search_engine', return_value=mock_search_engine):
-            with patch('backend.api.api.get_rate_limiter', return_value=limiter):
-                with patch('backend.api.api.get_config_loader') as mock_config:
+        with patch(
+            "backend.api.api.get_search_engine", return_value=mock_search_engine
+        ):
+            with patch("backend.api.api.get_rate_limiter", return_value=limiter):
+                with patch("backend.api.api.get_config_loader") as mock_config:
                     mock_config.return_value.getboolean.return_value = True
                     response = client.post("/api/search", json={"query": "test"})
                     assert response.status_code == 429
@@ -179,30 +200,35 @@ class TestChatEndpoint:
     def mock_rag_pipeline(self):
         """创建模拟RAG管道"""
         pipeline = Mock()
-        pipeline.query.return_value = {"answer": "Test answer", "sources": ["/test/doc.txt"]}
+        pipeline.query.return_value = {
+            "answer": "Test answer",
+            "sources": ["/test/doc.txt"],
+        }
         return pipeline
 
     def test_chat_success(self, client, mock_rag_pipeline):
         """测试成功聊天"""
-        with patch('backend.api.api.get_rag_pipeline', return_value=mock_rag_pipeline):
-            with patch('backend.api.api.get_rate_limiter', return_value=RateLimiter()):
-                response = client.post("/api/chat", json={"query": "Hello", "session_id": "test123"})
+        with patch("backend.api.api.get_rag_pipeline", return_value=mock_rag_pipeline):
+            with patch("backend.api.api.get_rate_limiter", return_value=RateLimiter()):
+                response = client.post(
+                    "/api/chat", json={"query": "Hello", "session_id": "test123"}
+                )
                 assert response.status_code == 200
                 result = response.json()
                 assert result["answer"] == "Test answer"
 
     def test_chat_empty_query(self, client, mock_rag_pipeline):
         """测试空查询"""
-        with patch('backend.api.api.get_rag_pipeline', return_value=mock_rag_pipeline):
-            with patch('backend.api.api.get_rate_limiter', return_value=RateLimiter()):
+        with patch("backend.api.api.get_rag_pipeline", return_value=mock_rag_pipeline):
+            with patch("backend.api.api.get_rate_limiter", return_value=RateLimiter()):
                 response = client.post("/api/chat", json={"query": ""})
                 assert response.status_code == 400
 
     def test_chat_disabled(self, client):
         """测试AI功能未启用"""
-        with patch('backend.api.api.get_rag_pipeline', return_value=None):
-            with patch('backend.api.api.get_rate_limiter', return_value=RateLimiter()):
-                with patch('backend.api.api.get_config_loader') as mock_config:
+        with patch("backend.api.api.get_rag_pipeline", return_value=None):
+            with patch("backend.api.api.get_rate_limiter", return_value=RateLimiter()):
+                with patch("backend.api.api.get_config_loader") as mock_config:
                     mock_config.return_value.getboolean.return_value = False
                     response = client.post("/api/chat", json={"query": "Hello"})
                     assert response.status_code == 200
@@ -210,8 +236,8 @@ class TestChatEndpoint:
 
     def test_chat_no_session_id(self, client, mock_rag_pipeline):
         """测试无session_id"""
-        with patch('backend.api.api.get_rag_pipeline', return_value=mock_rag_pipeline):
-            with patch('backend.api.api.get_rate_limiter', return_value=RateLimiter()):
+        with patch("backend.api.api.get_rag_pipeline", return_value=mock_rag_pipeline):
+            with patch("backend.api.api.get_rate_limiter", return_value=RateLimiter()):
                 response = client.post("/api/chat", json={"query": "Hello"})
                 assert response.status_code == 200
 
@@ -225,18 +251,18 @@ class TestSessionsEndpoint:
         pipeline = Mock()
         pipeline.get_all_sessions.return_value = [
             {"session_id": "sess1", "title": "Session 1"},
-            {"session_id": "sess2", "title": "Session 2"}
+            {"session_id": "sess2", "title": "Session 2"},
         ]
         pipeline.clear_session.return_value = True
         pipeline.chat_db.get_session_messages.return_value = [
             {"role": "user", "content": "Hello"},
-            {"role": "assistant", "content": "Hi"}
+            {"role": "assistant", "content": "Hi"},
         ]
         return pipeline
 
     def test_get_sessions_success(self, client, mock_rag_pipeline):
         """测试获取会话列表"""
-        with patch('backend.api.api.get_rag_pipeline', return_value=mock_rag_pipeline):
+        with patch("backend.api.api.get_rag_pipeline", return_value=mock_rag_pipeline):
             response = client.get("/api/sessions")
             assert response.status_code == 200
             sessions = response.json()["sessions"]
@@ -244,14 +270,14 @@ class TestSessionsEndpoint:
 
     def test_get_sessions_no_rag(self, client):
         """测试无RAG时获取会话"""
-        with patch('backend.api.api.get_rag_pipeline', return_value=None):
+        with patch("backend.api.api.get_rag_pipeline", return_value=None):
             response = client.get("/api/sessions")
             assert response.status_code == 200
             assert response.json()["sessions"] == []
 
     def test_delete_session_success(self, client, mock_rag_pipeline):
         """测试删除会话"""
-        with patch('backend.api.api.get_rag_pipeline', return_value=mock_rag_pipeline):
+        with patch("backend.api.api.get_rag_pipeline", return_value=mock_rag_pipeline):
             response = client.delete("/api/sessions/test_session")
             assert response.status_code == 200
             assert response.json()["status"] == "success"
@@ -259,19 +285,19 @@ class TestSessionsEndpoint:
     def test_delete_session_not_found(self, client, mock_rag_pipeline):
         """测试删除不存在的会话"""
         mock_rag_pipeline.clear_session.return_value = False
-        with patch('backend.api.api.get_rag_pipeline', return_value=mock_rag_pipeline):
+        with patch("backend.api.api.get_rag_pipeline", return_value=mock_rag_pipeline):
             response = client.delete("/api/sessions/nonexistent")
             assert response.status_code == 404
 
     def test_delete_session_no_rag(self, client):
         """测试无RAG时删除会话"""
-        with patch('backend.api.api.get_rag_pipeline', return_value=None):
+        with patch("backend.api.api.get_rag_pipeline", return_value=None):
             response = client.delete("/api/sessions/test")
             assert response.status_code == 500
 
     def test_get_session_messages_success(self, client, mock_rag_pipeline):
         """测试获取会话消息"""
-        with patch('backend.api.api.get_rag_pipeline', return_value=mock_rag_pipeline):
+        with patch("backend.api.api.get_rag_pipeline", return_value=mock_rag_pipeline):
             response = client.get("/api/sessions/test_session/messages")
             assert response.status_code == 200
             messages = response.json()["messages"]
@@ -279,7 +305,7 @@ class TestSessionsEndpoint:
 
     def test_get_session_messages_no_rag(self, client):
         """测试无RAG时获取消息"""
-        with patch('backend.api.api.get_rag_pipeline', return_value=None):
+        with patch("backend.api.api.get_rag_pipeline", return_value=None):
             response = client.get("/api/sessions/test/messages")
             assert response.status_code == 500
 
@@ -322,7 +348,9 @@ class TestConfigEndpoint:
 
     def test_get_config_success(self, client, mock_config_loader):
         """测试获取配置"""
-        with patch('backend.api.api.get_config_loader', return_value=mock_config_loader):
+        with patch(
+            "backend.api.api.get_config_loader", return_value=mock_config_loader
+        ):
             response = client.get("/api/config")
             assert response.status_code == 200
             config = response.json()
@@ -332,24 +360,26 @@ class TestConfigEndpoint:
     def test_update_config_success(self, client, mock_config_loader):
         """测试更新配置"""
         mock_config_loader.save.return_value = True
-        with patch('backend.api.api.get_config_loader', return_value=mock_config_loader):
-            response = client.post("/api/config", json={
-                "ai_model": {
-                    "enabled": True
-                }
-            })
+        with patch(
+            "backend.api.api.get_config_loader", return_value=mock_config_loader
+        ):
+            response = client.post("/api/config", json={"ai_model": {"enabled": True}})
             assert response.status_code == 200
             assert response.json()["status"] == "success"
 
     def test_update_config_invalid_data(self, client, mock_config_loader):
         """测试无效配置数据"""
-        with patch('backend.api.api.get_config_loader', return_value=mock_config_loader):
+        with patch(
+            "backend.api.api.get_config_loader", return_value=mock_config_loader
+        ):
             response = client.post("/api/config", json="not a dict")
             assert response.status_code == 400
 
     def test_update_config_empty_sections(self, client, mock_config_loader):
         """测试空配置节"""
-        with patch('backend.api.api.get_config_loader', return_value=mock_config_loader):
+        with patch(
+            "backend.api.api.get_config_loader", return_value=mock_config_loader
+        ):
             response = client.post("/api/config", json={"unknown_section": {}})
             assert response.status_code == 200
             assert response.json()["status"] == "warning"
@@ -374,13 +404,19 @@ class TestPreviewEndpoint:
 
     def test_preview_success(self, client, mock_index_manager, mock_config_loader):
         """测试成功预览"""
-        with patch('backend.api.api.get_index_manager', return_value=mock_index_manager):
-            with patch('backend.api.api.get_config_loader', return_value=mock_config_loader):
-                with patch('os.path.exists', return_value=True):
-                    with patch('os.path.isdir', return_value=True):
-                        with patch('os.path.abspath', return_value="/test"):
-                            with patch('os.path.getsize', return_value=1000):
-                                response = client.post("/api/preview", json={"path": "/test/file.txt"})
+        with patch(
+            "backend.api.api.get_index_manager", return_value=mock_index_manager
+        ):
+            with patch(
+                "backend.api.api.get_config_loader", return_value=mock_config_loader
+            ):
+                with patch("os.path.exists", return_value=True):
+                    with patch("os.path.isdir", return_value=True):
+                        with patch("os.path.abspath", return_value="/test"):
+                            with patch("os.path.getsize", return_value=1000):
+                                response = client.post(
+                                    "/api/preview", json={"path": "/test/file.txt"}
+                                )
                                 assert response.status_code == 200
                                 assert "content" in response.json()
 
@@ -392,19 +428,29 @@ class TestPreviewEndpoint:
 
     def test_preview_path_not_allowed(self, client, mock_config_loader):
         """测试不允许的路径"""
-        with patch('backend.api.api.get_config_loader', return_value=mock_config_loader):
-            with patch('backend.api.api.is_path_allowed', return_value=False):
+        with patch(
+            "backend.api.api.get_config_loader", return_value=mock_config_loader
+        ):
+            with patch("backend.api.api.is_path_allowed", return_value=False):
                 response = client.post("/api/preview", json={"path": "/etc/passwd"})
                 assert response.status_code == 200
                 assert "超出允许范围" in response.json()["content"]
 
-    def test_preview_file_not_found(self, client, mock_index_manager, mock_config_loader):
+    def test_preview_file_not_found(
+        self, client, mock_index_manager, mock_config_loader
+    ):
         """测试文件不存在"""
-        with patch('backend.api.api.get_index_manager', return_value=mock_index_manager):
-            with patch('backend.api.api.get_config_loader', return_value=mock_config_loader):
-                with patch('os.path.exists', return_value=False):
-                    with patch('backend.api.api.is_path_allowed', return_value=True):
-                        response = client.post("/api/preview", json={"path": "/test/nonexistent.txt"})
+        with patch(
+            "backend.api.api.get_index_manager", return_value=mock_index_manager
+        ):
+            with patch(
+                "backend.api.api.get_config_loader", return_value=mock_config_loader
+            ):
+                with patch("os.path.exists", return_value=False):
+                    with patch("backend.api.api.is_path_allowed", return_value=True):
+                        response = client.post(
+                            "/api/preview", json={"path": "/test/nonexistent.txt"}
+                        )
                         assert response.status_code == 200
                         assert "不存在" in response.json()["content"]
 
@@ -418,7 +464,7 @@ class TestRebuildIndexEndpoint:
         scanner = Mock()
         scanner.scan_and_index.return_value = {
             "total_files_scanned": 100,
-            "total_files_indexed": 50
+            "total_files_indexed": 50,
         }
         scanner.scan_paths = ["/test/path"]
         return scanner
@@ -432,25 +478,35 @@ class TestRebuildIndexEndpoint:
 
     def test_rebuild_index_success(self, client, mock_file_scanner, mock_index_manager):
         """测试成功重建索引"""
-        with patch('backend.api.api.get_file_scanner', return_value=mock_file_scanner):
-            with patch('backend.api.api.get_index_manager', return_value=mock_index_manager):
-                with patch('backend.api.api.get_rate_limiter', return_value=RateLimiter()):
-                    with patch('backend.api.api.get_config_loader') as mock_config:
-                        mock_config.return_value.getboolean.return_value = False  # 禁用限流
+        with patch("backend.api.api.get_file_scanner", return_value=mock_file_scanner):
+            with patch(
+                "backend.api.api.get_index_manager", return_value=mock_index_manager
+            ):
+                with patch(
+                    "backend.api.api.get_rate_limiter", return_value=RateLimiter()
+                ):
+                    with patch("backend.api.api.get_config_loader") as mock_config:
+                        mock_config.return_value.getboolean.return_value = (
+                            False  # 禁用限流
+                        )
                         response = client.post("/api/rebuild-index")
                         assert response.status_code == 200
                         result = response.json()
                         assert result["status"] == "success"
                         assert result["files_scanned"] == 100
 
-    def test_rebuild_index_rate_limited(self, client, mock_file_scanner, mock_index_manager):
+    def test_rebuild_index_rate_limited(
+        self, client, mock_file_scanner, mock_index_manager
+    ):
         """测试重建索引限流"""
         limiter = Mock()
         limiter.is_allowed.return_value = False
-        with patch('backend.api.api.get_file_scanner', return_value=mock_file_scanner):
-            with patch('backend.api.api.get_index_manager', return_value=mock_index_manager):
-                with patch('backend.api.api.get_rate_limiter', return_value=limiter):
-                    with patch('backend.api.api.get_config_loader') as mock_config:
+        with patch("backend.api.api.get_file_scanner", return_value=mock_file_scanner):
+            with patch(
+                "backend.api.api.get_index_manager", return_value=mock_index_manager
+            ):
+                with patch("backend.api.api.get_rate_limiter", return_value=limiter):
+                    with patch("backend.api.api.get_config_loader") as mock_config:
                         mock_config.return_value.getboolean.return_value = True
                         response = client.post("/api/rebuild-index")
                         assert response.status_code == 429
@@ -474,12 +530,18 @@ class TestDirectoryEndpoints:
         monitor.get_monitored_directories.return_value = ["/test/path1"]
         return monitor
 
-    def test_get_directories_success(self, client, mock_config_loader, mock_file_monitor):
+    def test_get_directories_success(
+        self, client, mock_config_loader, mock_file_monitor
+    ):
         """测试获取目录列表"""
-        with patch('backend.api.api.get_config_loader', return_value=mock_config_loader):
-            with patch('backend.api.api.get_file_monitor', return_value=mock_file_monitor):
-                with patch('os.path.exists', return_value=True):
-                    with patch('os.path.isdir', return_value=True):
+        with patch(
+            "backend.api.api.get_config_loader", return_value=mock_config_loader
+        ):
+            with patch(
+                "backend.api.api.get_file_monitor", return_value=mock_file_monitor
+            ):
+                with patch("os.path.exists", return_value=True):
+                    with patch("os.path.isdir", return_value=True):
                         response = client.get("/api/directories")
                         assert response.status_code == 200
                         directories = response.json()["directories"]
@@ -487,39 +549,69 @@ class TestDirectoryEndpoints:
 
     def test_add_directory_success(self, client, mock_config_loader, mock_file_monitor):
         """测试添加目录"""
-        with patch('backend.api.api.get_config_loader', return_value=mock_config_loader):
-            with patch('backend.api.api.get_file_monitor', return_value=mock_file_monitor):
-                with patch('backend.api.api.get_file_scanner', return_value=Mock()):
-                    with patch('os.path.exists', return_value=True):
-                        with patch('os.path.isdir', return_value=True):
-                            with patch('os.path.abspath', return_value="/new/path"):
-                                response = client.post("/api/directories", json={"path": "/new/path"})
+        with patch(
+            "backend.api.api.get_config_loader", return_value=mock_config_loader
+        ):
+            with patch(
+                "backend.api.api.get_file_monitor", return_value=mock_file_monitor
+            ):
+                with patch("backend.api.api.get_file_scanner", return_value=Mock()):
+                    with patch("os.path.exists", return_value=True):
+                        with patch("os.path.isdir", return_value=True):
+                            with patch("os.path.abspath", return_value="/new/path"):
+                                response = client.post(
+                                    "/api/directories", json={"path": "/new/path"}
+                                )
                                 assert response.status_code == 200
                                 assert response.json()["status"] == "success"
 
-    def test_add_directory_not_exist(self, client, mock_config_loader, mock_file_monitor):
+    def test_add_directory_not_exist(
+        self, client, mock_config_loader, mock_file_monitor
+    ):
         """测试添加不存在的目录"""
-        with patch('backend.api.api.get_config_loader', return_value=mock_config_loader):
-            with patch('backend.api.api.get_file_monitor', return_value=mock_file_monitor):
-                with patch('os.path.exists', return_value=False):
-                    response = client.post("/api/directories", json={"path": "/nonexistent"})
+        with patch(
+            "backend.api.api.get_config_loader", return_value=mock_config_loader
+        ):
+            with patch(
+                "backend.api.api.get_file_monitor", return_value=mock_file_monitor
+            ):
+                with patch("os.path.exists", return_value=False):
+                    response = client.post(
+                        "/api/directories", json={"path": "/nonexistent"}
+                    )
                     assert response.status_code == 400
 
-    def test_add_directory_not_directory(self, client, mock_config_loader, mock_file_monitor):
+    def test_add_directory_not_directory(
+        self, client, mock_config_loader, mock_file_monitor
+    ):
         """测试添加非目录路径"""
-        with patch('backend.api.api.get_config_loader', return_value=mock_config_loader):
-            with patch('backend.api.api.get_file_monitor', return_value=mock_file_monitor):
-                with patch('os.path.exists', return_value=True):
-                    with patch('os.path.isdir', return_value=False):
-                        response = client.post("/api/directories", json={"path": "/test/file.txt"})
+        with patch(
+            "backend.api.api.get_config_loader", return_value=mock_config_loader
+        ):
+            with patch(
+                "backend.api.api.get_file_monitor", return_value=mock_file_monitor
+            ):
+                with patch("os.path.exists", return_value=True):
+                    with patch("os.path.isdir", return_value=False):
+                        response = client.post(
+                            "/api/directories", json={"path": "/test/file.txt"}
+                        )
                         assert response.status_code == 400
 
-    def test_remove_directory_success(self, client, mock_config_loader, mock_file_monitor):
+    def test_remove_directory_success(
+        self, client, mock_config_loader, mock_file_monitor
+    ):
         """测试删除目录"""
-        with patch('backend.api.api.get_config_loader', return_value=mock_config_loader):
-            with patch('backend.api.api.get_file_monitor', return_value=mock_file_monitor):
-                with patch('os.path.abspath', return_value="/test/path"):
-                    response = client.request("DELETE", "/api/directories", json={"path": "/test/path"})
+        with patch(
+            "backend.api.api.get_config_loader", return_value=mock_config_loader
+        ):
+            with patch(
+                "backend.api.api.get_file_monitor", return_value=mock_file_monitor
+            ):
+                with patch("os.path.abspath", return_value="/test/path"):
+                    response = client.request(
+                        "DELETE", "/api/directories", json={"path": "/test/path"}
+                    )
                     assert response.status_code == 200
                     assert response.json()["status"] == "success"
 
@@ -530,20 +622,22 @@ class TestPathSecurity:
     def test_is_path_allowed_valid(self):
         """测试有效路径"""
         from backend.api.dependencies import is_path_allowed
+
         config = Mock()
         config.get.return_value = "/allowed/path"
 
         # Mock Path methods for pathlib-based implementation
-        with patch.object(Path, 'resolve', return_value=Path("/allowed/path/file.txt")):
-            with patch.object(Path, 'is_symlink', return_value=False):
-                with patch.object(Path, 'exists', return_value=True):
-                    with patch.object(Path, 'is_dir', side_effect=lambda: True):
+        with patch.object(Path, "resolve", return_value=Path("/allowed/path/file.txt")):
+            with patch.object(Path, "is_symlink", return_value=False):
+                with patch.object(Path, "exists", return_value=True):
+                    with patch.object(Path, "is_dir", side_effect=lambda: True):
                         result = is_path_allowed("/allowed/path/file.txt", config)
                         assert result
 
     def test_is_path_allowed_traversal(self):
         """测试路径遍历攻击"""
         from backend.api.dependencies import is_path_allowed
+
         config = Mock()
         result = is_path_allowed("../../../etc/passwd", config)
         assert not result
@@ -551,6 +645,7 @@ class TestPathSecurity:
     def test_is_path_allowed_empty(self):
         """测试空路径"""
         from backend.api.dependencies import is_path_allowed
+
         config = Mock()
         result = is_path_allowed("", config)
         assert not result
@@ -558,6 +653,7 @@ class TestPathSecurity:
     def test_is_path_allowed_double_slash(self):
         """测试双斜杠路径"""
         from backend.api.dependencies import is_path_allowed
+
         config = Mock()
         result = is_path_allowed("//etc/passwd", config)
         assert not result
@@ -565,6 +661,7 @@ class TestPathSecurity:
     def test_is_path_allowed_null_byte(self):
         """测试空字节注入攻击"""
         from backend.api.dependencies import is_path_allowed
+
         config = Mock()
         result = is_path_allowed("/allowed/path/file\x00.txt", config)
         assert not result
@@ -572,6 +669,7 @@ class TestPathSecurity:
     def test_is_path_allowed_url_encoded_traversal(self):
         """测试URL编码的路径遍历攻击"""
         from backend.api.dependencies import is_path_allowed
+
         config = Mock()
         # %2e%2e 是 .. 的URL编码
         result = is_path_allowed("/allowed/path/%2e%2e/%2e%2e/etc/passwd", config)
@@ -580,6 +678,7 @@ class TestPathSecurity:
     def test_is_path_allowed_double_url_encoded(self):
         """测试双重URL编码的路径遍历攻击"""
         from backend.api.dependencies import is_path_allowed
+
         config = Mock()
         # %252e 是 %2e 的双重编码
         result = is_path_allowed("/allowed/path/%252e%252e/etc/passwd", config)
@@ -588,6 +687,7 @@ class TestPathSecurity:
     def test_is_path_allowed_dotdot_in_middle(self):
         """测试路径中间的 .. 遍历"""
         from backend.api.dependencies import is_path_allowed
+
         config = Mock()
         result = is_path_allowed("/allowed/path/../secret/file.txt", config)
         assert not result
@@ -595,6 +695,7 @@ class TestPathSecurity:
     def test_is_path_allowed_none_path(self):
         """测试None路径"""
         from backend.api.dependencies import is_path_allowed
+
         config = Mock()
         result = is_path_allowed(None, config)  # type: ignore[arg-type]
         assert not result
@@ -602,6 +703,7 @@ class TestPathSecurity:
     def test_is_path_allowed_non_string_path(self):
         """测试非字符串路径"""
         from backend.api.dependencies import is_path_allowed
+
         config = Mock()
         result = is_path_allowed(12345, config)  # type: ignore[arg-type]
         assert not result
@@ -609,8 +711,9 @@ class TestPathSecurity:
     def test_is_path_allowed_no_scan_paths_configured(self):
         """测试未配置扫描路径时拒绝所有访问"""
         from backend.api.dependencies import is_path_allowed
+
         config = Mock()
-        config.get.return_value = ''
+        config.get.return_value = ""
         result = is_path_allowed("/some/path/file.txt", config)
         assert not result
 
@@ -620,15 +723,15 @@ class TestRootEndpoint:
 
     def test_root_success(self, client):
         """测试根端点"""
-        with patch('pathlib.Path.exists', return_value=True):
-            with patch('pathlib.Path.read_text', return_value="<html>Test</html>"):
+        with patch("pathlib.Path.exists", return_value=True):
+            with patch("pathlib.Path.read_text", return_value="<html>Test</html>"):
                 response = client.get("/")
                 assert response.status_code == 200
                 assert "<html>" in response.text
 
     def test_root_no_frontend(self, client):
         """测试无前端文件"""
-        with patch('pathlib.Path.exists', return_value=False):
+        with patch("pathlib.Path.exists", return_value=False):
             response = client.get("/")
             assert response.status_code == 200
             assert "message" in response.json()
@@ -639,14 +742,14 @@ class TestFaviconEndpoint:
 
     def test_favicon_exists(self, client):
         """测试favicon存在"""
-        with patch('pathlib.Path.exists', return_value=True):
-            with patch('pathlib.Path.read_bytes', return_value=b"fake_icon_data"):
+        with patch("pathlib.Path.exists", return_value=True):
+            with patch("pathlib.Path.read_bytes", return_value=b"fake_icon_data"):
                 response = client.get("/favicon.ico")
                 assert response.status_code == 200
 
     def test_favicon_not_exists(self, client):
         """测试favicon不存在"""
-        with patch('pathlib.Path.exists', return_value=False):
+        with patch("pathlib.Path.exists", return_value=False):
             response = client.get("/favicon.ico")
             assert response.status_code == 204
 
@@ -656,19 +759,19 @@ class TestModelTestEndpoint:
 
     def test_test_model_connection_success(self, client):
         """测试模型连接成功"""
-        with patch('backend.core.model_manager.ModelManager') as mock_mm:
+        with patch("backend.core.model_manager.ModelManager") as mock_mm:
             mock_instance = Mock()
             mock_instance.test_connection.return_value = {"status": "ok"}
             mock_mm.return_value = mock_instance
-            with patch('backend.api.api.get_config_loader', return_value=Mock()):
+            with patch("backend.api.api.get_config_loader", return_value=Mock()):
                 response = client.get("/api/model/test")
                 assert response.status_code == 200
 
     def test_test_model_connection_error(self, client):
         """测试模型连接失败"""
-        with patch('backend.core.model_manager.ModelManager') as mock_mm:
+        with patch("backend.core.model_manager.ModelManager") as mock_mm:
             mock_mm.side_effect = Exception("Connection failed")
-            with patch('backend.api.api.get_config_loader', return_value=Mock()):
+            with patch("backend.api.api.get_config_loader", return_value=Mock()):
                 response = client.get("/api/model/test")
                 assert response.status_code == 200
                 assert response.json()["status"] == "error"
@@ -680,12 +783,14 @@ if __name__ == "__main__":
 
     try:
         import importlib.util
+
         if importlib.util.find_spec("backend.utils.config_loader"):
             print("[OK] ConfigLoader导入成功")
         else:
             print("[FAIL] ConfigLoader模块未找到")
 
         from backend.utils.logger import get_logger
+
         logger = get_logger(__name__)
         print("[OK] Logger导入和初始化成功")
 
@@ -695,16 +800,21 @@ if __name__ == "__main__":
             print("[FAIL] Web API模块未找到")
 
         from backend.api.main import app
+
         print("[OK] App导入成功")
 
         print("\n所有组件加载成功!")
-        print("运行命令: python -m uvicorn backend.api.api:app --host 127.0.0.1 --port 8000")
+        print(
+            "运行命令: python -m uvicorn backend.api.api:app --host 127.0.0.1 --port 8000"
+        )
 
     except ImportError as e:
         print(f"[错误] 导入错误: {e}")
         import traceback
+
         traceback.print_exc()
     except Exception as e:
         print(f"[错误] 其他错误: {e}")
         import traceback
+
         traceback.print_exc()

@@ -39,9 +39,10 @@ class RateLimiter:
         # 后台清理线程
         self._stop_cleanup = threading.Event()
         self._start_cleanup_thread()
-    
+
     def _start_cleanup_thread(self):
         """启动后台清理线程"""
+
         def cleanup_loop():
             while not self._stop_cleanup.is_set():
                 try:
@@ -51,18 +52,18 @@ class RateLimiter:
                     self._periodic_cleanup()
                 except Exception as e:
                     logger.warning(f"限流器清理线程异常：{e}")
-        
+
         self._cleanup_thread = threading.Thread(target=cleanup_loop, daemon=True)
         self._cleanup_thread.start()
         logger.info(f"限流器后台清理线程已启动，间隔 {self._cleanup_interval}秒")
-    
+
     def _periodic_cleanup(self):
         """定期清理过期条目（后台线程调用）"""
         now = time.time()
         # 清理所有过期条目（使用 60 秒窗口）
         self._cleanup_expired(now, window=60)
         logger.debug(f"限流器清理完成，当前条目数：{len(self._requests)}")
-    
+
     def shutdown(self):
         """关闭限流器，停止清理线程"""
         self._stop_cleanup.set()
@@ -88,8 +89,7 @@ class RateLimiter:
             self._requests[key] = []
 
         # 移除窗口期外的请求记录
-        self._requests[key] = [
-            t for t in self._requests[key] if now - t < window]
+        self._requests[key] = [t for t in self._requests[key] if now - t < window]
 
         # 检查是否超过限制
         if len(self._requests[key]) >= max_requests:
@@ -138,12 +138,12 @@ class RateLimiter:
         """获取限流器指标"""
         total = self._allowed_count + self._rejected_count
         return {
-            'allowed': self._allowed_count,
-            'rejected': self._rejected_count,
-            'total': total,
-            'hit_rate': self._allowed_count / total if total > 0 else 1.0,
-            'current_entries': len(self._requests),
-            'max_entries': self._max_entries,
+            "allowed": self._allowed_count,
+            "rejected": self._rejected_count,
+            "total": total,
+            "hit_rate": self._allowed_count / total if total > 0 else 1.0,
+            "current_entries": len(self._requests),
+            "max_entries": self._max_entries,
         }
 
 
@@ -157,7 +157,8 @@ def get_rate_limiter(config_loader=None):
     if rate_limiter is None and config_loader:
         try:
             max_entries = config_loader.getint(
-                'security', 'rate_limiter.max_entries', 10000)
+                "security", "rate_limiter.max_entries", 10000
+            )
             rate_limiter = RateLimiter(max_entries=max_entries)
         except Exception:
             rate_limiter = RateLimiter()
@@ -170,7 +171,7 @@ def get_rate_limiter(config_loader=None):
 app = FastAPI(
     title="智能文件检索与问答系统 - Web API",
     description="基于 Python 和 FastAPI 的文件智能管理工具 Web 接口",
-    version=get_version()
+    version=get_version(),
 )
 
 
@@ -186,7 +187,7 @@ async def add_security_headers(request, call_next):
     # 防止点击劫持
     response.headers["X-Frame-Options"] = "DENY"
 
-    # 内容安全策略 
+    # 内容安全策略
     response.headers["Content-Security-Policy"] = (
         "default-src 'self'; "
         "script-src 'self' https://cdn.jsdelivr.net; "
@@ -221,10 +222,12 @@ async def lifespan(app: FastAPI):
 
         # 设置全局应用引用
         from backend.api import dependencies
+
         dependencies.set_app(app)
 
         # 首先初始化配置加载器
         from backend.utils.config_loader import ConfigLoader
+
         config_loader = ConfigLoader()
         app.state.config_loader = config_loader
 
@@ -235,21 +238,26 @@ async def lifespan(app: FastAPI):
         # 使用线程池并行初始化独立组件
         def init_index_manager():
             from backend.core.index_manager import IndexManager
-            if not hasattr(app.state, 'index_manager'):
+
+            if not hasattr(app.state, "index_manager"):
                 app.state.index_manager = IndexManager(config_loader)
             return app.state.index_manager
 
         def init_search_engine():
             from backend.core.search_engine import SearchEngine
-            if not hasattr(app.state, 'search_engine'):
+
+            if not hasattr(app.state, "search_engine"):
                 app.state.search_engine = SearchEngine(
-                    app.state.index_manager, config_loader)
+                    app.state.index_manager, config_loader
+                )
 
         def init_file_scanner():
             from backend.core.file_scanner import FileScanner
-            if not hasattr(app.state, 'file_scanner'):
+
+            if not hasattr(app.state, "file_scanner"):
                 app.state.file_scanner = FileScanner(
-                    config_loader, None, app.state.index_manager)
+                    config_loader, None, app.state.index_manager
+                )
             return app.state.file_scanner
 
         # 第 1 阶段：并行初始化核心索引组件（这些组件相互依赖）
@@ -273,11 +281,13 @@ async def lifespan(app: FastAPI):
             raise  # 文件扫描是核心功能，失败时不能继续
 
         # 初始化文件监控器
-        if not hasattr(app.state, 'file_monitor'):
+        if not hasattr(app.state, "file_monitor"):
             from backend.core.file_monitor import FileMonitor
+
             app.state.file_monitor = FileMonitor(
-                config_loader, index_manager, file_scanner)
-            if config_loader.getboolean('monitor', 'enabled', False):
+                config_loader, index_manager, file_scanner
+            )
+            if config_loader.getboolean("monitor", "enabled", False):
                 app.state.file_monitor.start_monitoring()
                 logger.info("文件监控已启动")
 
@@ -295,16 +305,16 @@ async def lifespan(app: FastAPI):
                 app.state.rag_initializing = True
                 from backend.core.model_manager import ModelManager
                 from backend.core.rag_pipeline import RAGPipeline
+
                 model_manager = ModelManager(config_loader)
                 app.state.rag_pipeline = RAGPipeline(
-                    model_manager, config_loader, app.state.search_engine)
+                    model_manager, config_loader, app.state.search_engine
+                )
                 app.state.rag_status = "ready"
                 app.state.rag_error = None
                 logger.info("RAG 管道后台初始化完成")
                 # 通知等待的协程 RAG 已就绪
-                asyncio.run_coroutine_threadsafe(
-                    _set_rag_ready(), app.state.main_loop
-                )
+                asyncio.run_coroutine_threadsafe(_set_rag_ready(), app.state.main_loop)
             except Exception as e:
                 logger.error(f"RAG 管道初始化失败：{e}")
                 app.state.rag_pipeline = None
@@ -318,15 +328,15 @@ async def lifespan(app: FastAPI):
             app.state.rag_ready_event.set()
 
         # 如果 AI 功能启用，在后台线程初始化 RAG
-        if config_loader.getboolean('ai_model', 'enabled', False):
+        if config_loader.getboolean("ai_model", "enabled", False):
             import threading
-            rag_thread = threading.Thread(
-                target=init_rag_pipeline, daemon=True)
+
+            rag_thread = threading.Thread(target=init_rag_pipeline, daemon=True)
             rag_thread.start()
             logger.info("RAG 管道后台初始化已启动")
 
         # 如果需要，处理模式更新
-        if getattr(index_manager, 'schema_updated', False):
+        if getattr(index_manager, "schema_updated", False):
             logger.info("检测到索引模式更新，自动重建并扫描索引...")
             stats = file_scanner.scan_and_index()
             logger.info(f"自动重建索引完成：{stats}")
@@ -345,7 +355,7 @@ async def lifespan(app: FastAPI):
     logger.info("正在关闭应用，清理资源...")
 
     # 停止文件监控
-    if hasattr(app.state, 'file_monitor') and app.state.file_monitor:
+    if hasattr(app.state, "file_monitor") and app.state.file_monitor:
         try:
             app.state.file_monitor.stop_monitoring()
             logger.info("文件监控已停止")
@@ -353,16 +363,19 @@ async def lifespan(app: FastAPI):
             logger.error(f"停止文件监控时出错：{e}")
 
     # 关闭 RAG Pipeline
-    if hasattr(app.state, 'rag_pipeline') and app.state.rag_pipeline:
+    if hasattr(app.state, "rag_pipeline") and app.state.rag_pipeline:
         try:
-            if hasattr(app.state.rag_pipeline, 'model_manager') and app.state.rag_pipeline.model_manager:
+            if (
+                hasattr(app.state.rag_pipeline, "model_manager")
+                and app.state.rag_pipeline.model_manager
+            ):
                 app.state.rag_pipeline.model_manager.close()
                 logger.info("RAG Pipeline 已关闭")
         except Exception as e:
             logger.error(f"关闭 RAG Pipeline 时出错：{e}")
 
     # 关闭索引管理器
-    if hasattr(app.state, 'index_manager') and app.state.index_manager:
+    if hasattr(app.state, "index_manager") and app.state.index_manager:
         try:
             app.state.index_manager.close()
             logger.info("索引管理器已关闭")
@@ -370,16 +383,19 @@ async def lifespan(app: FastAPI):
             logger.error(f"关闭索引管理器时出错：{e}")
 
     # 关闭 ChatHistoryDB
-    if hasattr(app.state, 'rag_pipeline') and app.state.rag_pipeline:
+    if hasattr(app.state, "rag_pipeline") and app.state.rag_pipeline:
         try:
-            if hasattr(app.state.rag_pipeline, 'chat_db') and app.state.rag_pipeline.chat_db:
+            if (
+                hasattr(app.state.rag_pipeline, "chat_db")
+                and app.state.rag_pipeline.chat_db
+            ):
                 app.state.rag_pipeline.chat_db.close()
                 logger.info("ChatHistoryDB 已关闭")
         except Exception as e:
             logger.error(f"关闭 ChatHistoryDB 时出错：{e}")
 
     # 关闭限流器
-    if hasattr(app.state, 'rate_limiter') and app.state.rate_limiter:
+    if hasattr(app.state, "rate_limiter") and app.state.rate_limiter:
         try:
             app.state.rate_limiter.shutdown()
             logger.info("限流器已关闭")
@@ -399,8 +415,7 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
     """处理请求验证错误"""
     logger.error(f"请求验证错误：{exc.errors()}")
     return JSONResponse(
-        status_code=422,
-        content={"detail": "请求参数验证失败", "errors": exc.errors()}
+        status_code=422, content={"detail": "请求参数验证失败", "errors": exc.errors()}
     )
 
 
@@ -408,10 +423,7 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
 async def global_exception_handler(request: Request, exc: Exception):
     """全局异常处理器"""
     logger.error(f"未处理的异常：{str(exc)}", exc_info=True)
-    return JSONResponse(
-        status_code=500,
-        content={"detail": "内部服务器错误"}
-    )
+    return JSONResponse(status_code=500, content={"detail": "内部服务器错误"})
 
 
 # 静态页面路由
@@ -429,7 +441,7 @@ async def read_root():
     """提供主 HTML 页面"""
     frontend_path = Path("frontend/index.html")
     if frontend_path.exists():
-        return HTMLResponse(content=frontend_path.read_text(encoding='utf-8'))
+        return HTMLResponse(content=frontend_path.read_text(encoding="utf-8"))
     return {"message": "Frontend not found", "docs_url": "/docs"}
 
 
@@ -444,4 +456,5 @@ app.include_router(system.router, prefix="/api")
 
 # 挂载静态文件目录
 from fastapi.staticfiles import StaticFiles
+
 app.mount("/static", StaticFiles(directory="frontend/static"), name="static")

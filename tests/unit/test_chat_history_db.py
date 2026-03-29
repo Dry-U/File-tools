@@ -1,4 +1,5 @@
 """Chat History DB 单元测试"""
+
 import pytest
 import sys
 import os
@@ -6,7 +7,7 @@ import tempfile
 import time
 import threading
 
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 from backend.core.chat_history_db import ChatHistoryDB
 
@@ -201,7 +202,11 @@ class TestChatHistoryDB:
     def test_auto_update_title(self, temp_db):
         """测试自动更新标题"""
         temp_db.create_session("test_session")
-        temp_db.add_message("test_session", "user", "This is a very long message that should be truncated")
+        temp_db.add_message(
+            "test_session",
+            "user",
+            "This is a very long message that should be truncated",
+        )
 
         sessions = temp_db.get_all_sessions()
         assert len(sessions[0]["title"]) <= 33  # 30 + "..."
@@ -240,6 +245,7 @@ class TestChatHistoryDBEdgeCases:
             yield db
             db.close()
             import time
+
             time.sleep(0.1)  # Windows 下等待文件锁释放
 
     def test_concurrent_access(self, temp_db):
@@ -252,7 +258,7 @@ class TestChatHistoryDBEdgeCases:
 
         threads = [
             threading.Thread(target=add_messages),
-            threading.Thread(target=add_messages)
+            threading.Thread(target=add_messages),
         ]
 
         for t in threads:
@@ -347,31 +353,38 @@ class TestChatHistoryDBSessionValidation:
             yield db
             db.close()
             import time
+
             time.sleep(0.1)
 
-    @pytest.mark.parametrize("valid_id", [
-        "session123",
-        "test_session",
-        "test-session",
-        "SESSION_123",
-        "123session",
-        "a",
-        "A" * 64,
-    ])
+    @pytest.mark.parametrize(
+        "valid_id",
+        [
+            "session123",
+            "test_session",
+            "test-session",
+            "SESSION_123",
+            "123session",
+            "a",
+            "A" * 64,
+        ],
+    )
     def test_valid_session_ids(self, temp_db, valid_id):
         """测试有效会话ID"""
         result = temp_db.create_session(valid_id)
         assert result
 
-    @pytest.mark.parametrize("invalid_id", [
-        "",
-        "test/session",  # 斜杠
-        "test\\session",  # 反斜杠
-        "test session",  # 空格
-        "test\tsession",  # 制表符
-        "test\nsession",  # 换行
-        "a" * 257,  # 过长
-    ])
+    @pytest.mark.parametrize(
+        "invalid_id",
+        [
+            "",
+            "test/session",  # 斜杠
+            "test\\session",  # 反斜杠
+            "test session",  # 空格
+            "test\tsession",  # 制表符
+            "test\nsession",  # 换行
+            "a" * 257,  # 过长
+        ],
+    )
     def test_invalid_session_ids(self, temp_db, invalid_id):
         """测试无效会话ID"""
         result = temp_db.create_session(invalid_id)

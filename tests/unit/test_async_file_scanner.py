@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 """测试异步文件扫描功能"""
+
 import pytest
 from unittest.mock import Mock, patch
 
@@ -12,18 +13,18 @@ def mock_config():
     """创建模拟配置"""
     config = Mock()
     config.get.side_effect = lambda section, key, default=None: {
-        ('file_scanner', 'scan_paths', ''): '',
-        ('file_scanner', 'max_file_size', 100): 100,
-        ('file_scanner', 'exclude_patterns', ''): '',
-        ('file_scanner', 'file_types', None): None,
-        ('file_scanner', 'scan_threads', 4): 4,
-        ('file_scanner', 'hash_cache_size', 10000): 10000,
+        ("file_scanner", "scan_paths", ""): "",
+        ("file_scanner", "max_file_size", 100): 100,
+        ("file_scanner", "exclude_patterns", ""): "",
+        ("file_scanner", "file_types", None): None,
+        ("file_scanner", "scan_threads", 4): 4,
+        ("file_scanner", "hash_cache_size", 10000): 10000,
     }.get((section, key, default), default)
 
     config.getint.side_effect = lambda section, key, default=0: {
-        ('file_scanner', 'max_file_size', 100): 100,
-        ('file_scanner', 'scan_threads', 4): 4,
-        ('file_scanner', 'hash_cache_size', 10000): 10000,
+        ("file_scanner", "max_file_size", 100): 100,
+        ("file_scanner", "scan_threads", 4): 4,
+        ("file_scanner", "hash_cache_size", 10000): 10000,
     }.get((section, key, default), default)
 
     return config
@@ -42,11 +43,11 @@ class TestAsyncFileScanner:
         (tmp_path / "test.txt").write_text("test content")
 
         # 模拟 aiofiles 不可用
-        with patch.object(scanner, '_process_file', return_value=True):
+        with patch.object(scanner, "_process_file", return_value=True):
             result = await scanner.scan_and_index_async()
 
             assert isinstance(result, dict)
-            assert 'total_files_scanned' in result
+            assert "total_files_scanned" in result
 
     @pytest.mark.asyncio
     async def test_collect_files_async(self, mock_config, tmp_path):
@@ -74,8 +75,8 @@ class TestAsyncFileScanner:
         test_file.write_text("test content")
 
         # 由于 aiofiles 可能不可用，测试回退行为
-        with patch.object(scanner, '_is_file_changed', return_value=True):
-            with patch.object(scanner, '_should_index', return_value=False):
+        with patch.object(scanner, "_is_file_changed", return_value=True):
+            with patch.object(scanner, "_should_index", return_value=False):
                 result = await scanner._process_file_async(test_file)
 
                 # 文件应该被处理（虽然不会被索引）
@@ -89,7 +90,7 @@ class TestAsyncFileScanner:
         test_file = tmp_path / "test.txt"
         test_file.write_text("test content")
 
-        content = await scanner._read_file_content_async(str(test_file), '.txt')
+        content = await scanner._read_file_content_async(str(test_file), ".txt")
 
         assert content == "test content"
 
@@ -98,11 +99,11 @@ class TestAsyncFileScanner:
         scanner = FileScanner(mock_config)
 
         # 验证异步方法存在
-        assert hasattr(scanner, 'scan_and_index_async')
-        assert hasattr(scanner, '_collect_files_async')
-        assert hasattr(scanner, '_process_file_async')
-        assert hasattr(scanner, '_index_file_async')
-        assert hasattr(scanner, '_read_file_content_async')
+        assert hasattr(scanner, "scan_and_index_async")
+        assert hasattr(scanner, "_collect_files_async")
+        assert hasattr(scanner, "_process_file_async")
+        assert hasattr(scanner, "_index_file_async")
+        assert hasattr(scanner, "_read_file_content_async")
 
 
 class TestFileScannerTypeAnnotations:
@@ -134,12 +135,12 @@ class TestFileScannerTypeAnnotations:
         scanner = FileScanner(mock_config)
 
         expected_keys = [
-            'total_files_scanned',
-            'total_files_indexed',
-            'total_files_skipped',
-            'total_size_scanned',
-            'scan_time',
-            'last_scan_time'
+            "total_files_scanned",
+            "total_files_indexed",
+            "total_files_skipped",
+            "total_size_scanned",
+            "scan_time",
+            "last_scan_time",
         ]
 
         for key in expected_keys:

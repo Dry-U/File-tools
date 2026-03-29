@@ -49,97 +49,110 @@ class IndexManager:
         # Lazy import native modules to prevent SIGILL on incompatible CI runners
         import tantivy as _tantivy_mod
         import hnswlib as _hnswlib_mod
+
         self._tantivy = _tantivy_mod
         self._hnswlib = _hnswlib_mod
-        
+
         # 初始化配置
         self._init_config()
-        
+
         # 初始化嵌入模型
         self._init_embedding_model()
-        
+
         # 初始化索引
         self._init_indexes()
-        
+
         # 批量添加模式支持
         self._batch_mode = False
         self._batch_buffer = []
-        self._batch_size = config_loader.getint('index', 'batch_size', 100)
+        self._batch_size = config_loader.getint("index", "batch_size", 100)
         self._batch_commit_interval = config_loader.getint(
-            'index', 'commit_interval', 30)  # 秒
+            "index", "commit_interval", 30
+        )  # 秒
         self._last_commit_time = time.time()
         self._batch_lock = threading.Lock()
         self._writer = None
 
         # Vector batch encoding buffer - 跨文档缓冲，批量编码提升 40-60% 速度
         self._vector_buffer = []  # [(text, metadata_dict), ...]
-        self._vector_batch_size = config_loader.getint('index', 'vector_batch_size', 32)
+        self._vector_batch_size = config_loader.getint("index", "vector_batch_size", 32)
 
     def _init_config(self) -> None:
         """初始化配置参数"""
         try:
-            data_dir = self.config_loader.get('system', 'data_dir', './data')
+            data_dir = self.config_loader.get("system", "data_dir", "./data")
             # 确保 data_dir 是字符串类型（防止 mock 对象传入）
             if not isinstance(data_dir, str):
                 self.logger.warning(f"data_dir 类型错误: {type(data_dir)}, 使用默认值")
-                data_dir = './data'
+                data_dir = "./data"
             self.tantivy_index_path = self.config_loader.get(
-                'index', 'tantivy_path', f'{data_dir}/tantivy_index')
+                "index", "tantivy_path", f"{data_dir}/tantivy_index"
+            )
             self.hnsw_index_path = self.config_loader.get(
-                'index', 'hnsw_path', f'{data_dir}/hnsw_index')
+                "index", "hnsw_path", f"{data_dir}/hnsw_index"
+            )
             self.metadata_path = self.config_loader.get(
-                'index', 'metadata_path', f'{data_dir}/metadata')
+                "index", "metadata_path", f"{data_dir}/metadata"
+            )
         except Exception as e:
             self.logger.error(f"配置读取失败: {str(e)}")
-            self.tantivy_index_path = './data/tantivy_index'
-            self.hnsw_index_path = './data/hnsw_index'
-            self.metadata_path = './data/metadata'
-        
+            self.tantivy_index_path = "./data/tantivy_index"
+            self.hnsw_index_path = "./data/hnsw_index"
+            self.metadata_path = "./data/metadata"
+
         os.makedirs(self.tantivy_index_path, exist_ok=True)
         os.makedirs(self.hnsw_index_path, exist_ok=True)
         os.makedirs(self.metadata_path, exist_ok=True)
-        
+
         try:
-            custom_dict_path = os.path.join(os.path.dirname(
-                __file__), '..', '..', 'data', 'custom_dict.txt')
+            custom_dict_path = os.path.join(
+                os.path.dirname(__file__), "..", "..", "data", "custom_dict.txt"
+            )
             if os.path.exists(custom_dict_path):
                 jieba.load_userdict(custom_dict_path)
                 self.logger.debug(f"加载自定义词典: {custom_dict_path}")
         except Exception as e:
             self.logger.warning(f"加载自定义词典失败: {str(e)}")
-        
+
         self.embedding_provider = self.config_loader.get(
-            'embedding', 'provider', 'fastembed')
+            "embedding", "provider", "fastembed"
+        )
 
         # 分块配置
-        self.chunk_enabled = self.config_loader.getboolean('index', 'chunk_enabled', True)
-        self.chunk_strategy = self.config_loader.get('index', 'chunk_strategy', 'semantic')
-        self.chunk_size = self.config_loader.getint('index', 'chunk_size', 800)
-        self.chunk_overlap = self.config_loader.getint('index', 'chunk_overlap', 100)
+        self.chunk_enabled = self.config_loader.getboolean(
+            "index", "chunk_enabled", True
+        )
+        self.chunk_strategy = self.config_loader.get(
+            "index", "chunk_strategy", "semantic"
+        )
+        self.chunk_size = self.config_loader.getint("index", "chunk_size", 800)
+        self.chunk_overlap = self.config_loader.getint("index", "chunk_overlap", 100)
 
         # 初始化分块器
         if self.chunk_enabled:
             self.chunker = TextChunker(
                 strategy=self.chunk_strategy,
                 chunk_size=self.chunk_size,
-                chunk_overlap=self.chunk_overlap
+                chunk_overlap=self.chunk_overlap,
             )
-            self.logger.info(f"文本分块已启用: 策略={self.chunk_strategy}, 大小={self.chunk_size}")
+            self.logger.info(
+                f"文本分块已启用: 策略={self.chunk_strategy}, 大小={self.chunk_size}"
+            )
         else:
             self.chunker = None
             self.logger.info("文本分块已禁用")
 
     def _init_embedding_model(self) -> None:
         """初始化嵌入模型"""
-        model_enabled = self.config_loader.get('embedding', 'enabled', False)
+        model_enabled = self.config_loader.get("embedding", "enabled", False)
         if not model_enabled:
             self.logger.info("Embedding功能未启用")
             self.embedding_model = None
             self.vector_dim = 384
             return
-        
+
         try:
-            if self.embedding_provider == 'modelscope':
+            if self.embedding_provider == "modelscope":
                 self._init_modelscope_embedding()
             else:
                 self._init_fastembed_embedding()
@@ -156,19 +169,25 @@ class IndexManager:
         """初始化ModelScope嵌入模型"""
         from modelscope.pipelines import pipeline
         from modelscope.utils.constant import Tasks
+
         model_name = self.config_loader.get(
-            'embedding', 'model_name', 'iic/nlp_gte_sentence-embedding_chinese-base')
-        cache_dir = self.config_loader.get('embedding', 'cache_dir', None)
+            "embedding", "model_name", "iic/nlp_gte_sentence-embedding_chinese-base"
+        )
+        cache_dir = self.config_loader.get("embedding", "cache_dir", None)
 
         # 如果指定了本地路径，使用本地路径
-        if cache_dir and os.path.exists(os.path.join(cache_dir, model_name.split('/')[-1])):
-            model_path = os.path.join(cache_dir, model_name.split('/')[-1])
+        if cache_dir and os.path.exists(
+            os.path.join(cache_dir, model_name.split("/")[-1])
+        ):
+            model_path = os.path.join(cache_dir, model_name.split("/")[-1])
             self.logger.info(f"使用本地模型路径: {model_path}")
             self.embedding_pipeline = pipeline(
-                Tasks.sentence_embedding, model=model_path)
+                Tasks.sentence_embedding, model=model_path
+            )
         else:
             self.embedding_pipeline = pipeline(
-                Tasks.sentence_embedding, model=model_name)
+                Tasks.sentence_embedding, model=model_name
+            )
 
         # ModelScope包装器类
         class ModelScopeWrapper:
@@ -181,11 +200,15 @@ class IndexManager:
                         try:
                             res = self.pipeline(input=text)
                         except TypeError:
-                            res = self.pipeline(input={'source_sentence': [text]})
+                            res = self.pipeline(input={"source_sentence": [text]})
 
-                        if 'text_embedding' in res:
-                            emb = res['text_embedding']
-                            if isinstance(emb, list) and len(emb) > 0 and isinstance(emb[0], list):
+                        if "text_embedding" in res:
+                            emb = res["text_embedding"]
+                            if (
+                                isinstance(emb, list)
+                                and len(emb) > 0
+                                and isinstance(emb[0], list)
+                            ):
                                 yield emb[0]
                             elif isinstance(emb, np.ndarray):
                                 if emb.ndim > 1:
@@ -198,11 +221,15 @@ class IndexManager:
                     try:
                         res = self.pipeline(input=texts)
                     except TypeError:
-                        res = self.pipeline(input={'source_sentence': [texts]})
+                        res = self.pipeline(input={"source_sentence": [texts]})
 
-                    if 'text_embedding' in res:
-                        emb = res['text_embedding']
-                        if isinstance(emb, list) and len(emb) > 0 and isinstance(emb[0], list):
+                    if "text_embedding" in res:
+                        emb = res["text_embedding"]
+                        if (
+                            isinstance(emb, list)
+                            and len(emb) > 0
+                            and isinstance(emb[0], list)
+                        ):
                             yield emb[0]
                         elif isinstance(emb, np.ndarray):
                             if emb.ndim > 1:
@@ -213,39 +240,43 @@ class IndexManager:
                             yield emb
 
         self.embedding_model = ModelScopeWrapper(self.embedding_pipeline)
-        
+
         # 测试模型
-        vec = next(iter(self.embedding_model.embed(['test'])))
+        vec = next(iter(self.embedding_model.embed(["test"])))
         self.vector_dim = len(vec)
         self.logger.info(f"ModelScope Embedding模型加载成功，维度: {self.vector_dim}")
 
     def _init_fastembed_embedding(self) -> None:
         """初始化FastEmbed嵌入模型"""
         from fastembed import TextEmbedding
-        model_name = self.config_loader.get(
-            'embedding', 'model_name', 'BAAI/bge-small-zh-v1.5')
-        if not model_name:
-            model_name = 'BAAI/bge-small-zh-v1.5'
 
-        cache_dir = self.config_loader.get('embedding', 'cache_dir', None)
+        model_name = self.config_loader.get(
+            "embedding", "model_name", "BAAI/bge-small-zh-v1.5"
+        )
+        if not model_name:
+            model_name = "BAAI/bge-small-zh-v1.5"
+
+        cache_dir = self.config_loader.get("embedding", "cache_dir", None)
 
         # 尝试创建模型实例
         try:
             if cache_dir:
                 self.embedding_model = TextEmbedding(
-                    model_name=model_name, cache_dir=cache_dir)
+                    model_name=model_name, cache_dir=cache_dir
+                )
             else:
                 self.embedding_model = TextEmbedding(model_name=model_name)
-            
+
             # 测试模型是否可以正常工作
             try:
-                vec = next(iter(self.embedding_model.embed(['test'])))
+                vec = next(iter(self.embedding_model.embed(["test"])))
                 self.vector_dim = len(vec)
                 self.logger.info(f"Embedding模型加载成功，维度: {self.vector_dim}")
             except Exception as e:
                 self.vector_dim = 384
                 self.logger.warning(
-                    f"Embedding模型测试失败，使用默认维度: {self.vector_dim}, 错误: {str(e)}")
+                    f"Embedding模型测试失败，使用默认维度: {self.vector_dim}, 错误: {str(e)}"
+                )
         except Exception as e:
             self.logger.error(f"Embedding模型创建失败，将禁用向量索引: {str(e)}")
             self.embedding_model = None
@@ -265,42 +296,44 @@ class IndexManager:
     def _init_tantivy_index(self):
         schema_builder = self._tantivy.SchemaBuilder()
         self.t_path = schema_builder.add_text_field(
-            'path', stored=True, tokenizer_name='raw')
-        self.t_filename = schema_builder.add_text_field(
-            'filename', stored=True)
+            "path", stored=True, tokenizer_name="raw"
+        )
+        self.t_filename = schema_builder.add_text_field("filename", stored=True)
         self.t_filename_chars = schema_builder.add_text_field(
-            'filename_chars', stored=True)
-        self.t_content = schema_builder.add_text_field('content', stored=True)
+            "filename_chars", stored=True
+        )
+        self.t_content = schema_builder.add_text_field("content", stored=True)
         self.t_content_raw = schema_builder.add_text_field(
-            'content_raw', stored=True, tokenizer_name='raw')
+            "content_raw", stored=True, tokenizer_name="raw"
+        )
         self.t_content_chars = schema_builder.add_text_field(
-            'content_chars', stored=True)
-        self.t_keywords = schema_builder.add_text_field(
-            'keywords', stored=True)
-        self.t_file_type = schema_builder.add_text_field(
-            'file_type', stored=True)
-        self.t_size = schema_builder.add_integer_field('size', stored=True)
-        self.t_created = schema_builder.add_integer_field(
-            'created', stored=True)
-        self.t_modified = schema_builder.add_integer_field(
-            'modified', stored=True)
+            "content_chars", stored=True
+        )
+        self.t_keywords = schema_builder.add_text_field("keywords", stored=True)
+        self.t_file_type = schema_builder.add_text_field("file_type", stored=True)
+        self.t_size = schema_builder.add_integer_field("size", stored=True)
+        self.t_created = schema_builder.add_integer_field("created", stored=True)
+        self.t_modified = schema_builder.add_integer_field("modified", stored=True)
         self.schema = schema_builder.build()
         try:
             # 检查索引路径是否存在，如果不存在，则创建
             if not os.path.exists(self.tantivy_index_path):
                 os.makedirs(self.tantivy_index_path, exist_ok=True)
                 self.tantivy_index = self._tantivy.Index(
-                    self.schema, path=self.tantivy_index_path)
+                    self.schema, path=self.tantivy_index_path
+                )
             else:
                 self.tantivy_index = self._tantivy.Index(
-                    self.schema, path=self.tantivy_index_path)
+                    self.schema, path=self.tantivy_index_path
+                )
         except Exception as e:
             self.logger.error(f"初始化Tantivy索引失败: {str(e)}")
             # 如果指定路径失败，尝试在内存中创建新索引，但仍尝试重新创建文件目录
             try:
                 os.makedirs(self.tantivy_index_path, exist_ok=True)
                 self.tantivy_index = self._tantivy.Index(
-                    self.schema, path=self.tantivy_index_path)
+                    self.schema, path=self.tantivy_index_path
+                )
             except Exception as e2:
                 self.logger.error(f"创建索引目录或初始化索引失败: {str(e2)}")
                 self.tantivy_index = self._tantivy.Index(self.schema)
@@ -311,26 +344,26 @@ class IndexManager:
         os.makedirs(self.hnsw_index_path, exist_ok=True)
         os.makedirs(self.metadata_path, exist_ok=True)
 
-        index_file = os.path.join(self.hnsw_index_path, 'vector_index.bin')
-        metadata_file = os.path.join(
-            self.metadata_path, 'vector_metadata.json')
+        index_file = os.path.join(self.hnsw_index_path, "vector_index.bin")
+        metadata_file = os.path.join(self.metadata_path, "vector_metadata.json")
 
         if os.path.exists(index_file) and os.path.exists(metadata_file):
             try:
-                with open(metadata_file, 'r', encoding='utf-8') as f:
+                with open(metadata_file, "r", encoding="utf-8") as f:
                     metadata_dict = json.load(f)
-                    self.vector_metadata = metadata_dict.get('metadata', {})
+                    self.vector_metadata = metadata_dict.get("metadata", {})
                     self.next_id = metadata_dict.get(
-                        'next_id', len(self.vector_metadata))
+                        "next_id", len(self.vector_metadata)
+                    )
 
                 # 检查向量维度是否匹配
                 if self.embedding_model:
-                    self.hnsw = self._hnswlib.Index(
-                        space='cosine', dim=self.vector_dim)
+                    self.hnsw = self._hnswlib.Index(space="cosine", dim=self.vector_dim)
                     max_elements = max(self.next_id + 1024, 1024)
                     self.hnsw.load_index(index_file, max_elements=max_elements)
                     self.logger.info(
-                        f"成功加载向量索引，维度: {self.vector_dim}, 元素数: {self.next_id}")
+                        f"成功加载向量索引，维度: {self.vector_dim}, 元素数: {self.next_id}"
+                    )
                 else:
                     self.logger.warning("向量索引已存在但嵌入模型未启用，跳过加载")
                     self._create_new_hnsw_index()
@@ -343,7 +376,7 @@ class IndexManager:
 
     def _create_new_hnsw_index(self):
         try:
-            self.hnsw = self._hnswlib.Index(space='cosine', dim=self.vector_dim)
+            self.hnsw = self._hnswlib.Index(space="cosine", dim=self.vector_dim)
             self.hnsw.init_index(max_elements=1024, ef_construction=200, M=16)
             self.hnsw.set_ef(200)
             self.vector_metadata = {}
@@ -362,20 +395,31 @@ class IndexManager:
         2. 分块配置变更（从未分块到分块）
         3. 向量元数据格式不兼容
         """
-        expected_fields = ['path', 'filename', 'filename_chars', 'content', 'content_raw',
-                           'content_chars', 'keywords', 'file_type', 'size', 'created', 'modified']
-        version_file = os.path.join(self.metadata_path, 'schema_version.json')
+        expected_fields = [
+            "path",
+            "filename",
+            "filename_chars",
+            "content",
+            "content_raw",
+            "content_chars",
+            "keywords",
+            "file_type",
+            "size",
+            "created",
+            "modified",
+        ]
+        version_file = os.path.join(self.metadata_path, "schema_version.json")
         current = {}
         try:
             if os.path.exists(version_file):
-                with open(version_file, 'r', encoding='utf-8') as f:
+                with open(version_file, "r", encoding="utf-8") as f:
                     current = json.load(f)
         except Exception:
             current = {}
 
-        current_fields = current.get('fields', [])
-        current_chunk_version = current.get('chunk_version', 0)
-        current_chunk_enabled = current.get('chunk_enabled', False)
+        current_fields = current.get("fields", [])
+        current_chunk_version = current.get("chunk_version", 0)
+        current_chunk_enabled = current.get("chunk_enabled", False)
 
         # 检查是否需要重建
         needs_rebuild = False
@@ -384,52 +428,54 @@ class IndexManager:
         # 1. 字段变化
         if current_fields != expected_fields:
             needs_rebuild = True
-            rebuild_reason.append('字段变化')
+            rebuild_reason.append("字段变化")
 
         # 2. 分块配置变更（从非分块切换到分块模式）
         if self.chunk_enabled and not current_chunk_enabled:
             # 检查是否存在旧版向量数据（非分块格式）
             if self._has_legacy_vector_format():
                 needs_rebuild = True
-                rebuild_reason.append('启用分块存储')
+                rebuild_reason.append("启用分块存储")
 
         # 3. 向量元数据版本不匹配
         if current_chunk_version < 1 and self.chunk_enabled:
             if self._has_legacy_vector_format():
                 needs_rebuild = True
-                rebuild_reason.append('分块版本升级')
+                rebuild_reason.append("分块版本升级")
 
         if needs_rebuild:
             try:
-                self.logger.info(f'检测到{", ".join(rebuild_reason)}，重建索引以支持新功能')
+                self.logger.info(
+                    f'检测到{", ".join(rebuild_reason)}，重建索引以支持新功能'
+                )
                 self.rebuild_index()
                 self.schema_updated = True
 
                 # 更新版本文件
                 version_data = {
-                    'fields': expected_fields,
-                    'chunk_version': 1,
-                    'chunk_enabled': self.chunk_enabled,
-                    'rebuild_time': time.strftime('%Y-%m-%d %H:%M:%S')
+                    "fields": expected_fields,
+                    "chunk_version": 1,
+                    "chunk_enabled": self.chunk_enabled,
+                    "rebuild_time": time.strftime("%Y-%m-%d %H:%M:%S"),
                 }
-                with open(version_file, 'w', encoding='utf-8') as f:
+                with open(version_file, "w", encoding="utf-8") as f:
                     json.dump(version_data, f, ensure_ascii=False, indent=2)
-                self.logger.info('索引重建完成，版本文件已更新')
+                self.logger.info("索引重建完成，版本文件已更新")
             except Exception as e:
-                self.logger.error(f'更新索引模式失败: {str(e)}')
+                self.logger.error(f"更新索引模式失败: {str(e)}")
         else:
             # 只需更新版本文件中的配置状态
             try:
                 version_data = {
-                    'fields': expected_fields,
-                    'chunk_version': current_chunk_version or 1,
-                    'chunk_enabled': self.chunk_enabled,
-                    'last_check': time.strftime('%Y-%m-%d %H:%M:%S')
+                    "fields": expected_fields,
+                    "chunk_version": current_chunk_version or 1,
+                    "chunk_enabled": self.chunk_enabled,
+                    "last_check": time.strftime("%Y-%m-%d %H:%M:%S"),
                 }
-                with open(version_file, 'w', encoding='utf-8') as f:
+                with open(version_file, "w", encoding="utf-8") as f:
                     json.dump(version_data, f, ensure_ascii=False, indent=2)
             except Exception as e:
-                self.logger.debug(f'更新版本文件失败: {e}')
+                self.logger.debug(f"更新版本文件失败: {e}")
 
     def _has_legacy_vector_format(self):
         """检查是否存在旧版非分块向量数据
@@ -447,17 +493,17 @@ class IndexManager:
                 break
             if isinstance(metadata, dict):
                 # 如果存在没有 is_chunk 标记的文档，说明是旧格式
-                if 'is_chunk' not in metadata:
+                if "is_chunk" not in metadata:
                     return True
         return False
 
     def _segment(self, text):
         try:
-            tokens = jieba.lcut_for_search(text or '')
-            return ' '.join([t for t in tokens if t.strip()])
+            tokens = jieba.lcut_for_search(text or "")
+            return " ".join([t for t in tokens if t.strip()])
         except Exception as e:
             self.logger.debug(f"分词失败: {str(e)}")
-            return text or ''
+            return text or ""
 
     def start_batch_mode(self):
         """启动批量添加模式"""
@@ -532,35 +578,41 @@ class IndexManager:
 
     def _add_doc_to_writer(self, document):
         """将文档添加到 writer"""
-        seg_filename = self._segment(document['filename'])
-        seg_content = self._segment(document['content'])
-        seg_keywords = self._segment(document.get('keywords', ''))
-        fname_chars = ' '.join([c for c in document['filename']])
-        raw_text = str(document.get('content') or '')
+        seg_filename = self._segment(document["filename"])
+        seg_content = self._segment(document["content"])
+        seg_keywords = self._segment(document.get("keywords", ""))
+        fname_chars = " ".join([c for c in document["filename"]])
+        raw_text = str(document.get("content") or "")
         # 限制 content_chars 长度，避免大文件生成过大的索引条目
         content_chars_source = raw_text[:50000]
-        content_chars = ' '.join([c for c in content_chars_source])
+        content_chars = " ".join([c for c in content_chars_source])
 
         tdoc = self._tantivy.Document(
-            path=document['path'],
+            path=document["path"],
             filename=[seg_filename],
             filename_chars=[fname_chars],
             content=[seg_content],
             content_raw=[raw_text],
             content_chars=[content_chars],
-            file_type=[document['file_type']],
-            size=int(document['size']),
-            created=int(time.mktime(document['created'].timetuple())) if isinstance(
-                document['created'], datetime) else int(document['created']),
-            modified=int(time.mktime(document['modified'].timetuple())) if isinstance(
-                document['modified'], datetime) else int(document['modified']),
-            keywords=[seg_keywords]
+            file_type=[document["file_type"]],
+            size=int(document["size"]),
+            created=(
+                int(time.mktime(document["created"].timetuple()))
+                if isinstance(document["created"], datetime)
+                else int(document["created"])
+            ),
+            modified=(
+                int(time.mktime(document["modified"].timetuple()))
+                if isinstance(document["modified"], datetime)
+                else int(document["modified"])
+            ),
+            keywords=[seg_keywords],
         )
         self._writer.add_document(tdoc)
 
     def add_document(self, document):
         """添加文档到索引，支持批量模式"""
-        if not getattr(self, 'tantivy_index', None):
+        if not getattr(self, "tantivy_index", None):
             return False
 
         try:
@@ -571,8 +623,9 @@ class IndexManager:
 
                     # 检查是否需要提交（缓冲区满或时间间隔）
                     should_commit = (
-                        len(self._batch_buffer) >= self._batch_size or
-                        (time.time() - self._last_commit_time) >= self._batch_commit_interval
+                        len(self._batch_buffer) >= self._batch_size
+                        or (time.time() - self._last_commit_time)
+                        >= self._batch_commit_interval
                     )
 
                     if should_commit:
@@ -587,33 +640,39 @@ class IndexManager:
                     return self._add_vector_in_batch_mode(document)
 
             # 非批量模式：原来的逻辑
-            seg_filename = self._segment(document['filename'])
-            seg_content = self._segment(document['content'])
-            seg_keywords = self._segment(document.get('keywords', ''))
-            fname_chars = ' '.join([c for c in document['filename']])
+            seg_filename = self._segment(document["filename"])
+            seg_content = self._segment(document["content"])
+            seg_keywords = self._segment(document.get("keywords", ""))
+            fname_chars = " ".join([c for c in document["filename"]])
             try:
-                raw_content = document['content'] or ''
+                raw_content = document["content"] or ""
             except (KeyError, TypeError) as e:
                 self.logger.debug(f"获取文档内容失败: {str(e)}")
-                raw_content = ''
+                raw_content = ""
             raw_text = str(raw_content)
             content_chars_source = raw_text
-            content_chars = ' '.join([c for c in content_chars_source])
+            content_chars = " ".join([c for c in content_chars_source])
             with self.tantivy_index.writer() as writer:
                 tdoc = self._tantivy.Document(
-                    path=document['path'],
+                    path=document["path"],
                     filename=[seg_filename],
                     filename_chars=[fname_chars],
                     content=[seg_content],
                     content_raw=[raw_text],
                     content_chars=[content_chars],
-                    file_type=[document['file_type']],
-                    size=int(document['size']),
-                    created=int(time.mktime(document['created'].timetuple())) if isinstance(
-                        document['created'], datetime) else int(document['created']),
-                    modified=int(time.mktime(document['modified'].timetuple())) if isinstance(
-                        document['modified'], datetime) else int(document['modified']),
-                    keywords=[seg_keywords]
+                    file_type=[document["file_type"]],
+                    size=int(document["size"]),
+                    created=(
+                        int(time.mktime(document["created"].timetuple()))
+                        if isinstance(document["created"], datetime)
+                        else int(document["created"])
+                    ),
+                    modified=(
+                        int(time.mktime(document["modified"].timetuple()))
+                        if isinstance(document["modified"], datetime)
+                        else int(document["modified"])
+                    ),
+                    keywords=[seg_keywords],
                 )
                 writer.add_document(tdoc)
                 writer.commit()
@@ -629,7 +688,8 @@ class IndexManager:
                         self._add_document_single(document)
                 except Exception as e:
                     self.logger.error(
-                        f"添加文档到向量索引失败 {document['path']}: {str(e)}")
+                        f"添加文档到向量索引失败 {document['path']}: {str(e)}"
+                    )
             else:
                 if not self.embedding_model:
                     self.logger.info("Embedding模型未启用，跳过向量索引")
@@ -639,7 +699,8 @@ class IndexManager:
             return True
         except Exception as e:
             self.logger.error(
-                f"添加文档到索引失败 {document.get('path', '')}: {str(e)}")
+                f"添加文档到索引失败 {document.get('path', '')}: {str(e)}"
+            )
             return False
 
     def _add_vector_in_batch_mode(self, document):
@@ -655,23 +716,30 @@ class IndexManager:
 
         except Exception as e:
             self.logger.error(
-                f"批量模式添加向量索引失败 {document.get('path', '')}: {str(e)}")
+                f"批量模式添加向量索引失败 {document.get('path', '')}: {str(e)}"
+            )
             return False
 
     def _add_document_single_batch(self, document):
         """批量模式：缓冲单文档向量到批量编码队列"""
-        content_to_encode = document['content'][:MAX_ENCODE_LENGTH] if document['content'] else ''
+        content_to_encode = (
+            document["content"][:MAX_ENCODE_LENGTH] if document["content"] else ""
+        )
         if not content_to_encode.strip():
             return True
 
         metadata = {
-            'path': document['path'],
-            'filename': document['filename'],
-            'file_type': document['file_type'],
-            'modified': document['modified'].strftime('%Y-%m-%d %H:%M:%S') if isinstance(document['modified'], datetime) else str(document['modified']),
-            'is_chunk': False,
-            'chunk_index': 0,
-            'total_chunks': 1
+            "path": document["path"],
+            "filename": document["filename"],
+            "file_type": document["file_type"],
+            "modified": (
+                document["modified"].strftime("%Y-%m-%d %H:%M:%S")
+                if isinstance(document["modified"], datetime)
+                else str(document["modified"])
+            ),
+            "is_chunk": False,
+            "chunk_index": 0,
+            "total_chunks": 1,
         }
         self._vector_buffer.append((content_to_encode, metadata))
 
@@ -687,22 +755,26 @@ class IndexManager:
         chunker = self.chunker or TextChunker(
             strategy=self.chunk_strategy,
             chunk_size=self.chunk_size,
-            chunk_overlap=self.chunk_overlap
+            chunk_overlap=self.chunk_overlap,
         )
 
         chunks = chunker.chunk_document(
-            content=document.get('content', ''),
-            doc_path=document.get('path', ''),
-            doc_filename=document.get('filename', '')
+            content=document.get("content", ""),
+            doc_path=document.get("path", ""),
+            doc_filename=document.get("filename", ""),
         )
 
         if not chunks:
-            self.logger.warning(f"文档分块结果为空，跳过向量索引: {document.get('path', '')}")
+            self.logger.warning(
+                f"文档分块结果为空，跳过向量索引: {document.get('path', '')}"
+            )
             return True
 
         original_chunk_count = len(chunks)
         if len(chunks) > MAX_CHUNKS_PER_DOC:
-            self.logger.warning(f"文档 {document.get('path', '')} 产生过多分块 ({len(chunks)})，已截断至 {MAX_CHUNKS_PER_DOC}")
+            self.logger.warning(
+                f"文档 {document.get('path', '')} 产生过多分块 ({len(chunks)})，已截断至 {MAX_CHUNKS_PER_DOC}"
+            )
             chunks = chunks[:MAX_CHUNKS_PER_DOC]
 
         for chunk in chunks:
@@ -711,16 +783,20 @@ class IndexManager:
                 continue
 
             metadata = {
-                'path': document['path'],
-                'filename': document['filename'],
-                'file_type': document['file_type'],
-                'modified': document['modified'].strftime('%Y-%m-%d %H:%M:%S') if isinstance(document['modified'], datetime) else str(document['modified']),
-                'is_chunk': True,
-                'chunk_index': chunk.chunk_index,
-                'total_chunks': original_chunk_count,
-                'chunk_start_pos': chunk.start_pos,
-                'chunk_end_pos': chunk.end_pos,
-                'chunk_content_preview': chunk.content[:200]
+                "path": document["path"],
+                "filename": document["filename"],
+                "file_type": document["file_type"],
+                "modified": (
+                    document["modified"].strftime("%Y-%m-%d %H:%M:%S")
+                    if isinstance(document["modified"], datetime)
+                    else str(document["modified"])
+                ),
+                "is_chunk": True,
+                "chunk_index": chunk.chunk_index,
+                "total_chunks": original_chunk_count,
+                "chunk_start_pos": chunk.start_pos,
+                "chunk_end_pos": chunk.end_pos,
+                "chunk_content_preview": chunk.content[:200],
             }
             self._vector_buffer.append((chunk_content, metadata))
 
@@ -731,7 +807,9 @@ class IndexManager:
 
     def _add_document_single(self, document):
         """传统模式：整个文档作为一个向量存储"""
-        content_to_encode = document['content'][:MAX_ENCODE_LENGTH] if document['content'] else ''
+        content_to_encode = (
+            document["content"][:MAX_ENCODE_LENGTH] if document["content"] else ""
+        )
         if not content_to_encode.strip():
             self.logger.warning(f"文档内容为空，跳过向量索引: {document['path']}")
             return
@@ -749,13 +827,17 @@ class IndexManager:
 
         # 记录元数据（标记为非分块文档）
         self.vector_metadata[str(doc_id)] = {
-            'path': document['path'],
-            'filename': document['filename'],
-            'file_type': document['file_type'],
-            'modified': document['modified'].strftime('%Y-%m-%d %H:%M:%S') if isinstance(document['modified'], datetime) else str(document['modified']),
-            'is_chunk': False,
-            'chunk_index': 0,
-            'total_chunks': 1
+            "path": document["path"],
+            "filename": document["filename"],
+            "file_type": document["file_type"],
+            "modified": (
+                document["modified"].strftime("%Y-%m-%d %H:%M:%S")
+                if isinstance(document["modified"], datetime)
+                else str(document["modified"])
+            ),
+            "is_chunk": False,
+            "chunk_index": 0,
+            "total_chunks": 1,
         }
         self.next_id += 1
         # 非批量模式下立即保存索引
@@ -765,13 +847,17 @@ class IndexManager:
     def _add_document_chunks(self, document):
         """分块模式：将文档分块后批量编码存储"""
         chunks = self.chunker.chunk_document(
-            content=document['content'],
-            doc_path=document['path'],
-            doc_filename=document['filename'],
+            content=document["content"],
+            doc_path=document["path"],
+            doc_filename=document["filename"],
             doc_metadata={
-                'file_type': document['file_type'],
-                'modified': document['modified'].strftime('%Y-%m-%d %H:%M:%S') if isinstance(document['modified'], datetime) else str(document['modified'])
-            }
+                "file_type": document["file_type"],
+                "modified": (
+                    document["modified"].strftime("%Y-%m-%d %H:%M:%S")
+                    if isinstance(document["modified"], datetime)
+                    else str(document["modified"])
+                ),
+            },
         )
 
         if not chunks:
@@ -780,7 +866,9 @@ class IndexManager:
 
         original_chunk_count = len(chunks)
         if len(chunks) > MAX_CHUNKS_PER_DOC:
-            self.logger.warning(f"文档 {document['path']} 产生过多分块 ({len(chunks)})，已截断至 {MAX_CHUNKS_PER_DOC}")
+            self.logger.warning(
+                f"文档 {document['path']} 产生过多分块 ({len(chunks)})，已截断至 {MAX_CHUNKS_PER_DOC}"
+            )
             chunks = chunks[:MAX_CHUNKS_PER_DOC]
 
         self.logger.info(f"文档分块完成: {document['filename']} -> {len(chunks)} 个块")
@@ -793,19 +881,25 @@ class IndexManager:
             if not chunk_content.strip():
                 continue
             texts_to_encode.append(chunk_content)
-            chunk_metadatas.append({
-                'path': chunk.doc_path,
-                'filename': chunk.doc_filename,
-                'file_type': document['file_type'],
-                'modified': document['modified'].strftime('%Y-%m-%d %H:%M:%S') if isinstance(document['modified'], datetime) else str(document['modified']),
-                'is_chunk': True,
-                'chunk_index': chunk.chunk_index,
-                'total_chunks': original_chunk_count,
-                'chunk_start': chunk.start_pos,
-                'chunk_end': chunk.end_pos,
-                'char_count': chunk.char_count,
-                'chunk_content_preview': chunk.content[:200]
-            })
+            chunk_metadatas.append(
+                {
+                    "path": chunk.doc_path,
+                    "filename": chunk.doc_filename,
+                    "file_type": document["file_type"],
+                    "modified": (
+                        document["modified"].strftime("%Y-%m-%d %H:%M:%S")
+                        if isinstance(document["modified"], datetime)
+                        else str(document["modified"])
+                    ),
+                    "is_chunk": True,
+                    "chunk_index": chunk.chunk_index,
+                    "total_chunks": original_chunk_count,
+                    "chunk_start": chunk.start_pos,
+                    "chunk_end": chunk.end_pos,
+                    "char_count": chunk.char_count,
+                    "chunk_content_preview": chunk.content[:200],
+                }
+            )
 
         if not texts_to_encode:
             return
@@ -819,7 +913,9 @@ class IndexManager:
             try:
                 self.hnsw.add_items(vectors, ids)
             except Exception:
-                self.hnsw.resize_index(self.hnsw.get_max_elements() + len(vectors) + 1024)
+                self.hnsw.resize_index(
+                    self.hnsw.get_max_elements() + len(vectors) + 1024
+                )
                 self.hnsw.add_items(vectors, ids)
 
             for i, metadata in enumerate(chunk_metadatas):
@@ -836,9 +932,13 @@ class IndexManager:
         if not self._batch_mode:
             self.save_indexes()
 
-        self.logger.info(f"成功添加 {success_count}/{len(chunks)} 个chunks到向量索引: {document['path']}")
+        self.logger.info(
+            f"成功添加 {success_count}/{len(chunks)} 个chunks到向量索引: {document['path']}"
+        )
 
-    def _store_chunk_vector(self, chunk_content_or_chunk, metadata_or_document, total_chunks=None):
+    def _store_chunk_vector(
+        self, chunk_content_or_chunk, metadata_or_document, total_chunks=None
+    ):
         """存储单个chunk的向量（兼容两种调用方式）
 
         Args:
@@ -857,17 +957,21 @@ class IndexManager:
             if not chunk_content.strip():
                 return False
             metadata = {
-                'path': chunk.doc_path,
-                'filename': chunk.doc_filename,
-                'file_type': document['file_type'],
-                'modified': document['modified'].strftime('%Y-%m-%d %H:%M:%S') if isinstance(document['modified'], datetime) else str(document['modified']),
-                'is_chunk': True,
-                'chunk_index': chunk.chunk_index,
-                'total_chunks': total_chunks,
-                'chunk_start': chunk.start_pos,
-                'chunk_end': chunk.end_pos,
-                'char_count': chunk.char_count,
-                'chunk_content_preview': chunk.content[:200]
+                "path": chunk.doc_path,
+                "filename": chunk.doc_filename,
+                "file_type": document["file_type"],
+                "modified": (
+                    document["modified"].strftime("%Y-%m-%d %H:%M:%S")
+                    if isinstance(document["modified"], datetime)
+                    else str(document["modified"])
+                ),
+                "is_chunk": True,
+                "chunk_index": chunk.chunk_index,
+                "total_chunks": total_chunks,
+                "chunk_start": chunk.start_pos,
+                "chunk_end": chunk.end_pos,
+                "char_count": chunk.char_count,
+                "chunk_content_preview": chunk.content[:200],
             }
 
         if not chunk_content.strip():
@@ -898,21 +1002,21 @@ class IndexManager:
             self.logger.error(f"无效的文档格式，期望字典但得到 {type(document)}")
             return False
         try:
-            self.delete_document(document.get('path'))
+            self.delete_document(document.get("path"))
         except Exception as e:
             self.logger.debug(
-                f"删除旧文档失败（可能不存在）{document.get('path', '')}: {str(e)}")
+                f"删除旧文档失败（可能不存在）{document.get('path', '')}: {str(e)}"
+            )
         return self.add_document(document)
 
     def delete_document(self, file_path):
         """从索引中删除文档"""
-        if not getattr(self, 'tantivy_index', None):
+        if not getattr(self, "tantivy_index", None):
             return False
-
 
         # 首先尝试清理可能的锁文件
         try:
-            lock_file = os.path.join(self.tantivy_index_path, 'meta.json.lock')
+            lock_file = os.path.join(self.tantivy_index_path, "meta.json.lock")
             if os.path.exists(lock_file):
                 try:
                     os.remove(lock_file)
@@ -926,29 +1030,36 @@ class IndexManager:
         max_retries = 3
         for retry in range(max_retries):
             try:
-                query = self.tantivy_index.parse_query(f'"{file_path}"', ['path'])
+                query = self.tantivy_index.parse_query(f'"{file_path}"', ["path"])
                 with self.tantivy_index.writer() as writer:
-                    if hasattr(writer, 'delete_query'):
-                        getattr(writer, 'delete_query')(query)
+                    if hasattr(writer, "delete_query"):
+                        getattr(writer, "delete_query")(query)
                         writer.commit()
-                    elif hasattr(writer, 'delete_documents'):
-                        writer.delete_documents('path', file_path)
+                    elif hasattr(writer, "delete_documents"):
+                        writer.delete_documents("path", file_path)
                         writer.commit()
                     else:
-                        self.logger.warning("Tantivy writer不支持删除操作，跳过文本索引删除")
+                        self.logger.warning(
+                            "Tantivy writer不支持删除操作，跳过文本索引删除"
+                        )
                 break  # 成功则退出重试循环
             except Exception as e:
                 if "LockBusy" in str(e) and retry < max_retries - 1:
                     import time
-                    self.logger.warning(f"索引锁冲突，重试删除 {file_path} ({retry + 1}/{max_retries})")
+
+                    self.logger.warning(
+                        f"索引锁冲突，重试删除 {file_path} ({retry + 1}/{max_retries})"
+                    )
                     time.sleep(0.5 * (retry + 1))  # 递增等待时间
                 else:
-                    self.logger.warning(f"从Tantivy索引删除文档失败 {file_path}: {str(e)}")
+                    self.logger.warning(
+                        f"从Tantivy索引删除文档失败 {file_path}: {str(e)}"
+                    )
 
         # 从向量元数据中删除（HNSW不支持删除，只能删除元数据）
         try:
             for doc_id, metadata in list(self.vector_metadata.items()):
-                if metadata.get('path') == file_path:
+                if metadata.get("path") == file_path:
                     del self.vector_metadata[doc_id]
                     self.logger.debug(f"已从向量元数据中删除文档 {file_path}")
                     break
@@ -960,58 +1071,66 @@ class IndexManager:
     def _highlight_text(self, content, query, window_size=120, max_snippets=3):
         """生成带有高亮关键词的多段文本摘要，并兼容常见的空格/大小写差异"""
         if not content or not query:
-            return content[:200] + '...' if content and len(content) > 200 else (content or '')
+            return (
+                content[:200] + "..."
+                if content and len(content) > 200
+                else (content or "")
+            )
 
         try:
-            
+
             # 构建关键词集合
             keywords = self._extract_keywords(query)
-            
+
             if not keywords:
-                return content[:200] + '...' if len(content) > 200 else content
-            
+                return content[:200] + "..." if len(content) > 200 else content
+
             # 构建高亮正则模式
             patterns = self._build_highlight_regex(keywords)
-            
+
             if not patterns:
-                return content[:200] + '...' if len(content) > 200 else content
-            
+                return content[:200] + "..." if len(content) > 200 else content
+
             # 查找匹配项
             matches = self._find_matches(content, patterns, keywords)
-            
+
             if not matches:
-                return content[:200] + '...' if len(content) > 200 else content
-            
+                return content[:200] + "..." if len(content) > 200 else content
+
             # 选择最佳摘要片段
-            snippets = self._select_snippets(content, matches, query, keywords, window_size, max_snippets)
-            
+            snippets = self._select_snippets(
+                content, matches, query, keywords, window_size, max_snippets
+            )
+
             if not snippets:
-                return content[:200] + '...' if len(content) > 200 else content
-            
+                return content[:200] + "..." if len(content) > 200 else content
+
             # 应用高亮
-            processed_snippets = [self._apply_highlights(chunk, patterns) for chunk in snippets]
-            final_snippet = '<br>...<br>'.join(processed_snippets)
+            processed_snippets = [
+                self._apply_highlights(chunk, patterns) for chunk in snippets
+            ]
+            final_snippet = "<br>...<br>".join(processed_snippets)
             return final_snippet
         except Exception as exc:
             self.logger.error(f"生成摘要失败: {str(exc)}")
-            return content[:200] + '...'
-    
+            return content[:200] + "..."
+
     def _extract_keywords(self, query):
         """从查询中提取关键词"""
         import re
         import jieba
-        
+
         def _clean_keyword(token: str) -> str:
             return token.strip()
-        
+
         keywords = set()
-        
+
         # 1. 原始查询作为关键词
         if query.strip():
             keywords.add(query.strip())
 
         # 2. 分词后的关键词
-        raw_tokens = [k.strip() for k in re.split(r'[\s,;，；]+', query) if k.strip()]
+        raw_tokens = [k.strip() for k in re.split(r"[\s,;，；]+", query) if k.strip()]
         for token in raw_tokens:
             cleaned = _clean_keyword(token)
             if cleaned:
@@ -1022,13 +1141,13 @@ class IndexManager:
                     seg_clean = _clean_keyword(seg)
                     if seg_clean and len(seg_clean) > 1:  # 忽略单字，除非是原始token
                         keywords.add(seg_clean)
-        
+
         return keywords
-    
+
     def _build_highlight_regex(self, keywords):
         """构建高亮正则表达式模式"""
         import re
-        
+
         def _build_pattern(token: str):
             # 允许字符之间穿插空白，适配 "J a v a" 这类被拆分的文本
             # 对特殊字符进行转义
@@ -1036,23 +1155,23 @@ class IndexManager:
             # 如果是字母或数字，允许中间有空格
             if token.isalnum():
                 pieces = [f"{re.escape(ch)}\\s*" for ch in token]
-                pattern = ''.join(pieces)
+                pattern = "".join(pieces)
                 return re.compile(pattern, re.IGNORECASE)
             return re.compile(escaped, re.IGNORECASE)
-        
+
         return [_build_pattern(token) for token in keywords if token]
-    
+
     def _find_matches(self, content, patterns, keywords):
         """在内容中查找匹配项"""
-        
+
         def _expand_ascii_span(text: str, start: int, end: int):
             # 向左右扩展，确保高亮完整的ASCII单词（如JavaScript）
-            while start > 0 and text[start-1].isascii() and text[start-1].isalnum():
+            while start > 0 and text[start - 1].isascii() and text[start - 1].isalnum():
                 start -= 1
             while end < len(text) and text[end].isascii() and text[end].isalnum():
                 end += 1
             return start, end
-        
+
         def _collect_matches(full_text: str, patterns):
             spans = []
             seen = set()
@@ -1063,10 +1182,10 @@ class IndexManager:
                         seen.add(span)
                         spans.append(span)
             return spans
-        
+
         # 使用正则表达式查找匹配
         matches = _collect_matches(content, patterns)
-        
+
         # fallback: 如果仍然没有匹配，则尝试直接定位（兼容极端情况）
         if not matches:
             lowered = content.lower()
@@ -1077,15 +1196,17 @@ class IndexManager:
                     matches.append(match_span)
                     # 只要找到一个匹配就足够了
                     break
-        
+
         # 按位置排序
         matches.sort(key=lambda x: x[0])
         return matches
-    
-    def _select_snippets(self, content, matches, query, keywords, window_size=120, max_snippets=3):
+
+    def _select_snippets(
+        self, content, matches, query, keywords, window_size=120, max_snippets=3
+    ):
         """从匹配项中选择最佳摘要片段"""
         import re
-        
+
         # 合并窗口
         windows = []
         for start, end in matches:
@@ -1095,7 +1216,7 @@ class IndexManager:
                 windows[-1] = (windows[-1][0], max(windows[-1][1], win_end))
             else:
                 windows.append((win_start, win_end))
-        
+
         # 评分并选择最佳窗口
         scored_windows = []
         lowered_content = content.lower()
@@ -1109,29 +1230,37 @@ class IndexManager:
             if query.lower() in chunk:
                 score += 10
             scored_windows.append((score, win_start, win_end))
-        
+
         scored_windows.sort(key=lambda x: x[0], reverse=True)
         selected_windows = [(s, e) for _, s, e in scored_windows[:max_snippets]]
         selected_windows.sort(key=lambda x: x[0])
-        
+
         # 提取片段并进行自然截断
         snippets = []
         for start, end in selected_windows:
             # 尝试在标点符号处截断，使摘要更自然
             curr_start = start
-            while curr_start > 0 and curr_start > start - 20 and content[curr_start] not in ' \t\n\r.,;，。；':
+            while (
+                curr_start > 0
+                and curr_start > start - 20
+                and content[curr_start] not in " \t\n\r.,;，。；"
+            ):
                 curr_start -= 1
-            if curr_start > 0 and content[curr_start] in ' \t\n\r.,;，。；':
+            if curr_start > 0 and content[curr_start] in " \t\n\r.,;，。；":
                 curr_start += 1
 
             curr_end = end
-            while curr_end < len(content) and curr_end < end + 20 and content[curr_end] not in ' \t\n\r.,;，。；':
+            while (
+                curr_end < len(content)
+                and curr_end < end + 20
+                and content[curr_end] not in " \t\n\r.,;，。；"
+            ):
                 curr_end += 1
 
             chunk = content[curr_start:curr_end].strip()
             if chunk:
                 snippets.append(chunk)
-        
+
         # 如果窗口提取失败，回退到简单的正则提取
         if not snippets:
             for token in keywords:
@@ -1142,16 +1271,16 @@ class IndexManager:
                     end = min(len(content), match.end() + 60)
                     snippets.append(content[start:end])
                     break
-        
+
         return snippets
-    
+
     def _apply_highlights(self, text, patterns):
         """在文本中应用高亮标记"""
         import html
 
         def _expand_ascii_span(text: str, start: int, end: int):
             # 向左右扩展，确保高亮完整的ASCII单词（如JavaScript）
-            while start > 0 and text[start-1].isascii() and text[start-1].isalnum():
+            while start > 0 and text[start - 1].isascii() and text[start - 1].isalnum():
                 start -= 1
             while end < len(text) and text[end].isascii() and text[end].isalnum():
                 end += 1
@@ -1188,21 +1317,23 @@ class IndexManager:
             # 先转义原始文本中的HTML特殊字符，防止破坏标签结构
             highlighted.append(html.escape(text[last:start]))
             # 使用 text-danger 和 fw-bold 高亮
-            highlighted.append(f'<span class="text-danger fw-bold">{html.escape(text[start:end])}</span>')
+            highlighted.append(
+                f'<span class="text-danger fw-bold">{html.escape(text[start:end])}</span>'
+            )
             last = end
         # 最后一部分也需要转义
         highlighted.append(html.escape(text[last:]))
-        return ''.join(highlighted)
+        return "".join(highlighted)
 
     def get_document_content(self, path):
         # 尝试从Tantivy索引中获取内容
-        if getattr(self, 'tantivy_index', None):
+        if getattr(self, "tantivy_index", None):
             try:
                 self.tantivy_index.reload()
                 searcher = self.tantivy_index.searcher()
 
                 # 1. 尝试精确路径查询 (注意转义反斜杠)
-                escaped_path = path.replace('\\', '\\\\').replace('"', '\\"')
+                escaped_path = path.replace("\\", "\\\\").replace('"', '\\"')
                 query_str = f'path:"{escaped_path}"'
                 try:
                     query = self.tantivy_index.parse_query(query_str)
@@ -1210,8 +1341,8 @@ class IndexManager:
                     if hits:
                         _, doc_addr = hits[0]
                         doc = searcher.doc(doc_addr)
-                        raw_val = doc.get_first('content_raw')
-                        content_val = raw_val or doc.get_first('content')
+                        raw_val = doc.get_first("content_raw")
+                        content_val = raw_val or doc.get_first("content")
                         if raw_val:
                             return raw_val  # 返回完整内容，不限制长度
                         if content_val:
@@ -1230,11 +1361,15 @@ class IndexManager:
                     hits = searcher.search(query, 5).hits  # 获取前5个同名文件
                     for _, doc_addr in hits:
                         doc = searcher.doc(doc_addr)
-                        idx_path = doc.get_first('path')
+                        idx_path = doc.get_first("path")
                         # 在Python层面验证路径是否匹配 (忽略大小写和分隔符差异)
-                        if idx_path and os.path.normpath(idx_path).lower() == os.path.normpath(path).lower():
-                            raw_val = doc.get_first('content_raw')
-                            content_val = raw_val or doc.get_first('content')
+                        if (
+                            idx_path
+                            and os.path.normpath(idx_path).lower()
+                            == os.path.normpath(path).lower()
+                        ):
+                            raw_val = doc.get_first("content_raw")
+                            content_val = raw_val or doc.get_first("content")
                             if raw_val:
                                 return raw_val  # 返回完整内容，不限制长度
                             if content_val:
@@ -1259,32 +1394,68 @@ class IndexManager:
         try:
             # 扩展支持的文本格式列表
             ext = os.path.splitext(path)[1].lower()
-            text_exts = ['.txt', '.md', '.py', '.json', '.xml', '.csv', '.log', '.js', '.html', '.css', '.bat', '.sh',
-                         '.yaml', '.yml', '.ini', '.conf', '.sql', '.properties', '.gradle', '.java', '.c', '.cpp', '.h', '.hpp']
+            text_exts = [
+                ".txt",
+                ".md",
+                ".py",
+                ".json",
+                ".xml",
+                ".csv",
+                ".log",
+                ".js",
+                ".html",
+                ".css",
+                ".bat",
+                ".sh",
+                ".yaml",
+                ".yml",
+                ".ini",
+                ".conf",
+                ".sql",
+                ".properties",
+                ".gradle",
+                ".java",
+                ".c",
+                ".cpp",
+                ".h",
+                ".hpp",
+            ]
             if ext in text_exts:
                 if os.path.exists(path):
                     # 读取完整文件内容，不限制长度（调用方应自行处理大文件）
-                    with open(path, 'r', encoding='utf-8', errors='ignore') as f:
+                    with open(path, "r", encoding="utf-8", errors="ignore") as f:
                         return f.read()
         except Exception as e:
             self.logger.debug(f"直接读取文件失败 {path}: {str(e)}")
-        return ''
+        return ""
 
     def _parse_file_direct(self, path):
         try:
             from backend.core.document_parser import DocumentParser
+
             parser = DocumentParser(self.config_loader)
             content = parser.extract_text(path)
             if content and not content.startswith("错误"):
                 return content
         except Exception as exc:
             self.logger.debug(f"直接解析文件失败: {exc}")
-        return ''
+        return ""
 
-    def _format_result(self, path, filename, content, raw_content, file_type, size, modified, score, query_str):
+    def _format_result(
+        self,
+        path,
+        filename,
+        content,
+        raw_content,
+        file_type,
+        size,
+        modified,
+        score,
+        query_str,
+    ):
         """格式化搜索结果"""
-        display_content = raw_content if raw_content else content or ''
-        norm_query = (query_str or '').strip()
+        display_content = raw_content if raw_content else content or ""
+        norm_query = (query_str or "").strip()
         norm_query_lower = norm_query.lower()
 
         # 改进内容结构：如果文件名没有在内容中，添加到内容开头
@@ -1293,18 +1464,19 @@ class IndexManager:
         if filename:
             # 检查文件名是否已经在内容开头，避免重复
             if not display_content.strip().startswith(filename):
-                structured_content = f"文件名: {filename}\n\n" + \
-                    structured_content
+                structured_content = f"文件名: {filename}\n\n" + structured_content
 
         # 使用包含文件名的内容进行高亮和查询检查
-        display_lower = structured_content.lower() if structured_content else ''
+        display_lower = structured_content.lower() if structured_content else ""
         contains_query = bool(norm_query and norm_query_lower in display_lower)
 
         # 生成高亮摘要
         snippet = self._highlight_text(structured_content, norm_query)
 
         # 如果没有生成高亮或缺少命中，再尝试解析原文 (fallback)
-        if norm_query and (not snippet or 'text-danger' not in snippet or not contains_query):
+        if norm_query and (
+            not snippet or "text-danger" not in snippet or not contains_query
+        ):
             try:
                 fallback = self.get_document_content(path)
                 if fallback and fallback != display_content:
@@ -1315,8 +1487,7 @@ class IndexManager:
 
                     display_lower = fallback_structured.lower()
                     contains_query = norm_query_lower in display_lower
-                    snippet = self._highlight_text(
-                        fallback_structured, norm_query)
+                    snippet = self._highlight_text(fallback_structured, norm_query)
                     structured_content = fallback_structured
             except Exception as e:
                 self.logger.debug(f"Fallback解析失败: {str(e)}")
@@ -1326,29 +1497,31 @@ class IndexManager:
         if modified:
             try:
                 import datetime
+
                 if isinstance(modified, (int, float)):
-                    modified_time = datetime.datetime.fromtimestamp(
-                        modified).strftime('%Y-%m-%d %H:%M:%S')
+                    modified_time = datetime.datetime.fromtimestamp(modified).strftime(
+                        "%Y-%m-%d %H:%M:%S"
+                    )
                 else:
                     modified_time = str(modified)
             except (ValueError, TypeError, OverflowError) as e:
                 self.logger.debug(f"时间戳转换失败: {str(e)}")
 
         return {
-            'path': path,
-            'filename': filename,
-            'file_name': filename,
-            'content': structured_content,  # 使用结构化内容
-            'snippet': snippet,     # 添加高亮摘要
-            'file_type': file_type,
-            'size': size,
-            'modified': modified_time,  # 添加修改时间
-            'score': score,
-            'has_query': contains_query
+            "path": path,
+            "filename": filename,
+            "file_name": filename,
+            "content": structured_content,  # 使用结构化内容
+            "snippet": snippet,  # 添加高亮摘要
+            "file_type": file_type,
+            "size": size,
+            "modified": modified_time,  # 添加修改时间
+            "score": score,
+            "has_query": contains_query,
         }
 
     def search_text(self, query_str, limit=10, filters=None):
-        if not getattr(self, 'tantivy_index', None):
+        if not getattr(self, "tantivy_index", None):
             return []
         try:
             results = []
@@ -1362,38 +1535,45 @@ class IndexManager:
 
             # Determine fields based on filters
             search_content = True
-            if filters and 'search_content' in filters:
-                search_content = filters['search_content']
+            if filters and "search_content" in filters:
+                search_content = filters["search_content"]
 
             if search_content:
-                exact_fields = ['content_raw', 'filename']
-                fields = ['filename', 'content', 'content_raw',
-                          'keywords', 'filename_chars', 'content_chars']
+                exact_fields = ["content_raw", "filename"]
+                fields = [
+                    "filename",
+                    "content",
+                    "content_raw",
+                    "keywords",
+                    "filename_chars",
+                    "content_chars",
+                ]
             else:
-                exact_fields = ['filename']
-                fields = ['filename', 'filename_chars']
+                exact_fields = ["filename"]
+                fields = ["filename", "filename_chars"]
 
             # 0. 优先尝试精确短语匹配，确保完全命中的文档排在前面
             try:
                 trimmed = query_str_processed.strip()
                 if trimmed:
-                    queries_to_try.append(self.tantivy_index.parse_query(
-                        f'"{trimmed}"', exact_fields))
+                    queries_to_try.append(
+                        self.tantivy_index.parse_query(f'"{trimmed}"', exact_fields)
+                    )
             except Exception as e:
                 self.logger.debug(f"精确短语查询构建失败: {str(e)}")
 
             # 正常模糊搜索逻辑
             # 简化查询构建逻辑
             try:
-                queries_to_try.append(
-                    self.tantivy_index.parse_query(seg_query, fields))
+                queries_to_try.append(self.tantivy_index.parse_query(seg_query, fields))
             except Exception as e:
                 self.logger.debug(f"分词查询构建失败: {str(e)}")
 
             if query_str != seg_query:
                 try:
                     queries_to_try.append(
-                        self.tantivy_index.parse_query(query_str, fields))
+                        self.tantivy_index.parse_query(query_str, fields)
+                    )
                 except Exception as e:
                     self.logger.debug(f"原始查询构建失败: {str(e)}")
 
@@ -1402,20 +1582,26 @@ class IndexManager:
                 for word in seg_query.split():
                     if word.strip():
                         queries_to_try.append(
-                            self.tantivy_index.parse_query(word, fields))
+                            self.tantivy_index.parse_query(word, fields)
+                        )
             except Exception as e:
                 self.logger.debug(f"单词查询构建失败: {str(e)}")
 
             # 尝试字符查询
             try:
                 import re
-                for ch in re.findall(r'\w', query_str_processed or ''):
+
+                for ch in re.findall(r"\w", query_str_processed or ""):
                     if search_content:
-                        queries_to_try.append(self.tantivy_index.parse_query(
-                            ch, ['filename_chars', 'content_chars']))
+                        queries_to_try.append(
+                            self.tantivy_index.parse_query(
+                                ch, ["filename_chars", "content_chars"]
+                            )
+                        )
                     else:
                         queries_to_try.append(
-                            self.tantivy_index.parse_query(ch, ['filename_chars']))
+                            self.tantivy_index.parse_query(ch, ["filename_chars"])
+                        )
             except Exception as e:
                 self.logger.debug(f"字符查询构建失败: {str(e)}")
 
@@ -1434,20 +1620,19 @@ class IndexManager:
                 if addr_key not in unique_docs or unique_docs[addr_key][0] < score:
                     unique_docs[addr_key] = (score, doc_address)
 
-            sorted_hits = sorted(unique_docs.values(),
-                                 key=lambda x: x[0], reverse=True)
+            sorted_hits = sorted(unique_docs.values(), key=lambda x: x[0], reverse=True)
             final_hits = sorted_hits[:limit]
 
             for score, doc_address in final_hits:
                 doc = searcher.doc(doc_address)
                 try:
-                    path_val = doc.get_first('path') or ''
-                    filename_val = doc.get_first('filename') or ''
-                    content_val = doc.get_first('content') or ''
-                    content_raw_val = doc.get_first('content_raw') or ''
-                    file_type_val = doc.get_first('file_type') or ''
-                    size_val = doc.get_first('size') or 0
-                    modified_val = doc.get_first('modified') or 0
+                    path_val = doc.get_first("path") or ""
+                    filename_val = doc.get_first("filename") or ""
+                    content_val = doc.get_first("content") or ""
+                    content_raw_val = doc.get_first("content_raw") or ""
+                    file_type_val = doc.get_first("file_type") or ""
+                    size_val = doc.get_first("size") or 0
+                    modified_val = doc.get_first("modified") or 0
                 except (AttributeError, KeyError, TypeError) as e:
                     self.logger.debug(f"获取文档字段失败: {str(e)}")
                     continue
@@ -1456,24 +1641,33 @@ class IndexManager:
                 # normalized_score = min(float(score), 100.0)
                 raw_score = float(score)
 
-                results.append(self._format_result(
-                    path_val, filename_val, content_val, content_raw_val, file_type_val,
-                    size_val, modified_val, raw_score, query_str_processed
-                ))
+                results.append(
+                    self._format_result(
+                        path_val,
+                        filename_val,
+                        content_val,
+                        content_raw_val,
+                        file_type_val,
+                        size_val,
+                        modified_val,
+                        raw_score,
+                        query_str_processed,
+                    )
+                )
 
-            results.sort(key=lambda x: x['score'], reverse=True)
+            results.sort(key=lambda x: x["score"], reverse=True)
 
             if query_str_processed and results:
                 # 先将包含高亮的结果排列到前面，但保留其他候选
                 highlighted = [
-                    r for r in results if 'text-danger' in (r.get('snippet') or '')]
+                    r for r in results if "text-danger" in (r.get("snippet") or "")
+                ]
                 if highlighted:
-                    non_highlighted = [
-                        r for r in results if r not in highlighted]
+                    non_highlighted = [r for r in results if r not in highlighted]
                     results = highlighted + non_highlighted
 
-                primary = [r for r in results if r.get('has_query')]
-                secondary = [r for r in results if not r.get('has_query')]
+                primary = [r for r in results if r.get("has_query")]
+                secondary = [r for r in results if not r.get("has_query")]
                 if primary:
                     results = primary + secondary
 
@@ -1481,7 +1675,7 @@ class IndexManager:
             deduped_results = []
             seen_paths = set()
             for item in results:
-                path_key = (item.get('path') or '').lower()
+                path_key = (item.get("path") or "").lower()
                 if path_key and path_key in seen_paths:
                     continue
                 if path_key:
@@ -1502,7 +1696,7 @@ class IndexManager:
             limit: 返回结果数量
             group_by_doc: 是否按文档分组（同一文档的多个chunks只返回最相关的一个）
         """
-        if getattr(self, 'hnsw', None) is None:
+        if getattr(self, "hnsw", None) is None:
             return []
         if not self.embedding_model:
             return []
@@ -1522,8 +1716,8 @@ class IndexManager:
                     sim = 1.0 - float(d)
                     adjusted = min(sim * 100.0, 100.0)
 
-                    path = metadata['path']
-                    is_chunk = metadata.get('is_chunk', False)
+                    path = metadata["path"]
+                    is_chunk = metadata.get("is_chunk", False)
 
                     # 如果按文档分组且该文档已有结果，跳过
                     if group_by_doc and path.lower() in seen_docs:
@@ -1532,36 +1726,45 @@ class IndexManager:
                     # 获取内容
                     if is_chunk:
                         # chunk模式：使用预览内容
-                        content_preview = metadata.get('chunk_content_preview', '')
+                        content_preview = metadata.get("chunk_content_preview", "")
                         if len(content_preview) < 300:
                             # 如果预览太短，尝试获取完整chunk内容
                             full_content = self.get_document_content(path)
-                            start_pos = metadata.get('chunk_start', 0)
-                            end_pos = metadata.get('chunk_end', start_pos + 500)
+                            start_pos = metadata.get("chunk_start", 0)
+                            end_pos = metadata.get("chunk_end", start_pos + 500)
                             if full_content and len(full_content) > start_pos:
                                 content = full_content[start_pos:end_pos]
                             else:
                                 content = content_preview
                         else:
-                            content = content_preview + '...'
+                            content = content_preview + "..."
                     else:
                         # 非chunk模式：获取整个文档内容
                         content = self.get_document_content(path)
 
                     # 构建结果
                     result = self._format_result(
-                        path, metadata['filename'], content, content,
-                        metadata['file_type'], 0, metadata.get('modified'), adjusted, query_str
+                        path,
+                        metadata["filename"],
+                        content,
+                        content,
+                        metadata["file_type"],
+                        0,
+                        metadata.get("modified"),
+                        adjusted,
+                        query_str,
                     )
 
                     # 添加chunk相关信息
-                    result['is_chunk'] = is_chunk
+                    result["is_chunk"] = is_chunk
                     if is_chunk:
-                        result['chunk_index'] = metadata.get('chunk_index', 0)
-                        result['total_chunks'] = metadata.get('total_chunks', 1)
-                        result['chunk_start'] = metadata.get('chunk_start', 0)
-                        result['chunk_end'] = metadata.get('chunk_end', 0)
-                        result['snippet'] = content[:300] + '...' if len(content) > 300 else content
+                        result["chunk_index"] = metadata.get("chunk_index", 0)
+                        result["total_chunks"] = metadata.get("total_chunks", 1)
+                        result["chunk_start"] = metadata.get("chunk_start", 0)
+                        result["chunk_end"] = metadata.get("chunk_end", 0)
+                        result["snippet"] = (
+                            content[:300] + "..." if len(content) > 300 else content
+                        )
 
                     results.append(result)
 
@@ -1571,7 +1774,7 @@ class IndexManager:
                     if len(results) >= limit:
                         break
 
-            results.sort(key=lambda x: x['score'], reverse=True)
+            results.sort(key=lambda x: x["score"], reverse=True)
             return results[:limit]
         except Exception as e:
             self.logger.error(f"向量搜索失败: {str(e)}")
@@ -1583,7 +1786,7 @@ class IndexManager:
             return np.array(vec, dtype=np.float32)
         except (StopIteration, RuntimeError, ValueError) as e:
             self.logger.debug(f"文本编码失败: {str(e)}")
-            return np.zeros(getattr(self, 'vector_dim', 384), dtype=np.float32)
+            return np.zeros(getattr(self, "vector_dim", 384), dtype=np.float32)
 
     def _encode_texts_batch(self, texts: list) -> np.ndarray:
         """批量编码多个文本为向量（比逐个编码快 40-60%）
@@ -1595,7 +1798,7 @@ class IndexManager:
             shape 为 (len(texts), vector_dim) 的 numpy 数组
         """
         if not texts or not self.embedding_model:
-            dim = getattr(self, 'vector_dim', 384)
+            dim = getattr(self, "vector_dim", 384)
             return np.zeros((len(texts) if texts else 0, dim), dtype=np.float32)
 
         try:
@@ -1664,11 +1867,10 @@ class IndexManager:
             os.makedirs(self.metadata_path, exist_ok=True)
 
             # 检查索引是否已初始化
-            if getattr(self, 'hnsw', None) is not None:
+            if getattr(self, "hnsw", None) is not None:
                 # 使用临时文件，然后原子性地移动到目标位置以避免损坏
-                index_file = os.path.join(
-                    self.hnsw_index_path, 'vector_index.bin')
-                temp_index_file = index_file + '.tmp'
+                index_file = os.path.join(self.hnsw_index_path, "vector_index.bin")
+                temp_index_file = index_file + ".tmp"
 
                 # 保存向量索引到临时文件
                 self.hnsw.save_index(temp_index_file)
@@ -1676,23 +1878,21 @@ class IndexManager:
                 # 原子性移动
                 if os.path.exists(temp_index_file):
                     import shutil
+
                     shutil.move(temp_index_file, index_file)
 
-            metadata_file = os.path.join(
-                self.metadata_path, 'vector_metadata.json')
-            temp_metadata_file = metadata_file + '.tmp'
-            metadata_dict = {
-                'metadata': self.vector_metadata,
-                'next_id': self.next_id
-            }
+            metadata_file = os.path.join(self.metadata_path, "vector_metadata.json")
+            temp_metadata_file = metadata_file + ".tmp"
+            metadata_dict = {"metadata": self.vector_metadata, "next_id": self.next_id}
 
             # 保存元数据到临时文件
-            with open(temp_metadata_file, 'w', encoding='utf-8') as f:
+            with open(temp_metadata_file, "w", encoding="utf-8") as f:
                 json.dump(metadata_dict, f, ensure_ascii=False, indent=2)
 
             # 原子性移动
             if os.path.exists(temp_metadata_file):
                 import shutil
+
                 shutil.move(temp_metadata_file, metadata_file)
 
             self.logger.info("索引保存成功")
@@ -1700,6 +1900,7 @@ class IndexManager:
         except Exception as e:
             self.logger.error(f"保存索引失败: {str(e)}")
             import traceback
+
             self.logger.error(f"保存索引失败详细错误: {traceback.format_exc()}")
             return False
 
@@ -1710,7 +1911,7 @@ class IndexManager:
             self.close()
 
             # 2. 删除 Tantivy 索引锁文件（如果存在）
-            lock_file = os.path.join(self.tantivy_index_path, 'meta.json.lock')
+            lock_file = os.path.join(self.tantivy_index_path, "meta.json.lock")
             if os.path.exists(lock_file):
                 try:
                     os.remove(lock_file)
@@ -1752,15 +1953,16 @@ class IndexManager:
             # 获取Tantivy索引统计
             searcher = self.tantivy_index.searcher()
             # num_docs 在新版 tantivy 中是属性而非方法
-            num_docs_attr = getattr(searcher, 'num_docs', 0)
+            num_docs_attr = getattr(searcher, "num_docs", 0)
             if callable(num_docs_attr):
                 doc_count = num_docs_attr()
             else:
                 doc_count = num_docs_attr
 
             # 获取向量索引统计
-            vector_count = len(self.vector_metadata) if hasattr(
-                self, 'vector_metadata') else 0
+            vector_count = (
+                len(self.vector_metadata) if hasattr(self, "vector_metadata") else 0
+            )
 
             # 统计分块信息
             chunk_stats = self._get_chunk_stats()
@@ -1777,43 +1979,51 @@ class IndexManager:
                 return total
 
             tantivy_size = get_dir_size(self.tantivy_index_path)
-            hnsw_size = get_dir_size(self.hnsw_index_path) if os.path.exists(
-                self.hnsw_index_path) else 0
-            metadata_size = get_dir_size(self.metadata_path) if os.path.exists(
-                self.metadata_path) else 0
+            hnsw_size = (
+                get_dir_size(self.hnsw_index_path)
+                if os.path.exists(self.hnsw_index_path)
+                else 0
+            )
+            metadata_size = (
+                get_dir_size(self.metadata_path)
+                if os.path.exists(self.metadata_path)
+                else 0
+            )
 
             return {
-                'tantivy_docs': doc_count,
-                'vector_docs': vector_count,
-                'tantivy_size_mb': round(tantivy_size / (1024 * 1024), 2),
-                'hnsw_size_mb': round(hnsw_size / (1024 * 1024), 2),
-                'metadata_size_mb': round(metadata_size / (1024 * 1024), 2),
-                'total_size_mb': round((tantivy_size + hnsw_size + metadata_size) / (1024 * 1024), 2),
-                'chunking': chunk_stats
+                "tantivy_docs": doc_count,
+                "vector_docs": vector_count,
+                "tantivy_size_mb": round(tantivy_size / (1024 * 1024), 2),
+                "hnsw_size_mb": round(hnsw_size / (1024 * 1024), 2),
+                "metadata_size_mb": round(metadata_size / (1024 * 1024), 2),
+                "total_size_mb": round(
+                    (tantivy_size + hnsw_size + metadata_size) / (1024 * 1024), 2
+                ),
+                "chunking": chunk_stats,
             }
         except Exception as e:
             self.logger.error(f"获取索引统计信息失败: {str(e)}")
             return {
-                'tantivy_docs': 0,
-                'vector_docs': 0,
-                'tantivy_size_mb': 0,
-                'hnsw_size_mb': 0,
-                'metadata_size_mb': 0,
-                'total_size_mb': 0,
-                'chunking': {'enabled': False, 'error': str(e)}
+                "tantivy_docs": 0,
+                "vector_docs": 0,
+                "tantivy_size_mb": 0,
+                "hnsw_size_mb": 0,
+                "metadata_size_mb": 0,
+                "total_size_mb": 0,
+                "chunking": {"enabled": False, "error": str(e)},
             }
 
     def _get_chunk_stats(self):
         """获取分块统计信息"""
         try:
-            if not hasattr(self, 'vector_metadata') or not self.vector_metadata:
+            if not hasattr(self, "vector_metadata") or not self.vector_metadata:
                 return {
-                    'enabled': self.chunk_enabled,
-                    'strategy': self.chunk_strategy if self.chunk_enabled else None,
-                    'total_vectors': 0,
-                    'chunked_docs': 0,
-                    'total_chunks': 0,
-                    'legacy_docs': 0
+                    "enabled": self.chunk_enabled,
+                    "strategy": self.chunk_strategy if self.chunk_enabled else None,
+                    "total_vectors": 0,
+                    "chunked_docs": 0,
+                    "total_chunks": 0,
+                    "legacy_docs": 0,
                 }
 
             chunked_docs = set()
@@ -1824,8 +2034,8 @@ class IndexManager:
                 if not isinstance(metadata, dict):
                     continue
 
-                is_chunk = metadata.get('is_chunk', False)
-                path = metadata.get('path', '')
+                is_chunk = metadata.get("is_chunk", False)
+                path = metadata.get("path", "")
 
                 if is_chunk:
                     total_chunks += 1
@@ -1835,35 +2045,36 @@ class IndexManager:
                     legacy_docs.add(path)
 
             return {
-                'enabled': self.chunk_enabled,
-                'strategy': self.chunk_strategy if self.chunk_enabled else None,
-                'chunk_size': self.chunk_size if self.chunk_enabled else None,
-                'chunk_overlap': self.chunk_overlap if self.chunk_enabled else None,
-                'total_vectors': len(self.vector_metadata),
-                'chunked_docs': len(chunked_docs),
-                'total_chunks': total_chunks,
-                'legacy_docs': len(legacy_docs),
-                'chunk_ratio': round(total_chunks / len(self.vector_metadata), 2) if self.vector_metadata else 0
+                "enabled": self.chunk_enabled,
+                "strategy": self.chunk_strategy if self.chunk_enabled else None,
+                "chunk_size": self.chunk_size if self.chunk_enabled else None,
+                "chunk_overlap": self.chunk_overlap if self.chunk_enabled else None,
+                "total_vectors": len(self.vector_metadata),
+                "chunked_docs": len(chunked_docs),
+                "total_chunks": total_chunks,
+                "legacy_docs": len(legacy_docs),
+                "chunk_ratio": (
+                    round(total_chunks / len(self.vector_metadata), 2)
+                    if self.vector_metadata
+                    else 0
+                ),
             }
         except Exception as e:
             self.logger.debug(f"获取分块统计失败: {e}")
-            return {
-                'enabled': self.chunk_enabled,
-                'error': str(e)
-            }
+            return {"enabled": self.chunk_enabled, "error": str(e)}
 
     def optimize_index(self):
         """优化索引性能"""
         try:
             # 优化Tantivy索引
-            if hasattr(self, 'tantivy_index') and self.tantivy_index:
+            if hasattr(self, "tantivy_index") and self.tantivy_index:
                 with self.tantivy_index.writer() as writer:
                     # 合并段以优化搜索性能
                     writer.commit()
                     self.logger.info("Tantivy索引优化完成")
 
             # 优化HNSW索引
-            if hasattr(self, 'hnsw') and self.hnsw:
+            if hasattr(self, "hnsw") and self.hnsw:
                 # HNSW索引本身不需要特别的优化，但可以调整参数
                 self.hnsw.set_ef(200)  # 设置搜索参数
                 self.logger.info("HNSW索引参数已优化")
@@ -1877,10 +2088,10 @@ class IndexManager:
         """验证索引完整性"""
         try:
             # 验证Tantivy索引
-            if hasattr(self, 'tantivy_index') and self.tantivy_index:
+            if hasattr(self, "tantivy_index") and self.tantivy_index:
                 searcher = self.tantivy_index.searcher()
                 # num_docs 在新版 tantivy 中是属性而非方法
-                num_docs_attr = getattr(searcher, 'num_docs', 0)
+                num_docs_attr = getattr(searcher, "num_docs", 0)
                 if callable(num_docs_attr):
                     doc_count = num_docs_attr()
                 else:
@@ -1888,7 +2099,7 @@ class IndexManager:
                 self.logger.info(f"Tantivy索引验证完成，文档数: {doc_count}")
 
             # 验证向量索引
-            if hasattr(self, 'hnsw') and self.hnsw and hasattr(self, 'vector_metadata'):
+            if hasattr(self, "hnsw") and self.hnsw and hasattr(self, "vector_metadata"):
                 vector_count = len(self.vector_metadata)
                 self.logger.info(f"向量索引验证完成，向量数: {vector_count}")
 
@@ -1908,7 +2119,8 @@ class IndexManager:
 
                 if missing_in_metadata or missing_in_index:
                     self.logger.warning(
-                        f"向量索引与元数据不一致: 索引中缺失元数据的ID数: {len(missing_in_metadata)}, 元数据中缺失索引的ID数: {len(missing_in_index)}")
+                        f"向量索引与元数据不一致: 索引中缺失元数据的ID数: {len(missing_in_metadata)}, 元数据中缺失索引的ID数: {len(missing_in_index)}"
+                    )
                 else:
                     self.logger.info("向量索引与元数据一致性检查通过")
 
@@ -1928,11 +2140,7 @@ class IndexManager:
             预热统计信息
         """
         try:
-            stats = {
-                'tantivy_warmed': 0,
-                'vector_warmed': 0,
-                'duration_ms': 0
-            }
+            stats = {"tantivy_warmed": 0, "vector_warmed": 0, "duration_ms": 0}
 
             start_time = time.time()
 
@@ -1942,7 +2150,7 @@ class IndexManager:
                 # 执行一个简单查询来加载索引数据
                 query = self.tantivy_index.parse_query("*", ["content"])
                 _ = searcher.search(query, limit)
-                stats['tantivy_warmed'] = limit
+                stats["tantivy_warmed"] = limit
                 self.logger.info(f"Tantivy索引预热完成，加载 {limit} 个文档")
             except Exception as e:
                 self.logger.warning(f"Tantivy索引预热失败: {e}")
@@ -1953,18 +2161,18 @@ class IndexManager:
                     # HNSW 在第一次查询时会加载，这里我们执行一个虚拟查询
                     dummy_vector = np.zeros(self.vector_dim, dtype=np.float32)
                     labels, distances = self.hnsw.knn_query(dummy_vector, k=1)
-                    stats['vector_warmed'] = 1
+                    stats["vector_warmed"] = 1
                     self.logger.info("向量索引预热完成")
             except Exception as e:
                 self.logger.warning(f"向量索引预热失败: {e}")
 
-            stats['duration_ms'] = int((time.time() - start_time) * 1000)
+            stats["duration_ms"] = int((time.time() - start_time) * 1000)
             self.logger.info(f"索引预热完成，耗时 {stats['duration_ms']}ms")
 
             return stats
         except Exception as e:
             self.logger.error(f"索引预热失败: {e}")
-            return {'error': str(e)}
+            return {"error": str(e)}
 
     def close(self):
         """关闭索引管理器，释放资源"""
@@ -1977,7 +2185,7 @@ class IndexManager:
             self.save_indexes()
 
             # 释放HNSW索引
-            if hasattr(self, 'hnsw') and self.hnsw is not None:
+            if hasattr(self, "hnsw") and self.hnsw is not None:
                 try:
                     # HNSW没有明确的关闭方法，但我们可以删除引用
                     del self.hnsw
@@ -1986,7 +2194,7 @@ class IndexManager:
                     self.logger.warning(f"释放HNSW索引时出错: {e}")
 
             # 释放Tantivy索引
-            if hasattr(self, 'tantivy_index') and self.tantivy_index is not None:
+            if hasattr(self, "tantivy_index") and self.tantivy_index is not None:
                 try:
                     # Tantivy索引会在垃圾回收时自动清理
                     del self.tantivy_index
@@ -2001,9 +2209,9 @@ class IndexManager:
     def __del__(self):
         """析构函数，确保资源被释放"""
         try:
-            if hasattr(self, '_batch_mode') and self._batch_mode:
+            if hasattr(self, "_batch_mode") and self._batch_mode:
                 self.end_batch_mode(commit=True)
-            if hasattr(self, 'hnsw') and self.hnsw is not None:
+            if hasattr(self, "hnsw") and self.hnsw is not None:
                 self.save_indexes()
         except Exception:
             pass  # 析构函数中不抛出异常

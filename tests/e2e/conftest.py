@@ -1,4 +1,5 @@
 """E2E测试配置"""
+
 import pytest
 
 
@@ -11,10 +12,7 @@ def base_url():
 @pytest.fixture(scope="session")
 def browser_launch_options():
     """浏览器启动选项"""
-    return {
-        "headless": True,
-        "args": ["--no-sandbox", "--disable-dev-shm-usage"]
-    }
+    return {"headless": True, "args": ["--no-sandbox", "--disable-dev-shm-usage"]}
 
 
 @pytest.fixture(scope="session")

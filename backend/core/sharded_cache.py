@@ -16,7 +16,7 @@ from backend.utils.logger import get_logger
 
 logger = get_logger(__name__)
 
-T = TypeVar('T')
+T = TypeVar("T")
 
 
 class Shard:
@@ -69,10 +69,7 @@ class Shard:
     def get_stats(self) -> Dict[str, int]:
         """获取分片统计"""
         with self.lock:
-            return {
-                'size': len(self.cache),
-                'max_size': self.max_size
-            }
+            return {"size": len(self.cache), "max_size": self.max_size}
 
 
 class ShardedCache:
@@ -90,7 +87,7 @@ class ShardedCache:
         self.shard_size = max(1, max_size // num_shards)
         self.shards: list[Shard] = [Shard(self.shard_size) for _ in range(num_shards)]
         self.ttl: float = 3600  # 默认1小时
-        self._stats = {'hits': 0, 'misses': 0}
+        self._stats = {"hits": 0, "misses": 0}
         self._stats_lock = RLock()
 
     def _get_shard_index(self, key: str) -> int:
@@ -106,9 +103,9 @@ class ShardedCache:
 
         with self._stats_lock:
             if value is not None:
-                self._stats['hits'] += 1
+                self._stats["hits"] += 1
             else:
-                self._stats['misses'] += 1
+                self._stats["misses"] += 1
 
         return value
 
@@ -122,7 +119,7 @@ class ShardedCache:
         for shard in self.shards:
             shard.clear()
         with self._stats_lock:
-            self._stats = {'hits': 0, 'misses': 0}
+            self._stats = {"hits": 0, "misses": 0}
 
     def set_ttl(self, ttl: float) -> None:
         """设置TTL"""
@@ -131,23 +128,23 @@ class ShardedCache:
     def get_stats(self) -> Dict[str, Any]:
         """获取缓存统计"""
         shard_stats = [shard.get_stats() for shard in self.shards]
-        total_size = sum(s['size'] for s in shard_stats)
+        total_size = sum(s["size"] for s in shard_stats)
 
         with self._stats_lock:
-            hits = self._stats['hits']
-            misses = self._stats['misses']
+            hits = self._stats["hits"]
+            misses = self._stats["misses"]
 
         total_requests = hits + misses
         hit_rate = hits / total_requests if total_requests > 0 else 0.0
 
         return {
-            'total_size': total_size,
-            'max_size': self.max_size,
-            'num_shards': self.num_shards,
-            'hits': hits,
-            'misses': misses,
-            'hit_rate': hit_rate,
-            'shard_stats': shard_stats
+            "total_size": total_size,
+            "max_size": self.max_size,
+            "num_shards": self.num_shards,
+            "hits": hits,
+            "misses": misses,
+            "hit_rate": hit_rate,
+            "shard_stats": shard_stats,
         }
 
 
@@ -162,21 +159,21 @@ class LRUCache:
         self.cache: OrderedDict[str, Any] = OrderedDict()
         self.timestamps: Dict[str, float] = {}
         self.lock = RLock()
-        self._stats = {'hits': 0, 'misses': 0}
+        self._stats = {"hits": 0, "misses": 0}
 
     def get(self, key: str) -> Optional[Any]:
         with self.lock:
             if key not in self.cache:
-                self._stats['misses'] += 1
+                self._stats["misses"] += 1
                 return None
 
             if time.time() - self.timestamps[key] > self.ttl:
                 del self.cache[key]
                 del self.timestamps[key]
-                self._stats['misses'] += 1
+                self._stats["misses"] += 1
                 return None
 
-            self._stats['hits'] += 1
+            self._stats["hits"] += 1
             value = self.cache.pop(key)
             self.cache[key] = value
             return value
@@ -197,15 +194,15 @@ class LRUCache:
         with self.lock:
             self.cache.clear()
             self.timestamps.clear()
-            self._stats = {'hits': 0, 'misses': 0}
+            self._stats = {"hits": 0, "misses": 0}
 
     def get_stats(self) -> Dict[str, Any]:
         with self.lock:
-            total = self._stats['hits'] + self._stats['misses']
+            total = self._stats["hits"] + self._stats["misses"]
             return {
-                'size': len(self.cache),
-                'max_size': self.max_size,
-                'hits': self._stats['hits'],
-                'misses': self._stats['misses'],
-                'hit_rate': self._stats['hits'] / total if total > 0 else 0.0
+                "size": len(self.cache),
+                "max_size": self.max_size,
+                "hits": self._stats["hits"],
+                "misses": self._stats["misses"],
+                "hit_rate": self._stats["hits"] / total if total > 0 else 0.0,
             }

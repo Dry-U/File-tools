@@ -1,11 +1,12 @@
 """
 搜索功能UI测试 - Playwright
 """
+
 import pytest
 import sys
 import os
 
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')))
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
 
 
 @pytest.mark.e2e
@@ -15,9 +16,7 @@ class TestUISearch:
     @pytest.fixture(scope="class")
     def browser_context_args(self):
         """浏览器上下文参数"""
-        return {
-            "viewport": {"width": 1280, "height": 720}
-        }
+        return {"viewport": {"width": 1280, "height": 720}}
 
     def test_page_load(self, page):
         """测试页面加载"""
@@ -36,7 +35,9 @@ class TestUISearch:
         page.wait_for_load_state("networkidle")
 
         # 查找搜索输入框
-        search_input = page.locator('input[type="text"], input[placeholder*="搜索"], input[placeholder*="search"]').first
+        search_input = page.locator(
+            'input[type="text"], input[placeholder*="搜索"], input[placeholder*="search"]'
+        ).first
         assert search_input.is_visible()
 
     def test_search_button_visible(self, page):
@@ -45,7 +46,9 @@ class TestUISearch:
         page.wait_for_load_state("networkidle")
 
         # 查找搜索按钮（可能是按钮或图标）
-        search_button = page.locator('button:has-text("搜索"), button:has-text("Search"), .search-button, [data-testid="search-button"]').first
+        search_button = page.locator(
+            'button:has-text("搜索"), button:has-text("Search"), .search-button, [data-testid="search-button"]'
+        ).first
 
         # 如果没有找到特定按钮，检查是否有可点击的搜索图标
         if not search_button.is_visible():
@@ -84,7 +87,9 @@ class TestUISearch:
         page.wait_for_timeout(2000)
 
         # 检查结果容器是否存在
-        page.locator('.search-results, [class*="result"], [data-testid*="result"]').first
+        page.locator(
+            '.search-results, [class*="result"], [data-testid*="result"]'
+        ).first
 
         # 即使没有结果，页面也应该正常显示
         assert page.url.startswith("http://127.0.0.1:8000")
@@ -143,7 +148,9 @@ class TestUISearch:
         page.wait_for_load_state("networkidle")
 
         # 查找侧边栏切换按钮
-        toggle_button = page.locator('.sidebar-toggle, [class*="toggle"], button:has([class*="menu"])').first
+        toggle_button = page.locator(
+            '.sidebar-toggle, [class*="toggle"], button:has([class*="menu"])'
+        ).first
 
         if toggle_button.is_visible():
             # 点击切换
@@ -163,14 +170,18 @@ class TestUISearch:
         page.wait_for_load_state("networkidle")
 
         # 查找聊天模式切换按钮
-        chat_button = page.locator('button:has-text("聊天"), button:has-text("Chat"), [data-testid="chat-mode"]').first
+        chat_button = page.locator(
+            'button:has-text("聊天"), button:has-text("Chat"), [data-testid="chat-mode"]'
+        ).first
 
         if chat_button.is_visible():
             chat_button.click()
             page.wait_for_timeout(500)
 
             # 验证切换到聊天模式
-            chat_input = page.locator('textarea, input[placeholder*="消息"], input[placeholder*="message"]').first
+            chat_input = page.locator(
+                'textarea, input[placeholder*="消息"], input[placeholder*="message"]'
+            ).first
             assert chat_input.is_visible() or not chat_input.is_visible()  # 可能不存在
 
     def test_search_filters(self, page):
@@ -179,7 +190,9 @@ class TestUISearch:
         page.wait_for_load_state("networkidle")
 
         # 查找过滤器按钮或下拉菜单
-        filter_button = page.locator('button:has-text("过滤"), button:has-text("Filter"), .filter-button').first
+        filter_button = page.locator(
+            'button:has-text("过滤"), button:has-text("Filter"), .filter-button'
+        ).first
 
         if filter_button.is_visible():
             filter_button.click()

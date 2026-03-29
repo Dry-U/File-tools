@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """VRAM管理器模块 - 用于内存和性能优化"""
+
 import os
 import time
 import logging
@@ -11,12 +12,14 @@ from typing import Optional, Dict, Any
 # 尝试导入GPU监控库
 try:
     import GPUtil
+
     gpu_available = True
 except ImportError:
     gpu_available = False
     logging.warning("未找到GPUtil库，GPU监控已禁用。安装命令: pip install gputil")
 
 logger = logging.getLogger(__name__)
+
 
 class VRAMManager:
     """VRAM管理器，用于优化RAG系统性能，特别是在处理大上下文时"""
@@ -31,20 +34,22 @@ class VRAMManager:
         self.cache_lock = threading.Lock()
 
         # 从配置中获取模型目录 - 使用ConfigLoader的get方法
-        self.models_dir = config.get('ai_model', 'model_path', './data/models')
+        self.models_dir = config.get("ai_model", "model_path", "./data/models")
 
         # 获取内存管理配置
         try:
             # 直接从配置获取，处理ConfigLoader可能返回字符串的情况
-            mem_limit_val = config.get('advanced', 'whoosh_mem_limit', 512)
+            mem_limit_val = config.get("advanced", "whoosh_mem_limit", 512)
             self.mem_limit = int(mem_limit_val) if mem_limit_val else 512  # in MB
-            max_cached_val = config.get('advanced', 'max_cached_results', 1000)
+            max_cached_val = config.get("advanced", "max_cached_results", 1000)
             self.max_cached_results = int(max_cached_val) if max_cached_val else 1000
         except (ValueError, TypeError):
             self.mem_limit = 512  # default 512MB limit
             self.max_cached_results = 1000
 
-        logger.info(f"内存管理器初始化，模型目录: {self.models_dir}, 内存限制: {self.mem_limit}MB, 最大缓存: {self.max_cached_results}")
+        logger.info(
+            f"内存管理器初始化，模型目录: {self.models_dir}, 内存限制: {self.mem_limit}MB, 最大缓存: {self.max_cached_results}"
+        )
 
     def available_vram(self) -> int:
         """获取可用VRAM信息 - 现在主要用于API接口"""
@@ -67,7 +72,9 @@ class VRAMManager:
         self.last_used[model_name] = time.time()
         logger.debug(f"更新模型最后使用时间: {model_name}")
 
-    def load_model(self, model_name: str, model_class, gpu_layers: Optional[int] = None) -> Optional[Any]:
+    def load_model(
+        self, model_name: str, model_class, gpu_layers: Optional[int] = None
+    ) -> Optional[Any]:
         """加载模型到GPU或CPU - 现在主要用于API接口"""
         logger.warning(f"尝试加载本地模型 {model_name}，但本地模型支持已移除")
         return None
@@ -126,20 +133,22 @@ class VRAMManager:
                 if gpus:
                     gpu_info = []
                     for gpu in gpus:
-                        gpu_info.append({
-                            'id': gpu.id,
-                            'name': gpu.name,
-                            'load': gpu.load,
-                            'memory_util': gpu.memoryUtil,
-                            'memory_free': gpu.memoryFree,
-                            'memory_total': gpu.memoryTotal,
-                            'temperature': gpu.temperature
-                        })
-                    return {'available': True, 'gpus': gpu_info}
+                        gpu_info.append(
+                            {
+                                "id": gpu.id,
+                                "name": gpu.name,
+                                "load": gpu.load,
+                                "memory_util": gpu.memoryUtil,
+                                "memory_free": gpu.memoryFree,
+                                "memory_total": gpu.memoryTotal,
+                                "temperature": gpu.temperature,
+                            }
+                        )
+                    return {"available": True, "gpus": gpu_info}
             except Exception as e:
                 logger.warning(f"无法获取GPU信息: {e}")
 
-        return {'available': False, 'gpus': []}
+        return {"available": False, "gpus": []}
 
     def cache_result(self, key: str, result: Any, size_estimate: int = 1):
         """缓存结果"""
@@ -184,19 +193,21 @@ class VRAMManager:
         """获取模型信息"""
         if model_name in self.models and model_name in self.last_used:
             return {
-                'name': model_name,
-                'path': os.path.join(self.models_dir, model_name),
-                'last_used': time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(self.last_used[model_name]))
+                "name": model_name,
+                "path": os.path.join(self.models_dir, model_name),
+                "last_used": time.strftime(
+                    "%Y-%m-%d %H:%M:%S", time.localtime(self.last_used[model_name])
+                ),
             }
         return None
 
     def get_performance_stats(self) -> Dict[str, Any]:
         """获取性能和内存统计信息"""
         return {
-            'memory_usage_mb': self.get_memory_usage(),
-            'memory_limit_mb': self.mem_limit,
-            'cache_size': len(self.cache),
-            'cache_limit': self.max_cached_results,
-            'should_limit_context': self.should_limit_context(),
-            'gpu_info': self.get_gpu_info()
+            "memory_usage_mb": self.get_memory_usage(),
+            "memory_limit_mb": self.mem_limit,
+            "cache_size": len(self.cache),
+            "cache_limit": self.max_cached_results,
+            "should_limit_context": self.should_limit_context(),
+            "gpu_info": self.get_gpu_info(),
         }

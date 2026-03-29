@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 """模型管理器功能测试"""
+
 import pytest
 import sys
 from pathlib import Path
@@ -19,31 +20,31 @@ def mock_config_wsl():
 
     def mock_get(_section=None, key=None, default=None):
         """Mock get 方法"""
-        if _section == 'ai_model':
-            if key == 'api.api_url':
-                return 'http://localhost:8000/v1/chat/completions'
-            elif key == 'api.api_key':
-                return ''
-            elif key == 'api.model_name':
-                return 'deepseek-ai/DeepSeek-V2.5'
-            elif key == 'api.system_prompt':
-                return ''
-            elif key == 'mode':
-                return 'api'
-            elif key == 'api.provider':
-                return 'siliconflow'
-            elif key == 'api.max_tokens':
+        if _section == "ai_model":
+            if key == "api.api_url":
+                return "http://localhost:8000/v1/chat/completions"
+            elif key == "api.api_key":
+                return ""
+            elif key == "api.model_name":
+                return "deepseek-ai/DeepSeek-V2.5"
+            elif key == "api.system_prompt":
+                return ""
+            elif key == "mode":
+                return "api"
+            elif key == "api.provider":
+                return "siliconflow"
+            elif key == "api.max_tokens":
                 return 2048
-            elif key == 'api.max_context':
+            elif key == "api.max_context":
                 return 8192
         return default
 
     def mock_getint(_section=None, key=None, default=0):
         """Mock getint 方法"""
-        if _section == 'ai_model':
-            if key == 'api.max_tokens':
+        if _section == "ai_model":
+            if key == "api.max_tokens":
                 return 2048
-            elif key == 'api.max_context':
+            elif key == "api.max_context":
                 return 8192
         return default
 
@@ -61,8 +62,8 @@ class TestModelManagerInitialization:
         manager = ModelManager(mock_config_wsl)
 
         assert manager is not None
-        assert manager.mode.value == 'api'
-        assert manager.api_url == 'http://localhost:8000/v1/chat/completions'
+        assert manager.mode.value == "api"
+        assert manager.api_url == "http://localhost:8000/v1/chat/completions"
         assert manager.default_max_tokens == 2048
 
     def test_init_with_defaults(self):
@@ -81,7 +82,7 @@ class TestModelManagerInitialization:
 
         manager = ModelManager(config)
 
-        assert manager.mode.value == 'local'  # 默认模式
+        assert manager.mode.value == "local"  # 默认模式
 
 
 class TestModelManagerGenerate:
@@ -113,9 +114,9 @@ class TestModelManagerNormalization:
         """测试空文本规范化"""
         from backend.core.model_manager import _normalize_text
 
-        assert _normalize_text('') == ''
+        assert _normalize_text("") == ""
         # _normalize_text 只接受 str 类型，不接受 None
 
 
 if __name__ == "__main__":
-    pytest.main([__file__, '-v'])
+    pytest.main([__file__, "-v"])

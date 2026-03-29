@@ -21,6 +21,7 @@ logger = get_logger(__name__)
 @dataclass
 class MetricValue:
     """指标值"""
+
     value: float
     timestamp: float = field(default_factory=time.time)
     labels: Dict[str, str] = field(default_factory=dict)
@@ -64,7 +65,7 @@ class Histogram:
         name: str,
         description: str = "",
         buckets: Optional[list] = None,
-        labels: Optional[list] = None
+        labels: Optional[list] = None,
     ):
         self.name = name
         self.description = description
@@ -105,7 +106,7 @@ class Histogram:
                 "count": total,
                 "sum": self._sums.get(label_tuple, 0.0),
                 "buckets": {b: c for b, c in zip(self.buckets, counts[:-1])},
-                "+Inf": counts[-1]
+                "+Inf": counts[-1],
             }
 
 
@@ -160,81 +161,66 @@ class MetricsCollector:
         self.search_duration = Histogram(
             "search_duration_seconds",
             "Search request duration in seconds",
-            labels=["status"]
+            labels=["status"],
         )
         self.search_results = Counter(
             "search_results_total",
             "Total number of search results returned",
-            labels=["status"]
+            labels=["status"],
         )
         self.search_cache_hits = Counter(
-            "search_cache_hits_total",
-            "Total number of search cache hits"
+            "search_cache_hits_total", "Total number of search cache hits"
         )
         self.search_cache_misses = Counter(
-            "search_cache_misses_total",
-            "Total number of search cache misses"
+            "search_cache_misses_total", "Total number of search cache misses"
         )
 
         # 文件扫描指标
         self.files_indexed = Counter(
-            "files_indexed_total",
-            "Total number of files indexed"
+            "files_indexed_total", "Total number of files indexed"
         )
         self.files_scanned = Counter(
-            "files_scanned_total",
-            "Total number of files scanned"
+            "files_scanned_total", "Total number of files scanned"
         )
         self.files_skipped = Counter(
-            "files_skipped_total",
-            "Total number of files skipped"
+            "files_skipped_total", "Total number of files skipped"
         )
 
         # RAG相关指标
         self.chat_requests = Counter(
-            "chat_requests_total",
-            "Total number of chat requests",
-            labels=["status"]
+            "chat_requests_total", "Total number of chat requests", labels=["status"]
         )
         self.chat_duration = Histogram(
             "chat_duration_seconds",
             "Chat request duration in seconds",
-            labels=["status"]
+            labels=["status"],
         )
         self.tokens_generated = Counter(
-            "tokens_generated_total",
-            "Total number of tokens generated"
+            "tokens_generated_total", "Total number of tokens generated"
         )
         self.rag_queries = Counter(
-            "rag_queries_total",
-            "Total number of RAG queries",
-            labels=["status"]
+            "rag_queries_total", "Total number of RAG queries", labels=["status"]
         )
 
         # 系统指标
         self.active_sessions = Gauge(
-            "active_chat_sessions",
-            "Number of active chat sessions"
+            "active_chat_sessions", "Number of active chat sessions"
         )
         self.indexed_documents = Gauge(
-            "indexed_documents",
-            "Total number of indexed documents"
+            "indexed_documents", "Total number of indexed documents"
         )
         self.cache_size = Gauge(
-            "cache_entries",
-            "Current number of cache entries",
-            labels=["cache_type"]
+            "cache_entries", "Current number of cache entries", labels=["cache_type"]
         )
 
         # 错误指标
         self.errors_total = Counter(
-            "errors_total",
-            "Total number of errors",
-            labels=["type"]
+            "errors_total", "Total number of errors", labels=["type"]
         )
 
     def time_operation(self, metric: Histogram, **labels):
         """上下文管理器用于计时操作"""
+
         class TimerContext:
             def __init__(self, metric, labels):
                 self.metric = metric
@@ -278,9 +264,7 @@ class MetricsCollector:
             "cache_misses": self.search_cache_misses.get(),
             "rag_queries": self.rag_queries.get(),
             "chat_requests": self.chat_requests.get(),
-            "timestamps": {
-                "collected_at": time.time()
-            }
+            "timestamps": {"collected_at": time.time()},
         }
 
     def get_all_metrics(self) -> Dict[str, Any]:
@@ -291,9 +275,7 @@ class MetricsCollector:
                 "cache_hits": self.search_cache_hits.get(),
                 "cache_misses": self.search_cache_misses.get(),
             },
-            "timestamps": {
-                "collected_at": time.time()
-            }
+            "timestamps": {"collected_at": time.time()},
         }
 
     def to_prometheus_format(self) -> str:
@@ -306,11 +288,17 @@ class MetricsCollector:
         for (status,), stats in self.search_duration._counts.items():
             label = f'status="{status}"' if status else ""
             for i, bucket in enumerate(self.search_duration.buckets):
-                count = sum(stats[:i+1])
-                lines.append(f'search_duration_seconds_bucket{{{label},le="{bucket}"}} {count}')
-            lines.append(f'search_duration_seconds_bucket{{{label},le="+Inf"}} {sum(stats)}')
-            lines.append(f'search_duration_seconds_sum{{{label}}} {self.search_duration._sums.get((status,), 0)}')
-            lines.append(f'search_duration_seconds_count{{{label}}} {sum(stats)}')
+                count = sum(stats[: i + 1])
+                lines.append(
+                    f'search_duration_seconds_bucket{{{label},le="{bucket}"}} {count}'
+                )
+            lines.append(
+                f'search_duration_seconds_bucket{{{label},le="+Inf"}} {sum(stats)}'
+            )
+            lines.append(
+                f"search_duration_seconds_sum{{{label}}} {self.search_duration._sums.get((status,), 0)}"
+            )
+            lines.append(f"search_duration_seconds_count{{{label}}} {sum(stats)}")
 
         # 缓存命中率
         lines.append("# HELP search_cache_hit_rate Cache hit rate")
@@ -347,7 +335,7 @@ def timed(metric_or_name, **default_labels):
         **default_labels: 默认标签（可通过 status_label 覆盖状态键名）
     """
     # 检查是否指定了状态标签键名
-    status_key = default_labels.pop('status_key', 'status')
+    status_key = default_labels.pop("status_key", "status")
 
     def decorator(func: Callable) -> Callable:
         @wraps(func)
@@ -370,7 +358,9 @@ def timed(metric_or_name, **default_labels):
                 # 否则按名称从 metrics 获取
                 elif hasattr(metrics, metric_or_name):
                     getattr(metrics, metric_or_name).observe(duration, **labels)
+
         return wrapper
+
     return decorator
 
 

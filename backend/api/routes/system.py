@@ -11,7 +11,10 @@ from fastapi import APIRouter, HTTPException, Request, Depends
 from backend.utils.config_loader import ConfigLoader
 from backend.utils.logger import get_logger
 from backend.api.dependencies import (
-    get_config_loader, get_index_manager, get_file_scanner, get_rate_limiter
+    get_config_loader,
+    get_index_manager,
+    get_file_scanner,
+    get_rate_limiter,
 )
 from backend.utils.network import get_client_ip
 from backend.api.models import HealthCheckResponse
@@ -30,20 +33,21 @@ def get_version() -> str:
     4. 默认版本 "0.1.0"
     """
     # 1. 检查环境变量 (CI构建时注入)
-    env_version = os.environ.get('FILETOOLS_VERSION')
+    env_version = os.environ.get("FILETOOLS_VERSION")
     if env_version:
         return env_version.strip()
 
     # 2. 尝试从包元数据读取
     try:
         from importlib.metadata import version as get_pkg_version
-        return get_pkg_version('file-tools')
+
+        return get_pkg_version("file-tools")
     except Exception:
         pass
 
     # 3. 尝试读取 VERSION 文件
     try:
-        version_file = Path(__file__).parent.parent.parent.parent / 'VERSION'
+        version_file = Path(__file__).parent.parent.parent.parent / "VERSION"
         if version_file.exists():
             return version_file.read_text().strip()
     except Exception:
@@ -57,20 +61,21 @@ def get_version() -> str:
 async def rebuild_index(
     request: Request,
     config_loader: ConfigLoader = Depends(get_config_loader),
-    file_scanner=Depends(get_file_scanner)
+    file_scanner=Depends(get_file_scanner),
 ):
     """重建文件索引"""
     # 限流检查
     limiter = get_rate_limiter()
-    if config_loader.getboolean('security', 'rate_limiter.enabled', True):
+    if config_loader.getboolean("security", "rate_limiter.enabled", True):
         client_ip = get_client_ip(request, config_loader)
-        max_req = config_loader.getint(
-            'security', 'rate_limiter.rebuild_limit', 1)
-        window = config_loader.getint(
-            'security', 'rate_limiter.rebuild_window', 600)
-        if not limiter.is_allowed(f"rebuild:{client_ip}", max_requests=max_req, window=window):
+        max_req = config_loader.getint("security", "rate_limiter.rebuild_limit", 1)
+        window = config_loader.getint("security", "rate_limiter.rebuild_window", 600)
+        if not limiter.is_allowed(
+            f"rebuild:{client_ip}", max_requests=max_req, window=window
+        ):
             raise HTTPException(
-                status_code=429, detail="重建索引过于频繁，请10分钟后再试")
+                status_code=429, detail="重建索引过于频繁，请10分钟后再试"
+            )
 
     try:
         logger.info("开始重建索引...")
@@ -79,8 +84,8 @@ async def rebuild_index(
         return {
             "status": "success",
             "message": "索引重建完成",
-            "files_scanned": stats.get('total_files_scanned', 0),
-            "files_indexed": stats.get('total_files_indexed', 0)
+            "files_scanned": stats.get("total_files_scanned", 0),
+            "files_indexed": stats.get("total_files_indexed", 0),
         }
     except Exception as e:
         logger.error(f"重建索引错误: {str(e)}")
@@ -91,7 +96,7 @@ async def rebuild_index(
 async def health_check(
     request: Request,
     config_loader: ConfigLoader = Depends(get_config_loader),
-    index_manager=Depends(get_index_manager)
+    index_manager=Depends(get_index_manager),
 ) -> HealthCheckResponse:
     """健康检查端点，返回系统状态和各组件健康情况"""
     try:
@@ -101,49 +106,34 @@ async def health_check(
         # 检查索引管理器
         try:
             index_health = index_manager.get_index_stats()
-            components['index_manager'] = {
+            components["index_manager"] = {
                 "status": "healthy",
-                "indexed_documents": index_health.get('indexed_count', 0)
+                "indexed_documents": index_health.get("indexed_count", 0),
             }
         except Exception as e:
-            components['index_manager'] = {
-                "status": "unhealthy",
-                "error": str(e)
-            }
+            components["index_manager"] = {"status": "unhealthy", "error": str(e)}
 
         # 检查RAG管道（支持优雅降级状态）
         try:
-            rag_status = getattr(request.app.state, 'rag_status', 'unknown')
-            rag_error = getattr(request.app.state, 'rag_error', None)
+            rag_status = getattr(request.app.state, "rag_status", "unknown")
+            rag_error = getattr(request.app.state, "rag_error", None)
 
             if rag_status == "ready":
-                components['rag_pipeline'] = {
-                    "status": "ready",
-                    "enabled": True
-                }
+                components["rag_pipeline"] = {"status": "ready", "enabled": True}
             elif rag_status == "error":
-                components['rag_pipeline'] = {
+                components["rag_pipeline"] = {
                     "status": "error",
                     "enabled": True,
                     "error": rag_error or "未知错误",
-                    "message": "AI功能暂时不可用，其他功能正常"
+                    "message": "AI功能暂时不可用，其他功能正常",
                 }
-            elif getattr(request.app.state, 'rag_initializing', False):
-                components['rag_pipeline'] = {
-                    "status": "initializing",
-                    "enabled": True
-                }
+            elif getattr(request.app.state, "rag_initializing", False):
+                components["rag_pipeline"] = {"status": "initializing", "enabled": True}
             else:
-                enabled = config_loader.getboolean('ai_model', 'enabled', False)
-                components['rag_pipeline'] = {
-                    "status": "disabled",
-                    "enabled": enabled
-                }
+                enabled = config_loader.getboolean("ai_model", "enabled", False)
+                components["rag_pipeline"] = {"status": "disabled", "enabled": enabled}
         except Exception as e:
-            components['rag_pipeline'] = {
-                "status": "error",
-                "error": str(e)
-            }
+            components["rag_pipeline"] = {"status": "error", "error": str(e)}
 
         # 整体状态
         all_healthy = all(
@@ -155,9 +145,9 @@ async def health_check(
 
         return HealthCheckResponse(
             status=health_status,
-            initialized=getattr(request.app.state, 'initialized', False),
+            initialized=getattr(request.app.state, "initialized", False),
             timestamp=time.time(),
-            components=components
+            components=components,
         )
     except Exception as e:
         logger.error(f"健康检查错误: {str(e)}")
@@ -167,7 +157,7 @@ async def health_check(
 @router.get("/health/ready")
 async def readiness_check(request: Request):
     """就绪检查 - 用于Kubernetes等环境的就绪探针"""
-    if getattr(request.app.state, 'initialized', False):
+    if getattr(request.app.state, "initialized", False):
         return {"ready": True}
     else:
         raise HTTPException(status_code=503, detail="服务尚未就绪")
@@ -185,7 +175,7 @@ async def version_check():
     return {
         "version": get_version(),
         "name": "file-tools",
-        "description": "智能文件检索与问答系统"
+        "description": "智能文件检索与问答系统",
     }
 
 
@@ -196,54 +186,51 @@ async def initialization_status(request: Request):
     返回各组件的初始化进度和状态，前端可在启动时轮询此端点
     展示加载进度，避免用户在系统未就绪时操作。
     """
-    initialized = getattr(request.app.state, 'initialized', False)
+    initialized = getattr(request.app.state, "initialized", False)
     components: Dict[str, Any] = {}
 
     # 索引管理器状态
     try:
         index_manager = None
-        if hasattr(request.app.state, 'index_manager'):
+        if hasattr(request.app.state, "index_manager"):
             index_manager = request.app.state.index_manager
-        if index_manager and getattr(index_manager, 'index_ready', False):
+        if index_manager and getattr(index_manager, "index_ready", False):
             try:
                 stats = index_manager.get_index_stats()
-                components['index'] = {
+                components["index"] = {
                     "status": "ready",
-                    "tantivy_docs": stats.get('tantivy_docs', 0),
-                    "vector_docs": stats.get('vector_docs', 0)
+                    "tantivy_docs": stats.get("tantivy_docs", 0),
+                    "vector_docs": stats.get("vector_docs", 0),
                 }
             except Exception:
-                components['index'] = {"status": "ready"}
+                components["index"] = {"status": "ready"}
         else:
-            components['index'] = {"status": "initializing"}
+            components["index"] = {"status": "initializing"}
     except Exception:
-        components['index'] = {"status": "initializing"}
+        components["index"] = {"status": "initializing"}
 
     # RAG 管道状态
     try:
-        rag_status = getattr(request.app.state, 'rag_status', 'unknown')
-        rag_error = getattr(request.app.state, 'rag_error', None)
-        components['rag'] = {
-            "status": rag_status,
-            "error": rag_error
-        }
+        rag_status = getattr(request.app.state, "rag_status", "unknown")
+        rag_error = getattr(request.app.state, "rag_error", None)
+        components["rag"] = {"status": rag_status, "error": rag_error}
     except Exception:
-        components['rag'] = {"status": "unknown"}
+        components["rag"] = {"status": "unknown"}
 
     # 文件监控状态
     try:
-        monitor = getattr(request.app.state, 'file_monitor', None)
-        if monitor and getattr(monitor, '_running', False):
-            components['monitor'] = {"status": "running"}
+        monitor = getattr(request.app.state, "file_monitor", None)
+        if monitor and getattr(monitor, "_running", False):
+            components["monitor"] = {"status": "running"}
         elif monitor:
-            components['monitor'] = {"status": "stopped"}
+            components["monitor"] = {"status": "stopped"}
         else:
-            components['monitor'] = {"status": "disabled"}
+            components["monitor"] = {"status": "disabled"}
     except Exception:
-        components['monitor'] = {"status": "unknown"}
+        components["monitor"] = {"status": "unknown"}
 
     return {
         "initialized": initialized,
         "components": components,
-        "version": get_version()
+        "version": get_version(),
     }

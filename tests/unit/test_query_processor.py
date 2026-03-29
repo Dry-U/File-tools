@@ -1,10 +1,11 @@
 """Query Processor 单元测试"""
+
 import pytest
 import sys
 import os
 from unittest.mock import Mock
 
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 from backend.core.query_processor import QueryProcessor
 
@@ -83,7 +84,10 @@ class TestQueryProcessor:
         """测试句子中的缩写展开"""
         result = processor._expand_abbreviations("使用API接口")
         # API应该被识别并展开
-        assert any("api" in r.lower() or "application" in r.lower() for r in result) or len(result) >= 0
+        assert (
+            any("api" in r.lower() or "application" in r.lower() for r in result)
+            or len(result) >= 0
+        )
 
     def test_expand_abbreviations_no_match(self, processor):
         """测试无匹配缩写"""
@@ -258,17 +262,20 @@ class TestQueryProcessorAbbreviations:
     def processor(self):
         return QueryProcessor()
 
-    @pytest.mark.parametrize("abbr,expected", [
-        ("api", "application programming interface"),
-        ("sdk", "software development kit"),
-        ("ui", "user interface"),
-        ("db", "database"),
-        ("sql", "structured query language"),
-        ("http", "hypertext transfer protocol"),
-        ("json", "javascript object notation"),
-        ("html", "hypertext markup language"),
-        ("pdf", "portable document format"),
-    ])
+    @pytest.mark.parametrize(
+        "abbr,expected",
+        [
+            ("api", "application programming interface"),
+            ("sdk", "software development kit"),
+            ("ui", "user interface"),
+            ("db", "database"),
+            ("sql", "structured query language"),
+            ("http", "hypertext transfer protocol"),
+            ("json", "javascript object notation"),
+            ("html", "hypertext markup language"),
+            ("pdf", "portable document format"),
+        ],
+    )
     def test_common_abbreviations(self, processor, abbr, expected):
         """测试常见缩写"""
         result = processor._expand_abbreviations(abbr)
@@ -282,16 +289,19 @@ class TestQueryProcessorSynonyms:
     def processor(self):
         return QueryProcessor()
 
-    @pytest.mark.parametrize("word,expected_synonym", [
-        ("文档", "说明"),
-        ("代码", "程序"),
-        ("软件", "应用"),
-        ("搜索", "查找"),
-        ("配置", "设置"),
-        ("功能", "特性"),
-        ("错误", "异常"),
-        ("测试", "验证"),
-    ])
+    @pytest.mark.parametrize(
+        "word,expected_synonym",
+        [
+            ("文档", "说明"),
+            ("代码", "程序"),
+            ("软件", "应用"),
+            ("搜索", "查找"),
+            ("配置", "设置"),
+            ("功能", "特性"),
+            ("错误", "异常"),
+            ("测试", "验证"),
+        ],
+    )
     def test_common_synonyms(self, processor, word, expected_synonym):
         """测试常见同义词"""
         result = processor._expand_synonyms(word)

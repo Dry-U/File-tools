@@ -18,13 +18,14 @@ logger = logging.getLogger(__name__)
 @dataclass
 class TextChunk:
     """文本块数据结构"""
-    content: str           # 块内容
-    doc_path: str          # 所属文档路径
-    doc_filename: str      # 所属文档文件名
-    chunk_index: int       # 在文档中的块索引
-    start_pos: int         # 在原文档中的起始位置
-    end_pos: int           # 在原文档中的结束位置
-    char_count: int        # 字符数
+
+    content: str  # 块内容
+    doc_path: str  # 所属文档路径
+    doc_filename: str  # 所属文档文件名
+    chunk_index: int  # 在文档中的块索引
+    start_pos: int  # 在原文档中的起始位置
+    end_pos: int  # 在原文档中的结束位置
+    char_count: int  # 字符数
     metadata: Optional[Dict[str, Any]] = field(default=None)  # 额外元数据
 
     def __post_init__(self):
@@ -36,24 +37,24 @@ class TextChunker:
     """文本分块器"""
 
     # 分块策略常量
-    STRATEGY_PARAGRAPH = 'paragraph'      # 按段落分块
-    STRATEGY_SENTENCE = 'sentence'        # 按句子分块
-    STRATEGY_FIXED = 'fixed'              # 固定长度分块
-    STRATEGY_SEMANTIC = 'semantic'        # 语义分块（基于段落+长度）
+    STRATEGY_PARAGRAPH = "paragraph"  # 按段落分块
+    STRATEGY_SENTENCE = "sentence"  # 按句子分块
+    STRATEGY_FIXED = "fixed"  # 固定长度分块
+    STRATEGY_SEMANTIC = "semantic"  # 语义分块（基于段落+长度）
 
     # 默认配置
-    DEFAULT_CHUNK_SIZE = 800              # 默认块大小（字符）
-    DEFAULT_CHUNK_OVERLAP = 100           # 默认重叠大小（字符）
-    DEFAULT_MIN_CHUNK_SIZE = 100          # 最小块大小
-    DEFAULT_MAX_CHUNK_SIZE = 1500         # 最大块大小
+    DEFAULT_CHUNK_SIZE = 800  # 默认块大小（字符）
+    DEFAULT_CHUNK_OVERLAP = 100  # 默认重叠大小（字符）
+    DEFAULT_MIN_CHUNK_SIZE = 100  # 最小块大小
+    DEFAULT_MAX_CHUNK_SIZE = 1500  # 最大块大小
 
     def __init__(
         self,
-        strategy: str = 'semantic',
+        strategy: str = "semantic",
         chunk_size: Optional[int] = None,
         chunk_overlap: Optional[int] = None,
         min_chunk_size: Optional[int] = None,
-        max_chunk_size: Optional[int] = None
+        max_chunk_size: Optional[int] = None,
     ):
         """
         初始化分块器
@@ -80,16 +81,20 @@ class TextChunker:
         }
 
         if strategy not in self._strategies:
-            raise ValueError(f"未知的分块策略: {strategy}，可用策略: {list(self._strategies.keys())}")
+            raise ValueError(
+                f"未知的分块策略: {strategy}，可用策略: {list(self._strategies.keys())}"
+            )
 
-        logger.info(f"文本分块器初始化: 策略={strategy}, 块大小={self.chunk_size}, 重叠={self.chunk_overlap}")
+        logger.info(
+            f"文本分块器初始化: 策略={strategy}, 块大小={self.chunk_size}, 重叠={self.chunk_overlap}"
+        )
 
     def chunk_document(
         self,
         content: str,
         doc_path: str,
         doc_filename: str,
-        doc_metadata: Optional[Dict[str, Any]] = None
+        doc_metadata: Optional[Dict[str, Any]] = None,
     ) -> List[TextChunk]:
         """
         对文档进行分块
@@ -111,16 +116,18 @@ class TextChunker:
 
         # 如果内容很短，直接作为一个块
         if len(content) <= self.chunk_size:
-            return [TextChunk(
-                content=content,
-                doc_path=doc_path,
-                doc_filename=doc_filename,
-                chunk_index=0,
-                start_pos=0,
-                end_pos=len(content),
-                char_count=len(content),
-                metadata=doc_metadata or {}
-            )]
+            return [
+                TextChunk(
+                    content=content,
+                    doc_path=doc_path,
+                    doc_filename=doc_filename,
+                    chunk_index=0,
+                    start_pos=0,
+                    end_pos=len(content),
+                    char_count=len(content),
+                    metadata=doc_metadata or {},
+                )
+            ]
 
         # 调用对应的分块策略
         chunk_func = self._strategies[self.strategy]
@@ -130,20 +137,22 @@ class TextChunker:
         text_chunks = []
         for i, (chunk_text, start_pos, end_pos) in enumerate(chunks):
             if len(chunk_text.strip()) >= self.min_chunk_size:
-                text_chunks.append(TextChunk(
-                    content=chunk_text,
-                    doc_path=doc_path,
-                    doc_filename=doc_filename,
-                    chunk_index=i,
-                    start_pos=start_pos,
-                    end_pos=end_pos,
-                    char_count=len(chunk_text),
-                    metadata={
-                        **(doc_metadata or {}),
-                        'total_chunks': len(chunks),
-                        'strategy': self.strategy
-                    }
-                ))
+                text_chunks.append(
+                    TextChunk(
+                        content=chunk_text,
+                        doc_path=doc_path,
+                        doc_filename=doc_filename,
+                        chunk_index=i,
+                        start_pos=start_pos,
+                        end_pos=end_pos,
+                        char_count=len(chunk_text),
+                        metadata={
+                            **(doc_metadata or {}),
+                            "total_chunks": len(chunks),
+                            "strategy": self.strategy,
+                        },
+                    )
+                )
 
         logger.debug(f"文档分块完成: {doc_filename} -> {len(text_chunks)} 个块")
         return text_chunks
@@ -151,14 +160,14 @@ class TextChunker:
     def _clean_content(self, content: str) -> str:
         """清理内容"""
         # 移除多余的空白字符
-        content = re.sub(r'\n\s*\n\s*\n+', '\n\n', content)
-        content = re.sub(r'[ \t]+', ' ', content)
+        content = re.sub(r"\n\s*\n\s*\n+", "\n\n", content)
+        content = re.sub(r"[ \t]+", " ", content)
         return content.strip()
 
     def _chunk_by_paragraph(self, content: str) -> List[tuple]:
         """按段落分块"""
         # 按段落分割（支持多种换行格式）
-        paragraphs = re.split(r'\n\s*\n', content)
+        paragraphs = re.split(r"\n\s*\n", content)
 
         chunks = []
         current_pos = 0
@@ -184,9 +193,9 @@ class TextChunker:
     def _chunk_by_sentence(self, content: str) -> List[tuple]:
         """按句子分块"""
         # 中文句子结束符
-        sentence_endings = r'[。！？\.\!\?]'
+        sentence_endings = r"[。！？\.\!\?]"
 
-        sentences = re.split(f'({sentence_endings})', content)
+        sentences = re.split(f"({sentence_endings})", content)
 
         chunks = []
         current_chunk = []
@@ -196,12 +205,12 @@ class TextChunker:
 
         for i in range(0, len(sentences) - 1, 2):
             sentence = sentences[i]
-            ending = sentences[i + 1] if i + 1 < len(sentences) else ''
+            ending = sentences[i + 1] if i + 1 < len(sentences) else ""
             full_sentence = sentence + ending
 
             if current_length + len(full_sentence) > self.chunk_size and current_chunk:
                 # 保存当前块
-                chunk_text = ''.join(current_chunk)
+                chunk_text = "".join(current_chunk)
                 chunks.append((chunk_text, chunk_start, current_pos))
 
                 # 开始新块，保留重叠
@@ -217,7 +226,7 @@ class TextChunker:
 
         # 处理剩余内容
         if current_chunk:
-            chunk_text = ''.join(current_chunk)
+            chunk_text = "".join(current_chunk)
             chunks.append((chunk_text, chunk_start, current_pos))
 
         return chunks
@@ -252,7 +261,7 @@ class TextChunker:
         对超长段落进行智能切分。
         """
         # 首先按段落分割
-        paragraphs = re.split(r'\n\s*\n', content)
+        paragraphs = re.split(r"\n\s*\n", content)
 
         chunks = []
         current_chunk_paras = []
@@ -272,7 +281,7 @@ class TextChunker:
             if len(para) > self.max_chunk_size:
                 # 先保存当前累积的内容
                 if current_chunk_paras:
-                    chunk_text = '\n\n'.join(current_chunk_paras)
+                    chunk_text = "\n\n".join(current_chunk_paras)
                     chunks.append((chunk_text, chunk_start, para_start))
                     current_chunk_paras = []
                     current_length = 0
@@ -286,7 +295,7 @@ class TextChunker:
 
             # 如果加入当前段落后超出限制，保存当前块并开始新块
             if current_length + len(para) > self.chunk_size and current_chunk_paras:
-                chunk_text = '\n\n'.join(current_chunk_paras)
+                chunk_text = "\n\n".join(current_chunk_paras)
                 chunks.append((chunk_text, chunk_start, para_start))
 
                 # 新块从当前段落开始
@@ -301,7 +310,7 @@ class TextChunker:
 
         # 处理最后剩余的段落
         if current_chunk_paras:
-            chunk_text = '\n\n'.join(current_chunk_paras)
+            chunk_text = "\n\n".join(current_chunk_paras)
             chunks.append((chunk_text, chunk_start, current_pos))
 
         return chunks
@@ -311,7 +320,7 @@ class TextChunker:
         chunks = []
 
         # 优先按句子切分
-        sentences = re.split(r'([。！？\.\!\?]\s*)', paragraph)
+        sentences = re.split(r"([。！？\.\!\?]\s*)", paragraph)
 
         current_chunk = []
         current_length = 0
@@ -320,12 +329,14 @@ class TextChunker:
 
         for i in range(0, len(sentences) - 1, 2):
             sentence = sentences[i]
-            sep = sentences[i + 1] if i + 1 < len(sentences) else ''
+            sep = sentences[i + 1] if i + 1 < len(sentences) else ""
             full = sentence + sep
 
             if current_length + len(full) > self.chunk_size and current_chunk:
-                chunk_text = ''.join(current_chunk)
-                chunks.append((chunk_text, start_offset + chunk_start, start_offset + pos))
+                chunk_text = "".join(current_chunk)
+                chunks.append(
+                    (chunk_text, start_offset + chunk_start, start_offset + pos)
+                )
                 current_chunk = [full]
                 current_length = len(full)
                 chunk_start = pos + len(sentence)
@@ -336,8 +347,10 @@ class TextChunker:
             pos += len(full)
 
         if current_chunk:
-            chunk_text = ''.join(current_chunk)
-            chunks.append((chunk_text, start_offset + chunk_start, start_offset + len(paragraph)))
+            chunk_text = "".join(current_chunk)
+            chunks.append(
+                (chunk_text, start_offset + chunk_start, start_offset + len(paragraph))
+            )
 
         return chunks
 
@@ -366,14 +379,14 @@ class TextChunker:
         search_range = min(50, len(text) - pos)
 
         for i in range(search_range):
-            if pos + i < len(text) and text[pos + i] in '。！？.!?\n':
+            if pos + i < len(text) and text[pos + i] in "。！？.!?\n":
                 return pos + i + 1
 
         # 如果没找到句子边界，找空格
         for i in range(search_range):
-            if pos + i < len(text) and text[pos + i] == ' ':
+            if pos + i < len(text) and text[pos + i] == " ":
                 return pos + i + 1
-            if pos - i > 0 and text[pos - i] == ' ':
+            if pos - i > 0 and text[pos - i] == " ":
                 return pos - i
 
         return pos
@@ -381,9 +394,9 @@ class TextChunker:
     def _get_overlap(self, chunks: List[str]) -> str:
         """获取块间重叠文本"""
         if not chunks:
-            return ''
+            return ""
 
-        overlap_text = ''
+        overlap_text = ""
         total_len = 0
 
         # 从后向前取文本，直到达到重叠大小
@@ -412,7 +425,7 @@ class TextChunker:
 
             if len(current_chunk[0]) + len(chunk_text) <= self.chunk_size:
                 # 合并
-                current_chunk[0] += '\n\n' + chunk_text
+                current_chunk[0] += "\n\n" + chunk_text
                 current_chunk[2] = chunk_end
             else:
                 merged.append(tuple(current_chunk))
@@ -427,10 +440,10 @@ def chunk_document(
     content: str,
     doc_path: str,
     doc_filename: str,
-    strategy: str = 'semantic',
+    strategy: str = "semantic",
     chunk_size: int = 800,
     chunk_overlap: int = 100,
-    **kwargs
+    **kwargs,
 ) -> List[TextChunk]:
     """
     便捷分块函数
@@ -448,9 +461,6 @@ def chunk_document(
         TextChunk列表
     """
     chunker = TextChunker(
-        strategy=strategy,
-        chunk_size=chunk_size,
-        chunk_overlap=chunk_overlap,
-        **kwargs
+        strategy=strategy, chunk_size=chunk_size, chunk_overlap=chunk_overlap, **kwargs
     )
     return chunker.chunk_document(content, doc_path, doc_filename)

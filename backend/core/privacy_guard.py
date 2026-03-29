@@ -2,6 +2,7 @@
 隐私保护模块 - 敏感信息检测与脱敏
 始终启用，无需开关
 """
+
 import re
 import hashlib
 from collections import OrderedDict
@@ -12,9 +13,9 @@ logger = setup_logger()
 
 # 敏感信息检测规则
 SENSITIVE_PATTERNS = {
-    'phone': (r'\b1[3-9]\d{9}\b', '***手机号***'),
-    'id_card': (r'\b\d{17}[\dXx]\b', '***身份证***'),
-    'email': (r'\b[\w.-]+@[\w.-]+\.\w+\b', '***邮箱***'),
+    "phone": (r"\b1[3-9]\d{9}\b", "***手机号***"),
+    "id_card": (r"\b\d{17}[\dXx]\b", "***身份证***"),
+    "email": (r"\b[\w.-]+@[\w.-]+\.\w+\b", "***邮箱***"),
 }
 
 
@@ -66,6 +67,7 @@ class PrivacyGuard:
 
         result = text
         for ptype, (pattern, placeholder) in self.patterns.items():
+
             def replace_func(match):
                 original = match.group()
                 # 使用哈希记录映射关系，便于后续还原（如需要）
@@ -97,7 +99,7 @@ class PrivacyGuard:
         result = text
         for ptype, (pattern, placeholder) in self.patterns.items():
             # 匹配 [***XXX***:hash] 格式 (SHA256前16位)
-            marker_pattern = rf'\[{re.escape(placeholder)}:([a-f0-9]{{16}})\]'
+            marker_pattern = rf"\[{re.escape(placeholder)}:([a-f0-9]{{16}})\]"
 
             def restore_func(match):
                 key = match.group(1)

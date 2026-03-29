@@ -1,6 +1,7 @@
 """
 网络工具函数 - 安全地获取和验证客户端 IP
 """
+
 import ipaddress
 from fastapi import Request
 
@@ -15,20 +16,20 @@ def get_client_ip(request: Request, config_loader) -> str:
     3. 防止 IP 头伪造攻击
     """
     # 检查是否信任代理
-    trust_proxy = config_loader.getboolean('security', 'trust_proxy', False)
+    trust_proxy = config_loader.getboolean("security", "trust_proxy", False)
 
     if trust_proxy:
         # 优先使用 X-Real-IP（如果配置允许）
-        real_ip = request.headers.get('X-Real-IP')
+        real_ip = request.headers.get("X-Real-IP")
         if real_ip:
             if is_valid_ip(real_ip):
                 return real_ip
 
         # 使用 X-Forwarded-For（取第一个有效IP，这是原始客户端IP）
-        forwarded_for = request.headers.get('X-Forwarded-For')
+        forwarded_for = request.headers.get("X-Forwarded-For")
         if forwarded_for:
             # 取第一个 IP（最接近客户端的）
-            ips = [ip.strip() for ip in forwarded_for.split(',')]
+            ips = [ip.strip() for ip in forwarded_for.split(",")]
             for ip in ips:
                 if is_valid_ip(ip):
                     return ip
@@ -53,7 +54,7 @@ def is_valid_ip(ip: str) -> bool:
         return False
 
     # 检查非法字符
-    if any(c in ip for c in [';', '|', '&', '$', '`', ' ', '\t', '\n', '\r']):
+    if any(c in ip for c in [";", "|", "&", "$", "`", " ", "\t", "\n", "\r"]):
         return False
 
     # 使用标准库进行严格验证

@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 """日志功能测试"""
+
 import pytest
 import logging
 import tempfile
@@ -10,9 +11,7 @@ import sys
 # 添加项目根目录到路径
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from backend.utils.logger import (
-    setup_logger, LoggerConfig, LogContext, LogLevel
-)
+from backend.utils.logger import setup_logger, LoggerConfig, LogContext, LogLevel
 
 
 class TestLoggerConfig:
@@ -21,18 +20,18 @@ class TestLoggerConfig:
     def test_logger_config_with_dict(self):
         """测试使用字典初始化日志配置"""
         config_dict = {
-            'system': {
-                'log_level': 'WARNING',
-                'data_dir': './custom_data',
-                'log_max_size': 50,
-                'log_backup_count': 3,
+            "system": {
+                "log_level": "WARNING",
+                "data_dir": "./custom_data",
+                "log_max_size": 50,
+                "log_backup_count": 3,
             }
         }
 
         config = LoggerConfig(config_dict)
 
-        assert config.log_level == 'WARNING'
-        assert config.log_dir == './custom_data/logs'
+        assert config.log_level == "WARNING"
+        assert config.log_dir == "./custom_data/logs"
         assert config.log_max_size == 50
 
 
@@ -45,7 +44,7 @@ class TestLogContext:
             user_id="user123",
             session_id="session456",
             request_id="req789",
-            module="test_module"
+            module="test_module",
         )
 
         assert context.user_id == "user123"
@@ -88,4 +87,4 @@ class TestLogLevelEnum:
 
 
 if __name__ == "__main__":
-    pytest.main([__file__, '-v'])
+    pytest.main([__file__, "-v"])

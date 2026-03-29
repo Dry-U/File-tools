@@ -16,8 +16,10 @@ logger = get_logger(__name__)
 def get_rate_limiter(config_loader=None):
     """获取或初始化限流器"""
     from backend.api.main import get_rate_limiter as main_get_rate_limiter
+
     # 直接调用 main.py 中的 get_rate_limiter 函数
     return main_get_rate_limiter(config_loader)
+
 
 # 全局状态引用（由 main.py 初始化）
 _app = None
@@ -39,7 +41,7 @@ def get_config_loader():
     if _app is None:
         # 如果_app未初始化，返回一个默认的ConfigLoader
         return ConfigLoader()
-    if not hasattr(_app.state, 'config_loader'):
+    if not hasattr(_app.state, "config_loader"):
         _app.state.config_loader = ConfigLoader()
     return _app.state.config_loader
 
@@ -49,66 +51,74 @@ def get_index_manager(config_loader: ConfigLoader = Depends(get_config_loader)):
     if _app is None:
         # 如果_app未初始化，创建一个新的IndexManager实例
         from backend.core.index_manager import IndexManager
+
         return IndexManager(config_loader)
-    if not hasattr(_app.state, 'index_manager'):
+    if not hasattr(_app.state, "index_manager"):
         from backend.core.index_manager import IndexManager
+
         _app.state.index_manager = IndexManager(config_loader)
     return _app.state.index_manager
 
 
 def get_search_engine(
     config_loader: ConfigLoader = Depends(get_config_loader),
-    index_manager=Depends(get_index_manager)
+    index_manager=Depends(get_index_manager),
 ):
     """获取搜索引擎"""
     if _app is None:
         # 如果_app未初始化，创建一个新的SearchEngine实例
         from backend.core.search_engine import SearchEngine
+
         return SearchEngine(index_manager, config_loader)
-    if not hasattr(_app.state, 'search_engine'):
+    if not hasattr(_app.state, "search_engine"):
         from backend.core.search_engine import SearchEngine
+
         _app.state.search_engine = SearchEngine(index_manager, config_loader)
     return _app.state.search_engine
 
 
 def get_file_scanner(
     config_loader: ConfigLoader = Depends(get_config_loader),
-    index_manager=Depends(get_index_manager)
+    index_manager=Depends(get_index_manager),
 ):
     """获取文件扫描器"""
     if _app is None:
         # 如果_app未初始化，创建一个新的FileScanner实例
         from backend.core.file_scanner import FileScanner
+
         return FileScanner(config_loader, None, index_manager)
-    if not hasattr(_app.state, 'file_scanner'):
+    if not hasattr(_app.state, "file_scanner"):
         from backend.core.file_scanner import FileScanner
-        _app.state.file_scanner = FileScanner(
-            config_loader, None, index_manager)
+
+        _app.state.file_scanner = FileScanner(config_loader, None, index_manager)
     return _app.state.file_scanner
 
 
 def get_rag_pipeline(
     config_loader: ConfigLoader = Depends(get_config_loader),
-    search_engine=Depends(get_search_engine)
+    search_engine=Depends(get_search_engine),
 ):
     """获取RAG管道（可选，禁用时返回None）"""
     if _app is None:
         # 如果_app未初始化，按需创建RAGPipeline实例
-        if config_loader.getboolean('ai_model', 'enabled', False):
+        if config_loader.getboolean("ai_model", "enabled", False):
             from backend.core.model_manager import ModelManager
             from backend.core.rag_pipeline import RAGPipeline
+
             model_manager = ModelManager(config_loader)
             logger.info("RAG管道初始化完成")
             return RAGPipeline(model_manager, config_loader, search_engine)
         else:
             return None
-    if not hasattr(_app.state, 'rag_pipeline'):
-        if config_loader.getboolean('ai_model', 'enabled', False):
+    if not hasattr(_app.state, "rag_pipeline"):
+        if config_loader.getboolean("ai_model", "enabled", False):
             from backend.core.model_manager import ModelManager
             from backend.core.rag_pipeline import RAGPipeline
+
             model_manager = ModelManager(config_loader)
             _app.state.rag_pipeline = RAGPipeline(
-                model_manager, config_loader, search_engine)
+                model_manager, config_loader, search_engine
+            )
             logger.info("RAG管道初始化完成")
         else:
             _app.state.rag_pipeline = None
@@ -118,22 +128,25 @@ def get_rag_pipeline(
 def get_file_monitor(
     config_loader: ConfigLoader = Depends(get_config_loader),
     index_manager=Depends(get_index_manager),
-    file_scanner=Depends(get_file_scanner)
+    file_scanner=Depends(get_file_scanner),
 ):
     """获取文件监控器"""
     if _app is None:
         # 如果_app未初始化，创建一个新的FileMonitor实例
         from backend.core.file_monitor import FileMonitor
+
         file_monitor = FileMonitor(config_loader, index_manager, file_scanner)
-        if config_loader.getboolean('monitor', 'enabled', False):
+        if config_loader.getboolean("monitor", "enabled", False):
             file_monitor.start_monitoring()
             logger.info("文件监控已启动")
         return file_monitor
-    if not hasattr(_app.state, 'file_monitor'):
+    if not hasattr(_app.state, "file_monitor"):
         from backend.core.file_monitor import FileMonitor
+
         _app.state.file_monitor = FileMonitor(
-            config_loader, index_manager, file_scanner)
-        if config_loader.getboolean('monitor', 'enabled', False):
+            config_loader, index_manager, file_scanner
+        )
+        if config_loader.getboolean("monitor", "enabled", False):
             _app.state.file_monitor.start_monitoring()
             logger.info("文件监控已启动")
     return _app.state.file_monitor
@@ -155,7 +168,7 @@ def is_path_allowed(path: str, config_loader: ConfigLoader) -> bool:
         return False
 
     # 检查空字节注入攻击
-    if '\x00' in path:
+    if "\x00" in path:
         logger.warning(f"路径包含空字节: {path[:50]}...")
         return False
 
@@ -218,7 +231,7 @@ def is_path_allowed(path: str, config_loader: ConfigLoader) -> bool:
         return False
 
     # 获取允许的扫描路径
-    scan_paths = config_loader.get('file_scanner', 'scan_paths', '')
+    scan_paths = config_loader.get("file_scanner", "scan_paths", "")
     if not scan_paths:
         logger.warning("未配置扫描路径，拒绝所有文件访问")
         return False
@@ -226,7 +239,7 @@ def is_path_allowed(path: str, config_loader: ConfigLoader) -> bool:
     # 构建允许的路径列表
     allowed_paths = []
     if isinstance(scan_paths, str):
-        path_list = [p.strip() for p in scan_paths.split(';') if p.strip()]
+        path_list = [p.strip() for p in scan_paths.split(";") if p.strip()]
     elif isinstance(scan_paths, list):
         path_list = scan_paths
     else:
@@ -264,12 +277,13 @@ def is_path_allowed(path: str, config_loader: ConfigLoader) -> bool:
 
 
 # O_NOFOLLOW 标志（防止通过符号链接跟踪读取文件）
-_O_NOFOLLOW = getattr(os, 'O_NOFOLLOW', 0)
+_O_NOFOLLOW = getattr(os, "O_NOFOLLOW", 0)
 _O_RDONLY = os.O_RDONLY
 
 
-def safe_read_file(file_path: str, config_loader: ConfigLoader,
-                   max_size: int = 10 * 1024 * 1024) -> bytes:
+def safe_read_file(
+    file_path: str, config_loader: ConfigLoader, max_size: int = 10 * 1024 * 1024
+) -> bytes:
     """安全读取文件内容，防止符号链接跟踪攻击（TOCTOU 防护）
 
     使用 O_NOFOLLOW 标志打开文件描述符，确保读取的是真实文件而非符号链接。
@@ -323,5 +337,5 @@ def safe_read_file(file_path: str, config_loader: ConfigLoader,
             raise PermissionError("检测到符号链接，拒绝读取")
         if st.st_size > max_size:
             raise ValueError(f"文件过大: {st.st_size} 字节（限制 {max_size} 字节）")
-        with open(str(path), 'rb') as f:
+        with open(str(path), "rb") as f:
             return f.read(max_size)

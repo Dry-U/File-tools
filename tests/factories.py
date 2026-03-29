@@ -1,4 +1,5 @@
 """测试数据工厂 - 用于生成测试数据"""
+
 from typing import Dict, Any, List, Optional
 import random
 from datetime import datetime, timedelta
@@ -15,7 +16,7 @@ class DocumentFactory:
         file_type: Optional[str] = None,
         size: Optional[int] = None,
         modified: Optional[float] = None,
-        **kwargs
+        **kwargs,
     ) -> Dict[str, Any]:
         """
         创建单个文档数据
@@ -42,10 +43,10 @@ class DocumentFactory:
             content = DocumentFactory._generate_content()
 
         if file_type is None:
-            file_type = filename.split('.')[-1] if '.' in filename else 'txt'
+            file_type = filename.split(".")[-1] if "." in filename else "txt"
 
         if size is None:
-            size = len(content.encode('utf-8'))
+            size = len(content.encode("utf-8"))
 
         if modified is None:
             modified = datetime.now().timestamp()
@@ -63,9 +64,7 @@ class DocumentFactory:
 
     @staticmethod
     def create_batch(
-        count: int,
-        file_types: Optional[List[str]] = None,
-        base_path: str = "/test"
+        count: int, file_types: Optional[List[str]] = None, base_path: str = "/test"
     ) -> List[Dict[str, Any]]:
         """
         批量创建文档数据
@@ -79,16 +78,14 @@ class DocumentFactory:
             文档数据列表
         """
         if file_types is None:
-            file_types = ['txt', 'pdf', 'doc', 'docx', 'md']
+            file_types = ["txt", "pdf", "doc", "docx", "md"]
 
         documents = []
         for i in range(count):
             file_type = random.choice(file_types)
             filename = f"doc_{i}.{file_type}"
             doc = DocumentFactory.create(
-                path=f"{base_path}/{filename}",
-                filename=filename,
-                file_type=file_type
+                path=f"{base_path}/{filename}", filename=filename, file_type=file_type
             )
             documents.append(doc)
 
@@ -99,12 +96,36 @@ class DocumentFactory:
         """生成随机内容"""
         word_count = random.randint(min_words, max_words)
         words = [
-            "Python", "programming", "code", "development", "software",
-            "data", "analysis", "machine", "learning", "artificial",
-            "intelligence", "neural", "network", "algorithm", "function",
-            "class", "object", "method", "variable", "constant",
-            "test", "example", "sample", "document", "file",
-            "search", "index", "query", "result", "database"
+            "Python",
+            "programming",
+            "code",
+            "development",
+            "software",
+            "data",
+            "analysis",
+            "machine",
+            "learning",
+            "artificial",
+            "intelligence",
+            "neural",
+            "network",
+            "algorithm",
+            "function",
+            "class",
+            "object",
+            "method",
+            "variable",
+            "constant",
+            "test",
+            "example",
+            "sample",
+            "document",
+            "file",
+            "search",
+            "index",
+            "query",
+            "result",
+            "database",
         ]
         return " ".join(random.choices(words, k=word_count))
 
@@ -119,7 +140,7 @@ class SessionFactory:
         created_at: Optional[float] = None,
         updated_at: Optional[float] = None,
         message_count: int = 0,
-        **kwargs
+        **kwargs,
     ) -> Dict[str, Any]:
         """
         创建会话数据
@@ -161,7 +182,10 @@ class SessionFactory:
     @staticmethod
     def create_batch(count: int) -> List[Dict[str, Any]]:
         """批量创建会话数据"""
-        return [SessionFactory.create(message_count=random.randint(0, 50)) for _ in range(count)]
+        return [
+            SessionFactory.create(message_count=random.randint(0, 50))
+            for _ in range(count)
+        ]
 
 
 class MessageFactory:
@@ -172,7 +196,7 @@ class MessageFactory:
         role: str = "user",
         content: Optional[str] = None,
         timestamp: Optional[float] = None,
-        **kwargs
+        **kwargs,
     ) -> Dict[str, Any]:
         """
         创建消息数据
@@ -202,8 +226,7 @@ class MessageFactory:
 
     @staticmethod
     def create_conversation(
-        turns: int = 3,
-        include_sources: bool = False
+        turns: int = 3, include_sources: bool = False
     ) -> List[Dict[str, Any]]:
         """
         创建完整对话
@@ -226,7 +249,9 @@ class MessageFactory:
             if include_sources:
                 assistant_content += "\n\nSources: /test/doc1.txt"
 
-            assistant_msg = MessageFactory.create(role="assistant", content=assistant_content)
+            assistant_msg = MessageFactory.create(
+                role="assistant", content=assistant_content
+            )
             messages.append(assistant_msg)
 
         return messages
@@ -267,7 +292,7 @@ class SearchResultFactory:
         score: Optional[float] = None,
         file_type: Optional[str] = None,
         highlights: Optional[List[str]] = None,
-        **kwargs
+        **kwargs,
     ) -> Dict[str, Any]:
         """
         创建搜索结果数据
@@ -297,7 +322,7 @@ class SearchResultFactory:
             score = round(random.uniform(0.5, 1.0), 2)
 
         if file_type is None:
-            file_type = filename.split('.')[-1] if '.' in filename else 'txt'
+            file_type = filename.split(".")[-1] if "." in filename else "txt"
 
         if highlights is None:
             highlights = ["matching text"]
@@ -315,9 +340,7 @@ class SearchResultFactory:
 
     @staticmethod
     def create_batch(
-        count: int,
-        min_score: float = 0.5,
-        max_score: float = 1.0
+        count: int, min_score: float = 0.5, max_score: float = 1.0
     ) -> List[Dict[str, Any]]:
         """
         批量创建搜索结果
@@ -333,10 +356,7 @@ class SearchResultFactory:
         results = []
         for i in range(count):
             score = round(random.uniform(min_score, max_score), 2)
-            result = SearchResultFactory.create(
-                filename=f"result_{i}.txt",
-                score=score
-            )
+            result = SearchResultFactory.create(filename=f"result_{i}.txt", score=score)
             results.append(result)
 
         # 按分数排序
@@ -360,32 +380,24 @@ class ConfigFactory:
     def create_full() -> Dict[str, Any]:
         """创建完整配置"""
         return {
-            "system": {
-                "data_dir": "./data",
-                "log_level": "INFO"
-            },
+            "system": {"data_dir": "./data", "log_level": "INFO"},
             "search": {
                 "text_weight": 0.6,
                 "vector_weight": 0.4,
                 "max_results": 20,
-                "min_score": 0.3
+                "min_score": 0.3,
             },
             "embedding": {
                 "enabled": True,
                 "provider": "fastembed",
-                "model": "bge-small-zh"
+                "model": "bge-small-zh",
             },
             "ai_model": {
                 "enabled": True,
                 "interface_type": "api",
                 "api_url": "http://localhost:8080/v1/chat/completions",
-                "context_size": 4096
+                "context_size": 4096,
             },
-            "file_scanner": {
-                "scan_paths": ["./documents"],
-                "batch_size": 100
-            },
-            "monitor": {
-                "enabled": True
-            }
+            "file_scanner": {"scan_paths": ["./documents"], "batch_size": 100},
+            "monitor": {"enabled": True},
         }

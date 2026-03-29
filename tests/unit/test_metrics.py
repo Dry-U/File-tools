@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 """测试性能指标收集模块"""
+
 import pytest
 import time
 from backend.utils.metrics import Counter, Histogram, Gauge, MetricsCollector, timed
@@ -37,7 +38,9 @@ class TestHistogram:
 
     def test_histogram_basic(self):
         """测试直方图基本功能"""
-        hist = Histogram("test_histogram", "Test histogram", buckets=[0.1, 0.5, 1.0, 2.0])
+        hist = Histogram(
+            "test_histogram", "Test histogram", buckets=[0.1, 0.5, 1.0, 2.0]
+        )
 
         hist.observe(0.05)
         hist.observe(0.3)
@@ -46,20 +49,22 @@ class TestHistogram:
 
         # 检查统计
         stats = hist.get_stats()
-        assert stats['count'] == 4
-        assert stats['sum'] == pytest.approx(2.55, 0.01)
+        assert stats["count"] == 4
+        assert stats["sum"] == pytest.approx(2.55, 0.01)
 
     def test_histogram_buckets(self):
         """测试直方图桶分布"""
-        hist = Histogram("test_histogram", "Test histogram", buckets=[0.1, 0.5, 1.0, 2.0])
+        hist = Histogram(
+            "test_histogram", "Test histogram", buckets=[0.1, 0.5, 1.0, 2.0]
+        )
 
         hist.observe(0.05)  # 桶 0
-        hist.observe(0.3)   # 桶 1
-        hist.observe(0.7)   # 桶 2
-        hist.observe(1.5)   # 桶 3
+        hist.observe(0.3)  # 桶 1
+        hist.observe(0.7)  # 桶 2
+        hist.observe(1.5)  # 桶 3
 
         stats = hist.get_stats()
-        buckets = stats['buckets']
+        buckets = stats["buckets"]
 
         # 检查每个桶的计数（注意：每个桶包含其边界内的值）
         assert buckets[0.1] == 1  # 0.05
@@ -93,10 +98,10 @@ class TestMetricsCollector:
         collector = MetricsCollector()
 
         # 验证默认指标存在
-        assert hasattr(collector, 'search_duration')
-        assert hasattr(collector, 'search_results')
-        assert hasattr(collector, 'files_indexed')
-        assert hasattr(collector, 'rag_queries')
+        assert hasattr(collector, "search_duration")
+        assert hasattr(collector, "search_results")
+        assert hasattr(collector, "files_indexed")
+        assert hasattr(collector, "rag_queries")
 
     def test_collector_get_summary(self):
         """测试获取指标摘要"""

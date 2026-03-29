@@ -21,6 +21,7 @@ logger = setup_logger()
 try:
     from sklearn.metrics.pairwise import cosine_similarity
     import numpy as np
+
     SKLEARN_AVAILABLE = True
 except ImportError:
     SKLEARN_AVAILABLE = False
@@ -44,21 +45,26 @@ DEFAULT_PROMPT = (
 class RAGPipeline:
     """本地RAG问答管道，依赖检索结果与模型推理"""
 
-    def __init__(self, model_manager: ModelManager, config_loader: ConfigLoader, search_engine: SearchEngine):
+    def __init__(
+        self,
+        model_manager: ModelManager,
+        config_loader: ConfigLoader,
+        search_engine: SearchEngine,
+    ):
         self.model_manager = model_manager
         self.config_loader = config_loader
         self.search_engine = search_engine
         self.vram_manager = VRAMManager(config_loader)
 
         try:
-            rag_config = config_loader.get('rag') or {}
+            rag_config = config_loader.get("rag") or {}
         except Exception:
             rag_config = {}
 
         # 先设置基本配置（在_update_model_limits之前）
-        self.max_history_turns = int(rag_config.get('max_history_turns', 6))
-        self.max_history_chars = int(rag_config.get('max_history_chars', 800))
-        self.prompt_template = rag_config.get('prompt_template', DEFAULT_PROMPT)
+        self.max_history_turns = int(rag_config.get("max_history_turns", 6))
+        self.max_history_chars = int(rag_config.get("max_history_chars", 800))
+        self.prompt_template = rag_config.get("prompt_template", DEFAULT_PROMPT)
 
         # 从模型管理器获取动态参数
         self._update_model_limits()
@@ -66,24 +72,28 @@ class RAGPipeline:
         # 加载采样参数
         self.sampling_params = self._load_sampling_params()
         self.fallback_response = rag_config.get(
-            'fallback_response',
-            "你好！我是 FileTools Copilot，当前检索没有找到相关文档，请告诉我需要查询的内容。"
+            "fallback_response",
+            "你好！我是 FileTools Copilot，当前检索没有找到相关文档，请告诉我需要查询的内容。",
         )
         self.context_exhausted_response = rag_config.get(
-            'context_exhausted_response',
-            "对话过长，为避免超出上下文，请说'重置'或简要概括后再继续。"
+            "context_exhausted_response",
+            "对话过长，为避免超出上下文，请说'重置'或简要概括后再继续。",
         )
         self.reset_response = rag_config.get(
-            'reset_response',
-            "已清空上下文，可以重新开始提问。"
+            "reset_response", "已清空上下文，可以重新开始提问。"
         )
-        self.greeting_response = rag_config.get('greeting_response', self.fallback_response)
-        phrases = rag_config.get('greeting_keywords', []) or []
+        self.greeting_response = rag_config.get(
+            "greeting_response", self.fallback_response
+        )
+        phrases = rag_config.get("greeting_keywords", []) or []
         if isinstance(phrases, str):
-            phrases = [p.strip() for p in phrases.split(',') if p.strip()]
+            phrases = [p.strip() for p in phrases.split(",") if p.strip()]
         self.greeting_keywords = [p.lower() for p in phrases if p]
 
-        reset_cmds = rag_config.get('reset_commands', ['重置', '清空上下文', 'reset', 'restart']) or []
+        reset_cmds = (
+            rag_config.get("reset_commands", ["重置", "清空上下文", "reset", "restart"])
+            or []
+        )
         self.reset_commands = [c.strip().lower() for c in reset_cmds if c]
 
         # Use SQLite for chat history persistence
@@ -91,8 +101,8 @@ class RAGPipeline:
         self._warned_no_sklearn = False
 
         # 会话清理配置
-        self._max_session_age_days = int(rag_config.get('max_session_age_days', 30))
-        self._max_sessions = int(rag_config.get('max_sessions', 1000))
+        self._max_session_age_days = int(rag_config.get("max_session_age_days", 30))
+        self._max_sessions = int(rag_config.get("max_sessions", 1000))
         self._last_cleanup_time = 0
         self._cleanup_interval = 3600  # 每小时检查一次
 
@@ -112,8 +122,7 @@ class RAGPipeline:
 
         try:
             deleted = self.chat_db.cleanup_old_sessions(
-                max_age_days=self._max_session_age_days,
-                max_sessions=self._max_sessions
+                max_age_days=self._max_session_age_days, max_sessions=self._max_sessions
             )
             if deleted > 0:
                 logger.info(f"清理了 {deleted} 个旧会话")
@@ -126,7 +135,14 @@ class RAGPipeline:
 
         优先从新位置(ai_model.sampling/penalties)读取，如果不存在则尝试旧位置(rag)
         """
-        def get_float_with_fallback(section: str, key: str, fallback_section: str, fallback_key: str, default: float) -> float:
+
+        def get_float_with_fallback(
+            section: str,
+            key: str,
+            fallback_section: str,
+            fallback_key: str,
+            default: float,
+        ) -> float:
             """尝试从主位置读取float，如果不存在则从备用位置读取"""
             try:
                 value = self.config_loader.get(section, key, None)
@@ -140,7 +156,13 @@ class RAGPipeline:
             except (ValueError, TypeError):
                 return default
 
-        def get_int_with_fallback(section: str, key: str, fallback_section: str, fallback_key: str, default: int) -> int:
+        def get_int_with_fallback(
+            section: str,
+            key: str,
+            fallback_section: str,
+            fallback_key: str,
+            default: int,
+        ) -> int:
             """尝试从主位置读取int，如果不存在则从备用位置读取"""
             try:
                 value = self.config_loader.get(section, key, None)
@@ -156,26 +178,50 @@ class RAGPipeline:
 
         try:
             return {
-                'temperature': get_float_with_fallback('ai_model', 'sampling.temperature', 'rag', 'temperature', 0.7),
-                'top_p': get_float_with_fallback('ai_model', 'sampling.top_p', 'rag', 'top_p', 0.9),
-                'top_k': get_int_with_fallback('ai_model', 'sampling.top_k', 'rag', 'top_k', 40),
-                'min_p': get_float_with_fallback('ai_model', 'sampling.min_p', 'rag', 'min_p', 0.05),
-                'seed': get_int_with_fallback('ai_model', 'sampling.seed', 'rag', 'seed', -1),
-                'repeat_penalty': get_float_with_fallback('ai_model', 'penalties.repeat_penalty', 'rag', 'repeat_penalty', 1.1),
-                'frequency_penalty': get_float_with_fallback('ai_model', 'penalties.frequency_penalty', 'rag', 'frequency_penalty', 0.0),
-                'presence_penalty': get_float_with_fallback('ai_model', 'penalties.presence_penalty', 'rag', 'presence_penalty', 0.0)
+                "temperature": get_float_with_fallback(
+                    "ai_model", "sampling.temperature", "rag", "temperature", 0.7
+                ),
+                "top_p": get_float_with_fallback(
+                    "ai_model", "sampling.top_p", "rag", "top_p", 0.9
+                ),
+                "top_k": get_int_with_fallback(
+                    "ai_model", "sampling.top_k", "rag", "top_k", 40
+                ),
+                "min_p": get_float_with_fallback(
+                    "ai_model", "sampling.min_p", "rag", "min_p", 0.05
+                ),
+                "seed": get_int_with_fallback(
+                    "ai_model", "sampling.seed", "rag", "seed", -1
+                ),
+                "repeat_penalty": get_float_with_fallback(
+                    "ai_model", "penalties.repeat_penalty", "rag", "repeat_penalty", 1.1
+                ),
+                "frequency_penalty": get_float_with_fallback(
+                    "ai_model",
+                    "penalties.frequency_penalty",
+                    "rag",
+                    "frequency_penalty",
+                    0.0,
+                ),
+                "presence_penalty": get_float_with_fallback(
+                    "ai_model",
+                    "penalties.presence_penalty",
+                    "rag",
+                    "presence_penalty",
+                    0.0,
+                ),
             }
         except Exception as e:
             logger.warning(f"加载采样参数失败: {e}")
             return {
-                'temperature': 0.7,
-                'top_p': 0.9,
-                'top_k': 40,
-                'min_p': 0.05,
-                'seed': -1,
-                'repeat_penalty': 1.1,
-                'frequency_penalty': 0.0,
-                'presence_penalty': 0.0
+                "temperature": 0.7,
+                "top_p": 0.9,
+                "top_k": 40,
+                "min_p": 0.05,
+                "seed": -1,
+                "repeat_penalty": 1.1,
+                "frequency_penalty": 0.0,
+                "presence_penalty": 0.0,
             }
 
     def reload_model_manager(self):
@@ -185,6 +231,7 @@ class RAGPipeline:
         """
         try:
             from backend.core.model_manager import ModelManager
+
             logger.info("重新初始化ModelManager...")
 
             # 关闭旧的model_manager
@@ -197,7 +244,9 @@ class RAGPipeline:
 
             # 重新加载采样参数以应用新配置
             self.sampling_params = self._load_sampling_params()
-            logger.info(f"ModelManager重新初始化完成: mode={self.model_manager.get_mode().value}")
+            logger.info(
+                f"ModelManager重新初始化完成: mode={self.model_manager.get_mode().value}"
+            )
             return True
         except Exception as e:
             logger.error(f"重新初始化ModelManager失败: {e}")
@@ -207,26 +256,30 @@ class RAGPipeline:
         """根据模型模式更新限制参数"""
         limits = self.model_manager.get_model_limits()
 
-        self.max_docs = limits['max_docs']
-        self.max_context_chars = limits['chunk_size']
-        self.min_doc_score = limits.get('min_doc_score', 0.3)  # 文档最低分数阈值
+        self.max_docs = limits["max_docs"]
+        self.max_context_chars = limits["chunk_size"]
+        self.min_doc_score = limits.get("min_doc_score", 0.3)  # 文档最低分数阈值
 
         # 计算预留空间：系统提示词 + 提示词模板 + 历史记录预算
-        system_prompt = self.config_loader.get('ai_model', 'system_prompt', '')
+        system_prompt = self.config_loader.get("ai_model", "system_prompt", "")
         template_overhead = len(self.prompt_template) if self.prompt_template else 0
         system_overhead = len(system_prompt) if system_prompt else 0
         history_budget = self.max_history_chars
         # 额外预留20%的缓冲空间
-        reserved_space = int((template_overhead + system_overhead + history_budget) * 1.2)
+        reserved_space = int(
+            (template_overhead + system_overhead + history_budget) * 1.2
+        )
 
-        self.max_context_chars_total = max(limits['max_context'] - reserved_space, 1000)
-        self.max_output_tokens = limits['max_tokens']
-        self.temperature = limits['temperature']
+        self.max_context_chars_total = max(limits["max_context"] - reserved_space, 1000)
+        self.max_output_tokens = limits["max_tokens"]
+        self.temperature = limits["temperature"]
 
-        logger.info(f"RAG参数已更新为 {self.model_manager.get_mode().value} 模式: "
-                   f"max_docs={self.max_docs}, chunk_size={self.max_context_chars}, "
-                   f"max_context={self.max_context_chars_total}, temperature={self.temperature}, "
-                   f"min_doc_score={self.min_doc_score}")
+        logger.info(
+            f"RAG参数已更新为 {self.model_manager.get_mode().value} 模式: "
+            f"max_docs={self.max_docs}, chunk_size={self.max_context_chars}, "
+            f"max_context={self.max_context_chars_total}, temperature={self.temperature}, "
+            f"min_doc_score={self.min_doc_score}"
+        )
 
     def _adjust_context_for_memory(self, doc_budget: int) -> int:
         """根据内存限制调整文档预算"""
@@ -236,20 +289,20 @@ class RAGPipeline:
     @staticmethod
     def _render_template(template: str, query: str) -> str:
         if not template:
-            return ''
-        query_text = (query or '').strip()
+            return ""
+        query_text = (query or "").strip()
         try:
-            return template.replace('{query}', query_text)
+            return template.replace("{query}", query_text)
         except Exception:
             return template
 
     @staticmethod
     def _is_noise_query(query: str) -> bool:
         """检测输入是否过短或重复，无法进行有意义的搜索"""
-        normalized = re.sub(r'\s+', '', query or '')
+        normalized = re.sub(r"\s+", "", query or "")
         if not normalized:
             return True
-        alnum_text = re.sub(r'[^0-9A-Za-z\u4e00-\u9fff]', '', normalized)
+        alnum_text = re.sub(r"[^0-9A-Za-z\u4e00-\u9fff]", "", normalized)
         if not alnum_text:
             return True
         if len(alnum_text) <= 1:
@@ -261,40 +314,40 @@ class RAGPipeline:
 
     @staticmethod
     def _strip_tags(text: str) -> str:
-        clean = re.sub(r'<[^>]+>', '', text or '')
-        return clean.replace('\xa0', ' ').strip()
+        clean = re.sub(r"<[^>]+>", "", text or "")
+        return clean.replace("\xa0", " ").strip()
 
     def _build_history(self, session_id: str, budget: int) -> tuple[str, int]:
         # 从数据库获取会话历史
         messages = self.chat_db.get_session_messages(session_id)
         if not messages or budget <= 0:
-            return '', 0
+            return "", 0
 
         # 构建问答对
         history = []
         current_q, current_a = None, None
         for msg in messages:
-            if msg['role'] == 'user':
+            if msg["role"] == "user":
                 if current_q is not None:
-                    history.append({'q': current_q, 'a': current_a or ''})
-                current_q = msg['content']
+                    history.append({"q": current_q, "a": current_a or ""})
+                current_q = msg["content"]
                 current_a = None
-            elif msg['role'] == 'assistant':
-                current_a = msg['content']
+            elif msg["role"] == "assistant":
+                current_a = msg["content"]
         if current_q is not None:
-            history.append({'q': current_q, 'a': current_a or ''})
+            history.append({"q": current_q, "a": current_a or ""})
 
         if not history:
-            return '', 0
+            return "", 0
 
         # 按时间倒序获取最近的对话轮次
-        turns = history[-self.max_history_turns:]
+        turns = history[-self.max_history_turns :]
         used = 0
         parts: List[str] = []
 
         for idx, turn in enumerate(turns, start=1):
-            q = turn.get('q', '') or ''
-            a = turn.get('a', '') or ''
+            q = turn.get("q", "") or ""
+            a = turn.get("a", "") or ""
 
             # 改进：创建更结构化的对话历史表示
             block = f"【上文{idx}】用户: {q}\n助手: {a}"
@@ -313,9 +366,15 @@ class RAGPipeline:
                         block = f"【上文{idx}】用户: {q[:remaining-10]}..."
                     else:
                         # 保留完整问题，部分答案
-                        remaining_for_answer = remaining - question_len - 20  # 预留空间给标记和格式
+                        remaining_for_answer = (
+                            remaining - question_len - 20
+                        )  # 预留空间给标记和格式
                         if remaining_for_answer > 0:
-                            answer_snippet = a[:remaining_for_answer] if len(a) > remaining_for_answer else a
+                            answer_snippet = (
+                                a[:remaining_for_answer]
+                                if len(a) > remaining_for_answer
+                                else a
+                            )
                             block = f"【上文{idx}】用户: {q}\n助手: {answer_snippet}"
                         else:
                             block = f"【上文{idx}】用户: {q[:question_len + remaining_for_answer]}..."
@@ -337,9 +396,9 @@ class RAGPipeline:
         优化：add_message 已自动处理会话创建，无需先检查 session_exists
         """
         # 保存用户消息（自动创建会话如果不存在）
-        self.chat_db.add_message(session_id, 'user', query)
+        self.chat_db.add_message(session_id, "user", query)
         # 保存助手消息
-        self.chat_db.add_message(session_id, 'assistant', answer)
+        self.chat_db.add_message(session_id, "assistant", answer)
 
         # 注意：数据库层面不自动清理旧消息，保留完整历史
         # 上下文截断在 _build_history 中根据预算处理
@@ -355,7 +414,7 @@ class RAGPipeline:
 
         def _normalize(txt: str) -> str:
             # remove spaces, underscores, hyphens and common punctuation to improve filename matching
-            return re.sub(r'[\s_\-，。；、,.!?:；:]+', '', txt.lower())
+            return re.sub(r"[\s_\-，。；、,.!?:；:]+", "", txt.lower())
 
         text_norm = _normalize(cleaned)
         q_norm = _normalize(query)
@@ -364,7 +423,7 @@ class RAGPipeline:
             return True
 
         # Split by common separators to get tokens; keep tokens length>=2
-        tokens = re.split(r'[\s,;，。；、_\-]+', query)
+        tokens = re.split(r"[\s,;，。；、_\-]+", query)
         for t in tokens:
             t_norm = _normalize(t)
             if len(t_norm) >= 2 and t_norm in text_norm:
@@ -406,19 +465,24 @@ class RAGPipeline:
                 seen_paths = set()
 
                 # RAG场景：优先使用向量搜索获取chunk级别结果（group_by_doc=False）
-                if hasattr(self.search_engine, 'index_manager'):
+                if hasattr(self.search_engine, "index_manager"):
                     try:
                         for search_query in search_queries:
                             # 获取chunk级别结果，提供更多上下文
-                            vector_results = self.search_engine.index_manager.search_vector(
-                                search_query, limit=15, group_by_doc=False
-                            ) or []
+                            vector_results = (
+                                self.search_engine.index_manager.search_vector(
+                                    search_query, limit=15, group_by_doc=False
+                                )
+                                or []
+                            )
                             for res in vector_results:
-                                path = res.get('path', '')
+                                path = res.get("path", "")
                                 if path and path not in seen_paths:
                                     seen_paths.add(path)
                                     all_results.append(res)
-                                    logger.debug(f"RAG获取到chunk结果: {path}, is_chunk={res.get('is_chunk', False)}")
+                                    logger.debug(
+                                        f"RAG获取到chunk结果: {path}, is_chunk={res.get('is_chunk', False)}"
+                                    )
                     except Exception as e:
                         logger.warning(f"RAG向量搜索失败，回退到普通搜索: {e}")
 
@@ -427,7 +491,7 @@ class RAGPipeline:
                     for search_query in search_queries:
                         query_results = self.search_engine.search(search_query) or []
                         for res in query_results:
-                            path = res.get('path', '')
+                            path = res.get("path", "")
                             if path and path not in seen_paths:
                                 seen_paths.add(path)
                                 all_results.append(res)
@@ -449,8 +513,8 @@ class RAGPipeline:
 
             for res in results:
                 try:
-                    path = res.get('path', '')
-                    is_chunk = res.get('is_chunk', False)
+                    path = res.get("path", "")
+                    is_chunk = res.get("is_chunk", False)
 
                     # 如果是chunk模式，同一文档的多个chunks可以都保留（但限制数量）
                     if path and path.lower() in seen_paths and not is_chunk:
@@ -461,32 +525,50 @@ class RAGPipeline:
                     if path:
                         filename = os.path.basename(path)
                     else:
-                        filename = res.get('filename') or res.get('file_name') or '未知文件'
+                        filename = (
+                            res.get("filename") or res.get("file_name") or "未知文件"
+                        )
 
                     # 优先使用chunk内容（如果可用）
                     if is_chunk:
                         # 使用chunk的预览内容
-                        chunk_content = res.get('snippet') or res.get('content', '')
+                        chunk_content = res.get("snippet") or res.get("content", "")
                         if chunk_content:
                             cleaned = self._strip_tags(chunk_content)
                         else:
                             # 如果snippet太短，尝试获取完整chunk内容
-                            full_content = self.search_engine.index_manager.get_document_content(path) if hasattr(self.search_engine, 'index_manager') else ''
+                            full_content = (
+                                self.search_engine.index_manager.get_document_content(
+                                    path
+                                )
+                                if hasattr(self.search_engine, "index_manager")
+                                else ""
+                            )
                             if full_content:
-                                start_pos = res.get('chunk_start', 0)
-                                end_pos = res.get('chunk_end', start_pos + 1000)
-                                cleaned = self._strip_tags(full_content[start_pos:end_pos])
+                                start_pos = res.get("chunk_start", 0)
+                                end_pos = res.get("chunk_end", start_pos + 1000)
+                                cleaned = self._strip_tags(
+                                    full_content[start_pos:end_pos]
+                                )
                             else:
-                                cleaned = ''
+                                cleaned = ""
                     else:
                         # 从索引获取完整内容
-                        full_content = self.search_engine.index_manager.get_document_content(path) if hasattr(self.search_engine, 'index_manager') else ''
+                        full_content = (
+                            self.search_engine.index_manager.get_document_content(path)
+                            if hasattr(self.search_engine, "index_manager")
+                            else ""
+                        )
                         if full_content:
                             cleaned = self._strip_tags(full_content)
                         else:
-                            raw_content = res.get('content') or ''
-                            snippet = res.get('snippet') or ''
-                            cleaned = self._strip_tags(raw_content) if raw_content else self._strip_tags(snippet)
+                            raw_content = res.get("content") or ""
+                            snippet = res.get("snippet") or ""
+                            cleaned = (
+                                self._strip_tags(raw_content)
+                                if raw_content
+                                else self._strip_tags(snippet)
+                            )
 
                     if not cleaned.strip():
                         continue
@@ -495,15 +577,29 @@ class RAGPipeline:
                     processed_content = self._preprocess_content(cleaned, query)
 
                     # 内容提炼：提取关键信息片段
-                    max_allowed_chars = self.vram_manager.adjust_context_size(self.max_context_chars)
+                    max_allowed_chars = self.vram_manager.adjust_context_size(
+                        self.max_context_chars
+                    )
                     if len(processed_content) > max_allowed_chars:
-                        if any(keyword in query.lower() for keyword in ['摘要', '概述', '总结', '概要', 'abstract', 'summary', 'overview']):
+                        if any(
+                            keyword in query.lower()
+                            for keyword in [
+                                "摘要",
+                                "概述",
+                                "总结",
+                                "概要",
+                                "abstract",
+                                "summary",
+                                "overview",
+                            ]
+                        ):
                             processed_content = self._generate_document_summary(
-                                processed_content,
-                                max_summary_chars=max_allowed_chars
+                                processed_content, max_summary_chars=max_allowed_chars
                             )
                         else:
-                            processed_content = self._extract_relevant_fragments(processed_content, query, max_allowed_chars)
+                            processed_content = self._extract_relevant_fragments(
+                                processed_content, query, max_allowed_chars
+                            )
 
                     # 对于chunk结果，添加chunk信息到内容中
                     if is_chunk:
@@ -511,38 +607,55 @@ class RAGPipeline:
                         processed_content = chunk_info + processed_content
 
                     # 计算多维度相关性得分
-                    relevance_score = self._calculate_multidimensional_relevance(query, processed_content, res, filename)
+                    relevance_score = self._calculate_multidimensional_relevance(
+                        query, processed_content, res, filename
+                    )
 
-                    all_candidates.append({
-                        'path': path,
-                        'filename': filename,
-                        'score': float(res.get('score', 0.0)),
-                        'relevance_score': relevance_score,
-                        'content': processed_content,
-                        'original_score': float(res.get('score', 0.0)),  # 保留原始搜索得分
-                        'semantic_score': self._calculate_semantic_relevance(query, processed_content)  # 语义相关性得分
-                    })
+                    all_candidates.append(
+                        {
+                            "path": path,
+                            "filename": filename,
+                            "score": float(res.get("score", 0.0)),
+                            "relevance_score": relevance_score,
+                            "content": processed_content,
+                            "original_score": float(
+                                res.get("score", 0.0)
+                            ),  # 保留原始搜索得分
+                            "semantic_score": self._calculate_semantic_relevance(
+                                query, processed_content
+                            ),  # 语义相关性得分
+                        }
+                    )
                 except Exception as e:
                     logger.warning(f"处理搜索结果时出现错误，跳过该结果: {str(e)}")
                     continue
 
             # 使用多标准排序（原始得分、语义得分、相关性得分）
-            all_candidates.sort(key=lambda x: (
-                x['relevance_score'] * 0.5 +  # 主要权重
-                x['semantic_score'] * 0.3 +   # 语义相关性权重
-                x['original_score'] * 0.2     # 原始搜索得分权重
-            ), reverse=True)
+            all_candidates.sort(
+                key=lambda x: (
+                    x["relevance_score"] * 0.5  # 主要权重
+                    + x["semantic_score"] * 0.3  # 语义相关性权重
+                    + x["original_score"] * 0.2  # 原始搜索得分权重
+                ),
+                reverse=True,
+            )
 
             # 根据模型模式应用不同的最低分数阈值
-            min_doc_score = getattr(self, 'min_doc_score', 0.3)
+            min_doc_score = getattr(self, "min_doc_score", 0.3)
             filtered_candidates = [
-                c for c in all_candidates
-                if (c['relevance_score'] * 0.5 + c['semantic_score'] * 0.3 + c['original_score'] * 0.2) >= min_doc_score
+                c
+                for c in all_candidates
+                if (
+                    c["relevance_score"] * 0.5
+                    + c["semantic_score"] * 0.3
+                    + c["original_score"] * 0.2
+                )
+                >= min_doc_score
             ]
 
             # 如果没有文档通过阈值，保留前几个以确保有结果
             if not filtered_candidates and all_candidates:
-                filtered_candidates = all_candidates[:max(3, self.max_docs)]
+                filtered_candidates = all_candidates[: max(3, self.max_docs)]
 
             # 选择最相关的文档，实现信息聚合和冲突检测
             documents = self._select_optimal_documents(filtered_candidates)
@@ -556,7 +669,7 @@ class RAGPipeline:
         import re
 
         # 1. 文本分块：将文档分成逻辑段落
-        paragraphs = re.split(r'\n\s*\n|[\n。！？.!?]', content)
+        paragraphs = re.split(r"\n\s*\n|[\n。！？.!?]", content)
 
         # 2. 识别重要段落：标题、摘要、结论等
         important_segments = []
@@ -566,7 +679,19 @@ class RAGPipeline:
             if para.strip():
                 para_lower = para.lower()
                 # 检查是否为重要部分
-                if any(keyword in para_lower for keyword in ['摘要', 'abstract', '结论', 'conclusion', '总结', '引言', 'introduction', '标题']):
+                if any(
+                    keyword in para_lower
+                    for keyword in [
+                        "摘要",
+                        "abstract",
+                        "结论",
+                        "conclusion",
+                        "总结",
+                        "引言",
+                        "introduction",
+                        "标题",
+                    ]
+                ):
                     important_segments.append(para.strip())
                 else:
                     regular_segments.append(para.strip())
@@ -575,32 +700,34 @@ class RAGPipeline:
         organized_content = "\n\n".join(important_segments + regular_segments)
 
         # 4. 为查询相关的词汇添加上下文
-        query_words = set(re.findall(r'\w+', query.lower()))
+        query_words = set(re.findall(r"\w+", query.lower()))
         enhanced_content = organized_content
 
         for word in query_words:
             # 为查询词添加上下文标记，提高其在最终回答中的突出程度
             enhanced_content = re.sub(
-                r'\b(' + re.escape(word) + r')\b',
+                r"\b(" + re.escape(word) + r")\b",
                 f"[QUERY_TERM]{word}[/QUERY_TERM]",
                 enhanced_content,
-                flags=re.IGNORECASE
+                flags=re.IGNORECASE,
             )
 
         return enhanced_content
 
-    def _calculate_multidimensional_relevance(self, query: str, content: str, original_result: Dict, filename: str) -> float:
+    def _calculate_multidimensional_relevance(
+        self, query: str, content: str, original_result: Dict, filename: str
+    ) -> float:
         """计算多维度相关性得分，强化文件名匹配权重"""
         import re
 
         # 基础得分
-        base_score = float(original_result.get('score', 0.0))
+        base_score = float(original_result.get("score", 0.0))
 
         # 关键词匹配得分
         query_lower = query.lower()
         content_lower = content.lower()
-        query_keywords = set(re.findall(r'\w+', query_lower))
-        content_keywords = set(re.findall(r'\w+', content_lower))
+        query_keywords = set(re.findall(r"\w+", query_lower))
+        content_keywords = set(re.findall(r"\w+", content_lower))
         keyword_overlap = len(query_keywords.intersection(content_keywords))
         keyword_score = keyword_overlap * 2.0  # 每个匹配关键词2分
 
@@ -610,32 +737,36 @@ class RAGPipeline:
 
         # 核心优化：如果查询词完全或大部分包含在文件名中，则给予高分
         if query_lower in filename_lower:
-            filename_relevance = 30.0 # 给予较高的基础分
+            filename_relevance = 30.0  # 给予较高的基础分
         else:
             # 检查查询词中有多少包含在文件名中
-            matched_in_filename = sum(1 for kw in query_keywords if kw in filename_lower)
+            matched_in_filename = sum(
+                1 for kw in query_keywords if kw in filename_lower
+            )
             if matched_in_filename > 0:
                 # 根据匹配比例给予分数
-                match_ratio = matched_in_filename / max(len(query_keywords), 1) # 避免除以零
-                filename_relevance = 10.0 + 20.0 * match_ratio # 基础10分，最多再加20分
+                match_ratio = matched_in_filename / max(
+                    len(query_keywords), 1
+                )  # 避免除以零
+                filename_relevance = 10.0 + 20.0 * match_ratio  # 基础10分，最多再加20分
 
         # 位置加权得分（如果内容中包含查询词）
         position_score = 0.0
         if query_lower in content_lower:
-            position_score = 5.0 # 稍微提高一点
+            position_score = 5.0  # 稍微提高一点
         else:
             # 检查是否有查询关键词的匹配
             for kw in query_keywords:
                 if kw in content_lower:
-                    position_score += 2.0 # 稍微提高一点
+                    position_score += 2.0  # 稍微提高一点
                     break
 
         # 综合得分计算 - 调整权重，让文件名匹配更重要
         total_score = (
-            base_score * 0.2 +           # 原始搜索得分权重降低到20%
-            keyword_score * 0.2 +        # 关键词匹配权重降低到20%
-            position_score * 0.1 +       # 位置相关性权重降低到10%
-            filename_relevance * 0.5     # 文件名相关性权重提高到50% !!
+            base_score * 0.2  # 原始搜索得分权重降低到20%
+            + keyword_score * 0.2  # 关键词匹配权重降低到20%
+            + position_score * 0.1  # 位置相关性权重降低到10%
+            + filename_relevance * 0.5  # 文件名相关性权重提高到50% !!
         )
 
         return min(total_score, 100.0)  # 限制在合理范围内
@@ -644,8 +775,13 @@ class RAGPipeline:
         """计算语义相关性得分（使用实际的嵌入模型）"""
         try:
             # 检查是否已初始化嵌入模型
-            if hasattr(self.search_engine, 'index_manager') and self.search_engine.index_manager:
-                embedding_model = getattr(self.search_engine.index_manager, 'embedding_model', None)
+            if (
+                hasattr(self.search_engine, "index_manager")
+                and self.search_engine.index_manager
+            ):
+                embedding_model = getattr(
+                    self.search_engine.index_manager, "embedding_model", None
+                )
                 if embedding_model:
                     # 截断内容以适应模型输入限制
                     max_content_len = 2000  # 大多数嵌入模型的限制
@@ -653,11 +789,13 @@ class RAGPipeline:
                         content = content[:max_content_len] + "..."
 
                     # 缓存查询嵌入向量，避免同一查询对每个候选文档重复计算
-                    if not hasattr(self, '_query_embedding_cache'):
+                    if not hasattr(self, "_query_embedding_cache"):
                         self._query_embedding_cache = {}  # {query_str: embedding}
 
                     if query not in self._query_embedding_cache:
-                        self._query_embedding_cache[query] = list(embedding_model.embed([query]))[0]
+                        self._query_embedding_cache[query] = list(
+                            embedding_model.embed([query])
+                        )[0]
                     query_embedding = self._query_embedding_cache[query]
 
                     content_embedding = next(embedding_model.embed([content]))
@@ -667,12 +805,18 @@ class RAGPipeline:
                         query_vec = np.array(query_embedding).reshape(1, -1)
                         content_vec = np.array(content_embedding).reshape(1, -1)
                         result = cosine_similarity(query_vec, content_vec)
-                        if result is not None and len(result) > 0 and len(result[0]) > 0:
+                        if (
+                            result is not None
+                            and len(result) > 0
+                            and len(result[0]) > 0
+                        ):
                             similarity = result[0][0]
                             return float(similarity * 100.0)
                     else:
                         if not self._warned_no_sklearn:
-                            logger.warning("sklearn not available, falling back to Jaccard similarity")
+                            logger.warning(
+                                "sklearn not available, falling back to Jaccard similarity"
+                            )
                             self._warned_no_sklearn = True
 
         except Exception as e:
@@ -681,8 +825,9 @@ class RAGPipeline:
 
         # 回退到简化的Jaccard相似度计算
         import re
-        query_tokens = set(re.findall(r'\w+', query.lower()))
-        content_tokens = set(re.findall(r'\w+', content.lower()))
+
+        query_tokens = set(re.findall(r"\w+", query.lower()))
+        content_tokens = set(re.findall(r"\w+", content.lower()))
 
         if not query_tokens or not content_tokens:
             return 0.0
@@ -696,7 +841,9 @@ class RAGPipeline:
         jaccard_similarity = intersection / union
         return jaccard_similarity * 100.0  # 转换为百分制
 
-    def _select_optimal_documents(self, candidates: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    def _select_optimal_documents(
+        self, candidates: List[Dict[str, Any]]
+    ) -> List[Dict[str, Any]]:
         """选择最佳文档，实现信息聚合和冲突检测"""
         if not candidates:
             return []
@@ -707,13 +854,17 @@ class RAGPipeline:
 
         for candidate in candidates:
             # 使用稳定的哈希算法（hashlib 而非内置 hash，避免跨进程不一致）
-            content_hash = hashlib.md5(candidate['content'][:100].encode('utf-8')).hexdigest()
+            content_hash = hashlib.md5(
+                candidate["content"][:100].encode("utf-8")
+            ).hexdigest()
 
             # 如果内容与已选择的文档相似度高，则跳过（避免重复信息）
             if content_hash not in processed_content_hashes:
                 # 添加证据标记，便于AI理解信息来源
-                enhanced_content = f"[文档证据来源: {candidate['filename']}]\n{candidate['content']}"
-                candidate['content'] = enhanced_content
+                enhanced_content = (
+                    f"[文档证据来源: {candidate['filename']}]\n{candidate['content']}"
+                )
+                candidate["content"] = enhanced_content
                 aggregated_docs.append(candidate)
                 processed_content_hashes.add(content_hash)
 
@@ -722,19 +873,22 @@ class RAGPipeline:
 
         return aggregated_docs
 
-    def _extract_relevant_fragments(self, content: str, query: str, max_chars: int) -> str:
+    def _extract_relevant_fragments(
+        self, content: str, query: str, max_chars: int
+    ) -> str:
         """
         智能提取与查询最相关的内容片段，而不是固定位置的片段
         """
         # 将内容分割成段落或句子
         import re
+
         # 根据换行符、句号等分割
-        paragraphs = re.split(r'\n\s*\n|[\n。！？.!?]', content)
+        paragraphs = re.split(r"\n\s*\n|[\n。！？.!?]", content)
 
         # 为每个段落计算相关性得分
         paragraph_scores = []
         query_lower = query.lower()
-        query_keywords = set(re.findall(r'\w+', query_lower))  # 提取查询关键词
+        query_keywords = set(re.findall(r"\w+", query_lower))  # 提取查询关键词
 
         for i, para in enumerate(paragraphs):
             if not para.strip():
@@ -743,7 +897,7 @@ class RAGPipeline:
             score = 0
 
             # 基于关键词匹配的得分
-            para_keywords = set(re.findall(r'\w+', para_lower))
+            para_keywords = set(re.findall(r"\w+", para_lower))
             common_keywords = query_keywords.intersection(para_keywords)
             score += len(common_keywords) * 2  # 关键词匹配得分
 
@@ -773,7 +927,7 @@ class RAGPipeline:
                 # 如果加上这个段落会超出限制，尝试截断它
                 remaining_chars = max_chars - total_chars
                 if remaining_chars > 10:  # 如果还有足够的空间
-                    truncated_para = paragraph[:remaining_chars-3] + "..."
+                    truncated_para = paragraph[: remaining_chars - 3] + "..."
                     selected_fragments.append(truncated_para)
                     break
             else:
@@ -795,24 +949,33 @@ class RAGPipeline:
             if tail_size > 0:
                 mid_start = (len(result) - mid_size) // 2
                 mid_end = mid_start + mid_size
-                result = result[:head_size] + '\n...[内容省略]...\n' + result[mid_start:mid_end] + '\n...[内容省略]...\n' + result[-tail_size:]
+                result = (
+                    result[:head_size]
+                    + "\n...[内容省略]...\n"
+                    + result[mid_start:mid_end]
+                    + "\n...[内容省略]...\n"
+                    + result[-tail_size:]
+                )
             else:
                 head_size = min(max_chars // 2, 1000)
                 tail_size = max_chars - head_size - 3
                 if tail_size > 0:
-                    result = result[:head_size] + '...' + result[-tail_size:]
+                    result = result[:head_size] + "..." + result[-tail_size:]
                 else:
-                    result = result[:max_chars - 3] + '...'
+                    result = result[: max_chars - 3] + "..."
 
         return result
 
-    def _generate_document_summary(self, content: str, max_summary_chars: int = 500) -> str:
+    def _generate_document_summary(
+        self, content: str, max_summary_chars: int = 500
+    ) -> str:
         """
         生成文档的结构化摘要，突出关键信息
         """
         import re
+
         # 尝试提取文档的关键部分：标题、摘要、引言、结论、参考文献前的部分等
-        lines = content.split('\n')
+        lines = content.split("\n")
 
         # 寻找可能的关键部分
         title_section = ""
@@ -831,11 +994,13 @@ class RAGPipeline:
                 continue
 
             # 检查摘要部分
-            if re.search(r'摘要|abstract', line.lower()):
+            if re.search(r"摘要|abstract", line.lower()):
                 j = i + 1
                 while j < len(lines) and j < i + 10:  # 摘要通常不会太长
                     sub_line = lines[j].strip()
-                    if sub_line and not re.search(r'引言|intro|正文|正文|1\.|一、', sub_line.lower()):
+                    if sub_line and not re.search(
+                        r"引言|intro|正文|正文|1\.|一、", sub_line.lower()
+                    ):
                         abstract_section += sub_line + " "
                         j += 1
                     else:
@@ -844,11 +1009,14 @@ class RAGPipeline:
                 continue
 
             # 检查引言部分
-            if re.search(r'引言|介绍|intro|introduction|背景|background', line.lower()):
+            if re.search(r"引言|介绍|intro|introduction|背景|background", line.lower()):
                 j = i + 1
                 while j < len(lines) and j < i + 15:  # 引言通常不会太长
                     sub_line = lines[j].strip()
-                    if sub_line and not re.search(r'方法|method|材料|materials|实验|experiment|结论|conclusion', sub_line.lower()):
+                    if sub_line and not re.search(
+                        r"方法|method|材料|materials|实验|experiment|结论|conclusion",
+                        sub_line.lower(),
+                    ):
                         intro_section += sub_line + " "
                         j += 1
                     else:
@@ -857,11 +1025,13 @@ class RAGPipeline:
                 continue
 
             # 检查结论部分
-            if re.search(r'结论|conclusion|总结|summary|讨论|discussion', line.lower()):
+            if re.search(r"结论|conclusion|总结|summary|讨论|discussion", line.lower()):
                 j = i + 1
                 while j < len(lines) and j < i + 15:  # 结论通常不会太长
                     sub_line = lines[j].strip()
-                    if sub_line and not re.search(r'参考文献|references|致谢|acknowledgments', sub_line.lower()):
+                    if sub_line and not re.search(
+                        r"参考文献|references|致谢|acknowledgments", sub_line.lower()
+                    ):
                         conclusion_section += sub_line + " "
                         j += 1
                     else:
@@ -884,7 +1054,9 @@ class RAGPipeline:
 
         # 如果关键部分不够，补充一些内容
         if len(" ".join(summary_parts)) < max_summary_chars and content:
-            remaining_content = content[:max_summary_chars - len(" ".join(summary_parts))]
+            remaining_content = content[
+                : max_summary_chars - len(" ".join(summary_parts))
+            ]
             if remaining_content:
                 summary_parts.append(f"其他内容: {remaining_content}")
 
@@ -896,10 +1068,16 @@ class RAGPipeline:
 
         return summary
 
-    def _build_prompt(self, query: str, documents: List[Dict[str, Any]], history_text: str, doc_budget: Optional[int]) -> str:
+    def _build_prompt(
+        self,
+        query: str,
+        documents: List[Dict[str, Any]],
+        history_text: str,
+        doc_budget: Optional[int],
+    ) -> str:
         """Build RAG prompt from query, documents, and history"""
         if not documents and not history_text:
-            return ''
+            return ""
 
         context_sections = []
         entity_instruction = self._extract_key_entities(documents)
@@ -915,7 +1093,9 @@ class RAGPipeline:
                 break
 
             section = self._format_document_section(doc)
-            section = self._truncate_content_if_needed(section, doc.get('content', ''), context_budget, used_chars)
+            section = self._truncate_content_if_needed(
+                section, doc.get("content", ""), context_budget, used_chars
+            )
 
             if not section:
                 continue
@@ -936,7 +1116,7 @@ class RAGPipeline:
         """Extract key entities (names/keywords from filenames) for prompt enhancement"""
         key_entities = []
         for doc in documents:
-            fname = doc.get('filename', '')
+            fname = doc.get("filename", "")
             if not fname:
                 continue
 
@@ -952,9 +1132,19 @@ class RAGPipeline:
 
     def _remove_file_extension(self, filename: str) -> str:
         """移除文件名扩展名"""
-        for ext in ['.pdf', '.docx', '.doc', '.txt', '.md', '.xlsx', '.xls', '.pptx', '.ppt']:
+        for ext in [
+            ".pdf",
+            ".docx",
+            ".doc",
+            ".txt",
+            ".md",
+            ".xlsx",
+            ".xls",
+            ".pptx",
+            ".ppt",
+        ]:
             if filename.lower().endswith(ext):
-                return filename[:-len(ext)]
+                return filename[: -len(ext)]
         return filename
 
     def _parse_entities_from_filename(self, name_only: str) -> List[str]:
@@ -962,8 +1152,8 @@ class RAGPipeline:
         entities = []
 
         # Strategy 1: Extract after underscore (usually author name)
-        if '_' in name_only:
-            parts = name_only.rsplit('_', 1)
+        if "_" in name_only:
+            parts = name_only.rsplit("_", 1)
             if len(parts) > 1 and parts[1]:
                 entities.append(parts[1])
 
@@ -982,16 +1172,18 @@ class RAGPipeline:
             f"内容:\n{doc.get('content', '')}"
         )
 
-    def _truncate_content_if_needed(self, section: str, content: str, budget: int, used: int) -> str:
+    def _truncate_content_if_needed(
+        self, section: str, content: str, budget: int, used: int
+    ) -> str:
         """如果超出预算则截断文档内容"""
         if not content:
-            return ''
+            return ""
 
         overhead = len(section) - len(content)
         remaining = budget - used
 
         if remaining <= overhead + 3:
-            return ''
+            return ""
 
         available_content = remaining - overhead
         if available_content >= len(content):
@@ -1001,11 +1193,11 @@ class RAGPipeline:
             head_size = min(available_content // 2, 1000)
             tail_size = available_content - head_size - 3
             if tail_size > 0:
-                truncated = content[:head_size] + '...' + content[-tail_size:]
+                truncated = content[:head_size] + "..." + content[-tail_size:]
             else:
-                truncated = content[:available_content - 3] + '...'
+                truncated = content[: available_content - 3] + "..."
         else:
-            truncated = content[:available_content - 3] + '...'
+            truncated = content[: available_content - 3] + "..."
 
         # 返回 section，用截断后的内容替换原始内容
         return section[:overhead] + truncated
@@ -1034,16 +1226,19 @@ class RAGPipeline:
         import re
 
         # 按换行符或句号分割
-        sentences = re.split(r'[\n。！？.!?]', text)
+        sentences = re.split(r"[\n。！？.!?]", text)
 
         # 去除重复的句子 - 使用 OrderedDict 保持插入顺序并去重
         from collections import OrderedDict
-        unique_sentences = list(OrderedDict.fromkeys(s.strip() for s in sentences if s.strip()))
 
-        return '。'.join(unique_sentences)
+        unique_sentences = list(
+            OrderedDict.fromkeys(s.strip() for s in sentences if s.strip())
+        )
+
+        return "。".join(unique_sentences)
 
     def _is_small_talk(self, query: str) -> bool:
-        normalized = (query or '').strip().lower()
+        normalized = (query or "").strip().lower()
         if not normalized:
             return True
         for phrase in self.greeting_keywords:
@@ -1060,7 +1255,7 @@ class RAGPipeline:
         # 定期清理旧会话
         self._cleanup_old_sessions_if_needed()
 
-        session_key = (session_id or '').strip()
+        session_key = (session_id or "").strip()
         if not session_key:
             # 没有提供 session_id 时，为避免不同用户共享"default"历史，生成一次性会话键
             session_key = secrets.token_hex(8)
@@ -1073,28 +1268,30 @@ class RAGPipeline:
         try:
             # 收集和准备上下文
             context_info = self._collect_and_prepare_context(query, session_key)
-            if 'answer' in context_info:
+            if "answer" in context_info:
                 return context_info
-            
-            history_text = context_info['history_text']
-            doc_budget = context_info['doc_budget']
-            documents = context_info['documents']
-            
+
+            history_text = context_info["history_text"]
+            doc_budget = context_info["doc_budget"]
+            documents = context_info["documents"]
+
             # 生成回答
             result = self._generate_answer(query, documents, history_text, doc_budget)
-            
+
             # 后处理：优化回答格式，确保连贯流畅
-            sources = [doc.get('path') or doc.get('filename') for doc in documents]
-            answer = self._post_process_answer(result['answer'], sources)
+            sources = [doc.get("path") or doc.get("filename") for doc in documents]
+            answer = self._post_process_answer(result["answer"], sources)
             self._remember_turn(session_key, query, answer)
             return {"answer": answer, "sources": sources}
         except Exception as exc:
             logger.error(f"RAG查询失败: {exc}")
             return {"answer": f"错误：处理查询时发生异常 ({str(exc)})。", "sources": []}
-    
-    def _handle_special_commands(self, query: str, session_key: str) -> Optional[Dict[str, Any]]:
+
+    def _handle_special_commands(
+        self, query: str, session_key: str
+    ) -> Optional[Dict[str, Any]]:
         """处理特殊命令（重置、问候、噪音查询等）"""
-        normalized_reset = (query or '').strip().lower()
+        normalized_reset = (query or "").strip().lower()
         if normalized_reset in self.reset_commands:
             self._reset_session(session_key)
             return {"answer": self.reset_response, "sources": []}
@@ -1103,11 +1300,16 @@ class RAGPipeline:
             return {"answer": self.greeting_response, "sources": []}
 
         if self._is_noise_query(query):
-            return {"answer": self._render_template(self.fallback_response, query), "sources": []}
-        
+            return {
+                "answer": self._render_template(self.fallback_response, query),
+                "sources": [],
+            }
+
         return None
-    
-    def _collect_and_prepare_context(self, query: str, session_key: str) -> Dict[str, Any]:
+
+    def _collect_and_prepare_context(
+        self, query: str, session_key: str
+    ) -> Dict[str, Any]:
         """收集和准备上下文（历史记录、文档等）"""
         # 计算历史记录预算
         if self.max_context_chars_total > 0:
@@ -1131,25 +1333,33 @@ class RAGPipeline:
         if not documents and not history_text:
             answer = self._render_template(self.fallback_response, query)
             return {"answer": answer, "sources": []}
-        
+
         return {
-            'history_text': history_text,
-            'doc_budget': doc_budget,
-            'documents': documents
+            "history_text": history_text,
+            "doc_budget": doc_budget,
+            "documents": documents,
         }
-    
-    def _generate_answer(self, query: str, documents: List[Dict], 
-                        history_text: str, doc_budget: Optional[int]) -> Dict[str, Any]:
+
+    def _generate_answer(
+        self,
+        query: str,
+        documents: List[Dict],
+        history_text: str,
+        doc_budget: Optional[int],
+    ) -> Dict[str, Any]:
         """生成回答"""
         # 构建提示
         prompt = self._build_prompt(query, documents, history_text, doc_budget)
         if not prompt:
-            return {"answer": self._render_template(self.fallback_response, query), "sources": []}
+            return {
+                "answer": self._render_template(self.fallback_response, query),
+                "sources": [],
+            }
 
         # 使用 ThreadPoolExecutor 实现更可靠的超时控制
         try:
             # 获取配置的超时时间，默认为120秒
-            timeout = self.config_loader.getint('ai_model', 'request_timeout', 120)
+            timeout = self.config_loader.getint("ai_model", "request_timeout", 120)
 
             def generate_content():
                 result_chunks = []
@@ -1157,20 +1367,20 @@ class RAGPipeline:
                     for piece in self.model_manager.generate(
                         prompt,
                         max_tokens=self.max_output_tokens,
-                        temperature=self.sampling_params['temperature'],
-                        top_p=self.sampling_params['top_p'],
-                        top_k=self.sampling_params['top_k'],
-                        min_p=self.sampling_params['min_p'],
-                        seed=self.sampling_params['seed'],
-                        repeat_penalty=self.sampling_params['repeat_penalty'],
-                        frequency_penalty=self.sampling_params['frequency_penalty'],
-                        presence_penalty=self.sampling_params['presence_penalty']
+                        temperature=self.sampling_params["temperature"],
+                        top_p=self.sampling_params["top_p"],
+                        top_k=self.sampling_params["top_k"],
+                        min_p=self.sampling_params["min_p"],
+                        seed=self.sampling_params["seed"],
+                        repeat_penalty=self.sampling_params["repeat_penalty"],
+                        frequency_penalty=self.sampling_params["frequency_penalty"],
+                        presence_penalty=self.sampling_params["presence_penalty"],
                     ):
                         if piece:
                             result_chunks.append(str(piece))
-                    return {'chunks': result_chunks, 'completed': True, 'error': None}
+                    return {"chunks": result_chunks, "completed": True, "error": None}
                 except Exception as e:
-                    return {'chunks': result_chunks, 'completed': False, 'error': e}
+                    return {"chunks": result_chunks, "completed": False, "error": e}
 
             # 使用 ThreadPoolExecutor 执行生成任务
             executor = ThreadPoolExecutor(max_workers=1)
@@ -1178,7 +1388,7 @@ class RAGPipeline:
             try:
                 result = future.result(timeout=float(timeout))
             except FutureTimeoutError:
-                result = {'chunks': [], 'completed': False, 'error': 'timeout'}
+                result = {"chunks": [], "completed": False, "error": "timeout"}
                 logger.warning(f"生成超时({timeout}s): {query[:50]}...")
                 try:
                     future.cancel()
@@ -1191,8 +1401,8 @@ class RAGPipeline:
                 except TypeError:
                     executor.shutdown(wait=False)
 
-            if not result['completed']:
-                partial_answer = ''.join(result['chunks']).strip()
+            if not result["completed"]:
+                partial_answer = "".join(result["chunks"]).strip()
                 if partial_answer:
                     answer = partial_answer + "\n\n(注意：回答生成超时，内容可能不完整)"
                 else:
@@ -1201,11 +1411,11 @@ class RAGPipeline:
                         answer = "已找到相关文档，但AI模型思考时间过长导致超时。请尝试：\n1. 增加配置文件中的 request_timeout\n2. 简化问题\n3. 直接查看下方列出的参考来源"
                     else:
                         answer = self._render_template(self.fallback_response, query)
-            elif result['error']:
+            elif result["error"]:
                 logger.error(f"生成过程中发生错误: {str(result['error'])}")
                 answer = f"生成回答时发生错误: {str(result['error'])}"
             else:
-                answer = ''.join(result['chunks']).strip()
+                answer = "".join(result["chunks"]).strip()
                 if not answer:
                     # 如果生成结果为空（可能是被过滤器完全过滤了），给出提示
                     if documents:
@@ -1215,7 +1425,7 @@ class RAGPipeline:
         except Exception as e:
             logger.error(f"生成过程中发生错误: {str(e)}")
             answer = self._render_template(self.fallback_response, query)
-        
+
         return {"answer": answer}
 
     def _post_process_answer(self, answer: str, sources: List[str]) -> str:
@@ -1226,31 +1436,33 @@ class RAGPipeline:
         import re
 
         # 将数字列表转换为连贯叙述
-        answer = re.sub(r'\n\d+\.\s*', '；', answer)  # 将列表数字替换为分号
-        answer = re.sub(r'\n\s*[-*]\s*', '；', answer)  # 将项目符号替换为分号
+        answer = re.sub(r"\n\d+\.\s*", "；", answer)  # 将列表数字替换为分号
+        answer = re.sub(r"\n\s*[-*]\s*", "；", answer)  # 将项目符号替换为分号
 
         # 清理多余的换行符，保持段落连贯
-        answer = re.sub(r'\n\s*\n', '\n', answer)
+        answer = re.sub(r"\n\s*\n", "\n", answer)
 
         # 优化引用格式，使其自然融入文本
-        if sources and '[文档证据来源:' in answer:
+        if sources and "[文档证据来源:" in answer:
             # 提取来源信息并整合到回答中
-            source_pattern = r'\[文档证据来源:\s*([^\]]+)\]'
+            source_pattern = r"\[文档证据来源:\s*([^\]]+)\]"
             matches = re.findall(source_pattern, answer)
             if matches:
                 # 提取第一个来源作为主要来源
                 primary_source = matches[0] if matches else ""
                 # 从原始sources中找到匹配的完整路径
-                full_source = next((s for s in sources if primary_source in s), primary_source)
+                full_source = next(
+                    (s for s in sources if primary_source in s), primary_source
+                )
 
                 # 移除标记，改用自然引用方式
-                answer = re.sub(source_pattern, '', answer)
+                answer = re.sub(source_pattern, "", answer)
 
                 # 在回答开头或结尾添加自然引用
                 if full_source and full_source not in answer:
                     # 如果回答中没有提到来源，添加自然的引用
-                    if '。' in answer:
-                        parts = answer.rsplit('。', 1)
+                    if "。" in answer:
+                        parts = answer.rsplit("。", 1)
                         if len(parts) > 1:
                             answer = f"{parts[0]}。相关信息来源于文档《{full_source}》{parts[1]}"
                         else:
@@ -1259,37 +1471,37 @@ class RAGPipeline:
                         answer = f"{answer}（信息来源于文档《{full_source}》）"
 
         # 清理多余的分号和空格
-        answer = re.sub(r'；+', '；', answer)
-        answer = re.sub(r'；\s*[，。；]', r'\g<0>', answer)  # 保留正确的标点
+        answer = re.sub(r"；+", "；", answer)
+        answer = re.sub(r"；\s*[，。；]", r"\g<0>", answer)  # 保留正确的标点
 
         # 统一标点符号
-        answer = answer.replace('[QUERY_TERM]', '').replace('[/QUERY_TERM]', '')
+        answer = answer.replace("[QUERY_TERM]", "").replace("[/QUERY_TERM]", "")
 
         return answer.strip()
 
     def get_session_stats(self, session_id: Optional[str] = None) -> Dict[str, Any]:
         """获取会话统计信息"""
-        session_key = session_id or ''
+        session_key = session_id or ""
         messages = self.chat_db.get_session_messages(session_key)
 
         total_chars = 0
         for msg in messages:
-            total_chars += len(msg.get('content', '') or '')
+            total_chars += len(msg.get("content", "") or "")
 
         # 计算对话轮次（用户消息数）
-        turn_count = sum(1 for msg in messages if msg.get('role') == 'user')
+        turn_count = sum(1 for msg in messages if msg.get("role") == "user")
 
         return {
-            'session_id': session_key,
-            'turn_count': turn_count,
-            'total_characters': total_chars,
-            'max_history_turns': self.max_history_turns,
-            'max_history_chars': self.max_history_chars
+            "session_id": session_key,
+            "turn_count": turn_count,
+            "total_characters": total_chars,
+            "max_history_turns": self.max_history_turns,
+            "max_history_chars": self.max_history_chars,
         }
 
     def clear_session(self, session_id: Optional[str] = None) -> bool:
         """清空指定会话的历史记录"""
-        session_key = session_id or ''
+        session_key = session_id or ""
         return self.chat_db.delete_session(session_key)
 
     def get_all_sessions(self) -> List[Dict[str, Any]]:
@@ -1303,26 +1515,26 @@ class RAGPipeline:
             if hasattr(self, key):
                 setattr(self, key, value)
                 logger.info(f"更新RAG配置: {key} = {value}")
-    
+
     def get_config(self) -> Dict[str, Any]:
         """获取当前RAG配置"""
         return {
-            'max_docs': self.max_docs,
-            'max_context_chars': self.max_context_chars,
-            'max_context_chars_total': self.max_context_chars_total,
-            'max_history_turns': self.max_history_turns,
-            'max_history_chars': self.max_history_chars,
-            'max_output_tokens': self.max_output_tokens,
-            'temperature': self.temperature,
-            'prompt_template': self.prompt_template,
-            'greeting_keywords': self.greeting_keywords,
-            'reset_commands': self.reset_commands
+            "max_docs": self.max_docs,
+            "max_context_chars": self.max_context_chars,
+            "max_context_chars_total": self.max_context_chars_total,
+            "max_history_turns": self.max_history_turns,
+            "max_history_chars": self.max_history_chars,
+            "max_output_tokens": self.max_output_tokens,
+            "temperature": self.temperature,
+            "prompt_template": self.prompt_template,
+            "greeting_keywords": self.greeting_keywords,
+            "reset_commands": self.reset_commands,
         }
 
     def cleanup(self) -> None:
         """清理资源，关闭数据库连接等"""
         try:
-            if hasattr(self, 'chat_db') and self.chat_db:
+            if hasattr(self, "chat_db") and self.chat_db:
                 self.chat_db.close()
                 logger.info("RAGPipeline 资源已清理")
         except Exception as e:
