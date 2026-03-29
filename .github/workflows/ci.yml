@@ -221,8 +221,9 @@ jobs:
           python -m pip install --upgrade pip
           pip install pyinstaller
           pip install -e ".[dev]"
-          if [ "${{ matrix.deps }}" != "" ]; then
-            pip install -e ".[${{ matrix.deps }}]"
+          DEPS="${{ matrix.deps }}"
+          if [ -n "$DEPS" ]; then
+            pip install -e ".[${DEPS}]"
           fi
 
       - name: Resolve build version
