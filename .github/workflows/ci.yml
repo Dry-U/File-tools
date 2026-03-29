@@ -116,11 +116,13 @@ jobs:
           python -m pip install --upgrade pip
           pip install -e "."
 
-      - name: Start application
+      - name: Smoke test
         run: |
+          # Start server in background
           uvicorn backend.api.main:app --host 127.0.0.1 --port 8000 &
           APP_PID=$!
-          echo "APP_PID=$APP_PID" >> $GITHUB_ENV
+          trap "kill $APP_PID 2>/dev/null" EXIT
+
           echo "Waiting for server to start..."
           for i in $(seq 1 30); do
             if curl -s http://127.0.0.1:8000/api/health/ready > /dev/null 2>&1; then
@@ -130,30 +132,20 @@ jobs:
             sleep 1
           done
 
-      - name: Test health endpoint
-        run: |
+          # Health check
           HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:8000/api/health)
           echo "Health endpoint returned HTTP $HTTP_CODE"
-          if [ "$HTTP_CODE" -eq 200 ]; then
-            echo "Health check passed"
-          else
+          if [ "$HTTP_CODE" -ne 200 ]; then
             echo "Health check failed (HTTP $HTTP_CODE)"
             curl -s http://127.0.0.1:8000/api/health
             exit 1
           fi
+          echo "Health check passed"
 
-      - name: Test search endpoint
-        run: |
+          # Search endpoint test
           curl -s -X POST http://127.0.0.1:8000/api/search \
             -H "Content-Type: application/json" \
             -d '{"query":"test"}' | grep -q "results\|status" && echo "Search endpoint OK" || echo "Search endpoint returned empty (expected for fresh install)"
-
-      - name: Stop application
-        if: always()
-        run: |
-          if [ -n "$APP_PID" ]; then
-            kill $APP_PID 2>/dev/null || true
-          fi
 
   # ==================== 安全检查 ====================
   security:
