@@ -350,44 +350,44 @@ jobs:
           cp -r "dist/${ARCHIVE_DIR}/"* "${PKG_ROOT}/opt/filetools/"
 
           # Control file (no leading spaces - dpkg requires it)
-          cat > "${PKG_ROOT}/DEBIAN/control" << CTRLEOF
-Package: filetools-${{ matrix.build_mode }}
-Version: ${FILETOOLS_VERSION}
-Architecture: amd64
-Maintainer: Darian <dry-u@users.noreply.github.com>
-Description: FileTools (${{ matrix.build_mode }} edition) - Intelligent file search and RAG system
- A hybrid file retrieval and RAG system with dual-engine search,
- supporting text (BM25) and vector (HNSW) search.
-Section: utils
-Priority: optional
-CTRLEOF
+          printf '%s\n' \
+            "Package: filetools-${{ matrix.build_mode }}" \
+            "Version: ${FILETOOLS_VERSION}" \
+            "Architecture: amd64" \
+            "Maintainer: Darian <dry-u@users.noreply.github.com>" \
+            "Description: FileTools (${{ matrix.build_mode }} edition) - Intelligent file search and RAG system" \
+            " A hybrid file retrieval and RAG system with dual-engine search," \
+            " supporting text (BM25) and vector (HNSW) search." \
+            "Section: utils" \
+            "Priority: optional" \
+            > "${PKG_ROOT}/DEBIAN/control"
 
           # Post-install script
-          cat > "${PKG_ROOT}/DEBIAN/postinst" << 'POSTEOF'
-#!/bin/bash
-chmod +x /opt/filetools/FileTools
-ln -sf /opt/filetools/FileTools /usr/local/bin/filetools 2>/dev/null || true
-POSTEOF
+          printf '%s\n' \
+            '#!/bin/bash' \
+            'chmod +x /opt/filetools/FileTools' \
+            'ln -sf /opt/filetools/FileTools /usr/local/bin/filetools 2>/dev/null || true' \
+            > "${PKG_ROOT}/DEBIAN/postinst"
           chmod 755 "${PKG_ROOT}/DEBIAN/postinst"
 
           # Pre-remove script
-          cat > "${PKG_ROOT}/DEBIAN/prerm" << 'PREEOF'
-#!/bin/bash
-rm -f /usr/local/bin/filetools 2>/dev/null || true
-PREEOF
+          printf '%s\n' \
+            '#!/bin/bash' \
+            'rm -f /usr/local/bin/filetools 2>/dev/null || true' \
+            > "${PKG_ROOT}/DEBIAN/prerm"
           chmod 755 "${PKG_ROOT}/DEBIAN/prerm"
 
           # Desktop entry
-          cat > "${PKG_ROOT}/usr/share/applications/filetools.desktop" << 'DESKEOF'
-[Desktop Entry]
-Name=FileTools
-Comment=Intelligent file search and RAG system
-Exec=/opt/filetools/FileTools
-Icon=filetools
-Terminal=false
-Type=Application
-Categories=Utility;FileTools;
-DESKEOF
+          printf '%s\n' \
+            '[Desktop Entry]' \
+            'Name=FileTools' \
+            'Comment=Intelligent file search and RAG system' \
+            'Exec=/opt/filetools/FileTools' \
+            'Icon=filetools' \
+            'Terminal=false' \
+            'Type=Application' \
+            'Categories=Utility;FileTools;' \
+            > "${PKG_ROOT}/usr/share/applications/filetools.desktop"
 
           # Build .deb
           dpkg-deb --build --root-owner-group "${PKG_ROOT}"
