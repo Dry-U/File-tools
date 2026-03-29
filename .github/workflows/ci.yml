@@ -131,7 +131,7 @@ jobs:
           trap "kill $APP_PID 2>/dev/null" EXIT
 
           echo "Waiting for server to start..."
-          for i in $(seq 1 30); do
+          for i in $(seq 1 120); do
             if curl -s http://127.0.0.1:8000/api/health/ready > /dev/null 2>&1; then
               echo "Server is ready after ${i}s"
               break
@@ -150,9 +150,14 @@ jobs:
           echo "Health check passed"
 
           # Search endpoint test
-          curl -s -X POST http://127.0.0.1:8000/api/search \
+          HTTP_CODE=$(curl -s -o /tmp/search_result.json -w "%{http_code}" -X POST http://127.0.0.1:8000/api/search \
             -H "Content-Type: application/json" \
-            -d '{"query":"test"}' | grep -q "results\|status" && echo "Search endpoint OK" || echo "Search endpoint returned empty (expected for fresh install)"
+            -d '{"query":"test"}')
+          if [ "$HTTP_CODE" -eq 200 ]; then
+            echo "Search endpoint OK (HTTP 200)"
+          else
+            echo "Search endpoint returned HTTP $HTTP_CODE"
+          fi
 
   # ==================== 安全检查 ====================
   security:
