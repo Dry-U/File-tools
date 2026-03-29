@@ -20,8 +20,8 @@
 !define MUI_ABORTWARNING
 !define MUI_ICON "frontend\static\logo.ico"
 !define MUI_UNICON "frontend\static\logo.ico"
-!define MUI_HEADERIMAGE
-!define MUI_HEADERIMAGE_BITMAP ""
+; !define MUI_HEADERIMAGE
+; !define MUI_HEADERIMAGE_BITMAP "installer-header.bmp"
 
 ; ===== 安装页面 =====
 !insertmacro MUI_PAGE_WELCOME
