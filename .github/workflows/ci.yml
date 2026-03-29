@@ -118,15 +118,29 @@ jobs:
 
       - name: Start application
         run: |
-          python main.py &
+          uvicorn backend.api.main:app --host 127.0.0.1 --port 8000 &
           APP_PID=$!
           echo "APP_PID=$APP_PID" >> $GITHUB_ENV
           echo "Waiting for server to start..."
-          sleep 8
+          for i in $(seq 1 30); do
+            if curl -s http://127.0.0.1:8000/api/health/ready > /dev/null 2>&1; then
+              echo "Server is ready after ${i}s"
+              break
+            fi
+            sleep 1
+          done
 
       - name: Test health endpoint
         run: |
-          curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:8000/api/health | grep -q "200" && echo "Health check passed" || (echo "Health check failed" && exit 1)
+          HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:8000/api/health)
+          echo "Health endpoint returned HTTP $HTTP_CODE"
+          if [ "$HTTP_CODE" -eq 200 ]; then
+            echo "Health check passed"
+          else
+            echo "Health check failed (HTTP $HTTP_CODE)"
+            curl -s http://127.0.0.1:8000/api/health
+            exit 1
+          fi
 
       - name: Test search endpoint
         run: |
@@ -202,6 +216,7 @@ jobs:
           python-version: '3.11'
 
       - name: Install build dependencies
+        shell: bash
         run: |
           python -m pip install --upgrade pip
           pip install pyinstaller
@@ -226,10 +241,10 @@ jobs:
 
       - name: Build executable (Windows)
         if: matrix.os == 'windows-latest'
-        shell: cmd
+        shell: bash
         run: |
-          set FILETOOLS_VERSION=%FILETOOLS_VERSION%
-          set FILETOOLS_BUILD_MODE=%FILETOOLS_BUILD_MODE%
+          export FILETOOLS_VERSION="$FILETOOLS_VERSION"
+          export FILETOOLS_BUILD_MODE="$FILETOOLS_BUILD_MODE"
           pyinstaller file-tools.spec --noconfirm --clean
 
       - name: Build executable (Linux)
@@ -241,16 +256,20 @@ jobs:
 
       - name: Create package archive
         shell: bash
+        env:
+          FILETOOLS_VERSION: ${{ env.FILETOOLS_VERSION }}
+          FILETOOLS_BUILD_MODE: ${{ env.FILETOOLS_BUILD_MODE }}
         run: |
           PACKAGE_NAME="FileTools-${{ matrix.build_mode }}-v${FILETOOLS_VERSION}-${{ matrix.os }}"
+          ARCHIVE_DIR="FileTools-v${FILETOOLS_VERSION}-${{ matrix.build_mode }}"
 
           if [ "$RUNNER_OS" == "Windows" ]; then
             cd dist
-            7z a "../${PACKAGE_NAME}.zip" "FileTools-v*"
+            7z a "../${PACKAGE_NAME}.zip" "${ARCHIVE_DIR}"
             cd ..
           else
             cd dist
-            tar -czf "../${PACKAGE_NAME}.tar.gz" "FileTools-v*"
+            tar -czf "../${PACKAGE_NAME}.tar.gz" "${ARCHIVE_DIR}"
             cd ..
           fi
 
