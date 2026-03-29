@@ -95,7 +95,7 @@ jobs:
           fail_ci_if_error: false
           verbose: true
 
-  # ==================== 烟雾测试 ====================
+  # ==================== 冒烟测试 ====================
   smoke-test:
     name: Smoke Tests
     runs-on: ubuntu-latest
