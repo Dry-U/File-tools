@@ -37,7 +37,7 @@ def generate_nsis_script(version: str, mode: str, output_dir: str) -> str:
 
     content = template_path.read_text(encoding="utf-8")
     content = content.replace("___VERSION___", version)
-    content = content.replace("___MODE___", mode.upper())
+    content = content.replace("___MODE___", mode)
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(content, encoding="utf-8")
