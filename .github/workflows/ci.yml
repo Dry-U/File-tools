@@ -461,27 +461,32 @@ DESKEOF
             ### 下载文件说明
 
             #### Windows (x64)
-            - `*-Setup.exe` — NSIS 安装程序（推荐）
-              - 自动安装到 `C:\Program Files\FileTools\`
-              - 创建桌面快捷方式和开始菜单
-              - 支持控制面板卸载
-            - `*-portable.zip` — 便携版压缩包
-              - 解压到任意目录，直接运行 `FileTools.exe`
+            | 文件名格式 | 类型 | 说明 |
+            |------------|------|------|
+            | `FileTools-slim-v*-Setup.exe` | 安装程序 | NSIS 安装包，双击安装 |
+            | `FileTools-cpu-v*-Setup.exe` | 安装程序 | NSIS 安装包，双击安装 |
+            | `FileTools-gpu-v*-Setup.exe` | 安装程序 | NSIS 安装包，双击安装 |
+            | `FileTools-*-v*-windows-x64-portable.zip` | 便携版 | 解压即用，无需安装 |
+
+            安装程序会自动安装到 `C:\Program Files\FileTools\`，创建桌面快捷方式和开始菜单，支持控制面板卸载。
 
             #### Linux (x64, Ubuntu/Debian)
-            - `*.deb` — Debian/Ubuntu 安装包（推荐）
-              - `sudo dpkg -i filetools-<mode>_<version>_amd64.deb`
-              - 安装到 `/opt/filetools/`，创建 `filetools` 命令行入口
-            - `*-portable.tar.gz` — 便携版压缩包
-              - `tar -xzf *.tar.gz && cd FileTools-* && ./FileTools`
+            | 文件名格式 | 类型 | 说明 |
+            |------------|------|------|
+            | `filetools-slim_*_amd64.deb` | 安装包 | `sudo dpkg -i filetools-slim_*_amd64.deb` |
+            | `filetools-cpu_*_amd64.deb` | 安装包 | `sudo dpkg -i filetools-cpu_*_amd64.deb` |
+            | `filetools-gpu_*_amd64.deb` | 安装包 | `sudo dpkg -i filetools-gpu_*_amd64.deb` |
+            | `FileTools-*-v*-linux-x64-portable.tar.gz` | 便携版 | `tar -xzf *.tar.gz && cd FileTools-* && ./FileTools` |
+
+            .deb 安装到 `/opt/filetools/`，创建 `filetools` 命令行入口和桌面快捷方式。
 
             > `_internal/` 文件夹包含 Python 运行时依赖，请勿删除。这是正常结构。
 
             ### 快速开始
 
             1. 下载对应平台和版本的安装包
-            2. Windows: 运行 Setup.exe 或解压 portable.zip
-            3. Linux: `sudo dpkg -i *.deb` 或解压 tar.gz
+            2. Windows: 双击运行 `Setup.exe`，或解压 `portable.zip` 后运行 `FileTools.exe`
+            3. Linux: `sudo dpkg -i *.deb`，或解压 tar.gz 后运行 `./FileTools`
             4. 启动后浏览器自动打开 `http://127.0.0.1:8000`
 
   # ==================== 版本号自动提交 ====================
