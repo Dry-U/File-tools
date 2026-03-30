@@ -264,6 +264,7 @@ class TestChatHistoryDBEdgeCases:
                         if attempt == 9:
                             errors.append(str(e))
                         import time
+
                         time.sleep(0.01 * (attempt + 1))
 
         threads = [
