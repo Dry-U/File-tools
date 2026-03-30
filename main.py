@@ -10,8 +10,14 @@ import os
 # 修复 Windows 控制台编码问题
 if sys.platform == 'win32':
     import io
-    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
-    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8')
+    if sys.stdout and hasattr(sys.stdout, 'buffer'):
+        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
+    else:
+        sys.stdout = io.TextIOWrapper(io.BytesIO(), encoding='utf-8')
+    if sys.stderr and hasattr(sys.stderr, 'buffer'):
+        sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8')
+    else:
+        sys.stderr = io.TextIOWrapper(io.BytesIO(), encoding='utf-8')
 import psutil
 import requests
 import time
