@@ -427,10 +427,24 @@ async def global_exception_handler(request: Request, exc: Exception):
 
 
 # 静态页面路由
+# 打包后需要使用 app_paths 定位前端文件，而非相对路径
+def _get_frontend_dir() -> Path:
+    """获取前端目录路径（兼容开发和打包环境）"""
+    try:
+        from backend.utils.app_paths import get_app_paths
+        fd = get_app_paths().frontend_dir
+        if fd and fd.exists():
+            return fd
+    except Exception:
+        pass
+    # 开发环境回退
+    return Path("frontend")
+
+
 @app.get("/favicon.ico")
 async def favicon():
     """提供 favicon 图标"""
-    favicon_path = Path("frontend/static/favicon.ico")
+    favicon_path = _get_frontend_dir() / "static" / "favicon.ico"
     if favicon_path.exists():
         return Response(content=favicon_path.read_bytes(), media_type="image/x-icon")
     return Response(status_code=204)
@@ -439,7 +453,7 @@ async def favicon():
 @app.get("/")
 async def read_root():
     """提供主 HTML 页面"""
-    frontend_path = Path("frontend/index.html")
+    frontend_path = _get_frontend_dir() / "index.html"
     if frontend_path.exists():
         return HTMLResponse(content=frontend_path.read_text(encoding="utf-8"))
     return {"message": "Frontend not found", "docs_url": "/docs"}
@@ -457,4 +471,6 @@ app.include_router(system.router, prefix="/api")
 # 挂载静态文件目录
 from fastapi.staticfiles import StaticFiles
 
-app.mount("/static", StaticFiles(directory="frontend/static"), name="static")
+_static_dir = _get_frontend_dir() / "static"
+if _static_dir.exists():
+    app.mount("/static", StaticFiles(directory=str(_static_dir)), name="static")

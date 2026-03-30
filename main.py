@@ -70,9 +70,16 @@ def find_available_port(start=8000, end=8010):
 def find_existing_instance():
     """查找是否已有实例在运行"""
     current_pid = os.getpid()
+    # 打包后进程名是 FileTools.exe，开发环境是 python main.py
+    app_identity = "main.py"
+    if getattr(sys, "frozen", False):
+        app_identity = os.path.basename(sys.executable).lower()
     for proc in psutil.process_iter(['pid', 'name', 'cmdline']):
         try:
-            if proc.info['pid'] != current_pid and 'main.py' in ' '.join(proc.info['cmdline'] or []):
+            cmdline_str = ' '.join(proc.info['cmdline'] or [])
+            if (proc.info['pid'] != current_pid and
+                    (app_identity in cmdline_str or
+                     app_identity in (proc.info.get('name') or '').lower())):
                 for port in range(8000, 8011):
                     if is_port_in_use(port):
                         try:

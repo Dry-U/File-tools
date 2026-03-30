@@ -224,7 +224,10 @@ class CustomFormatter(logging.Formatter):
     ):
         super().__init__(fmt or "%(message)s", datefmt)
         self.use_color = (
-            use_color and hasattr(sys.stdout, "isatty") and sys.stdout.isatty()
+            use_color
+            and sys.stdout is not None
+            and hasattr(sys.stdout, "isatty")
+            and sys.stdout.isatty()
         )
 
     def format(self, record: logging.LogRecord) -> str:
@@ -321,12 +324,16 @@ class EnterpriseLogger:
 
         # 创建控制台处理器
         # 在 Windows 上设置编码为 utf-8 以避免中文乱码
-        if sys.platform == "win32":
+        # PyInstaller GUI 模式下 sys.stdout 可能为 None，需要安全处理
+        if sys.platform == "win32" and sys.stdout and hasattr(sys.stdout, "buffer"):
             import io
 
-            console_handler = logging.StreamHandler(
-                stream=io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
-            )
+            try:
+                console_handler = logging.StreamHandler(
+                    stream=io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
+                )
+            except Exception:
+                console_handler = logging.StreamHandler()
         else:
             console_handler = logging.StreamHandler()
         console_handler.setFormatter(formatter)

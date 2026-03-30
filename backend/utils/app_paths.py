@@ -204,7 +204,12 @@ class AppPaths:
 
         # 尝试从应用目录的模板复制
         if self.is_frozen:
-            template = self.app_dir / "templates" / "config.yaml"
+            # 单目录模式：_internal/templates/config.yaml
+            internal = self.app_dir / "_internal"
+            if internal.exists():
+                template = internal / "templates" / "config.yaml"
+            else:
+                template = self.app_dir / "templates" / "config.yaml"
             if template.exists():
                 shutil.copy2(template, self.config_path)
                 return
