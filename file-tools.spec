@@ -44,9 +44,6 @@ EXCLUDES = [
     'torchvision', 'torchaudio',
     # Not used directly, pulled in by dependencies but can cause build failures
     'sqlalchemy',
-    # pythonnet causes YaccError in PyInstaller frozen mode (pycparser cannot write yacc cache)
-    # pywebview's edgechromium backend works without pythonnet, so exclude it entirely
-    'pythonnet', 'clr', 'clr_loader', 'pycparser',
 ]
 
 # Slim 模式额外排除
@@ -98,6 +95,17 @@ HIDDEN_IMPORTS_BASE = [
     'win32com',
     'win32com.client',
     'pythoncom',
+    # pythonnet/pycparser for pywebview Windows backend
+    'clr',
+    'pythonnet',
+    'clr_loader',
+    'clr_loader.ffi',
+    'pycparser',
+    'pycparser.lextab',
+    'pycparser.yacctab',
+    'pycparser.ply',
+    'pycparser.ply.yacc',
+    'pycparser.ply.lex',
 ]
 
 # 文档解析相关（所有模式都需要）

@@ -29,6 +29,15 @@ import signal
 # 修复 pythonnet 退出报错：禁用 clr 的 atexit 回调
 os.environ['PYTHONNET_SHUTDOWN_MODE'] = 'Soft'
 
+# 修复 pycparser/ply 在 PyInstaller 冻结模式下的 YaccError
+# 问题是 pycparser.ply.yacc 在冻结模式下无法写入 yacc 解析器缓存
+# 解决方案：预先导入 pycparser 以触发表文件加载，并确保 optimize=True
+if getattr(sys, 'frozen', False):
+    import pycparser.c_parser
+    # 确保 pycparser 使用预编译的表文件，不尝试重新生成
+    # lextab 和 yacctab 应该已经由 PyInstaller 打包进 _internal 目录
+    pass
+
 # 修复 torch DLL 加载问题：将 torch lib 目录添加到 PATH
 try:
     venv_path = os.path.dirname(sys.executable)
@@ -255,18 +264,7 @@ def run_desktop_app():
     exit_thread = threading.Thread(target=check_exit, daemon=True)
     exit_thread.start()
 
-    # 尝试使用 Edge Chromium 引擎（如果可用）
-    # GUI 参数: 'qt' 或 'gtk' 或 'cef' 或 'edgechromium' 或 'edgehtml' 或 'mshtml'
-    try:
-        # Windows 优先使用 edgechromium（Edge WebView2）
-        import platform
-        if platform.system() == 'Windows':
-            webview.start(gui='edgechromium', debug=False)
-        else:
-            webview.start()
-    except Exception as e:
-        logger.warning(f"Edge Chromium 启动失败，尝试默认引擎: {e}")
-        webview.start()
+    webview.start(debug=False)
 
     # 标记退出事件，确保后台线程退出
     window_ref['closed'] = True
