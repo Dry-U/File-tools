@@ -44,6 +44,9 @@ EXCLUDES = [
     'torchvision', 'torchaudio',
     # Not used directly, pulled in by dependencies but can cause build failures
     'sqlalchemy',
+    # pythonnet causes YaccError in PyInstaller frozen mode (pycparser cannot write yacc cache)
+    # pywebview's edgechromium backend works without pythonnet, so exclude it entirely
+    'pythonnet', 'clr', 'clr_loader', 'pycparser',
 ]
 
 # Slim 模式额外排除

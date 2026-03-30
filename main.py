@@ -29,24 +29,6 @@ import signal
 # 修复 pythonnet 退出报错：禁用 clr 的 atexit 回调
 os.environ['PYTHONNET_SHUTDOWN_MODE'] = 'Soft'
 
-# PyInstaller 打包模式修复：pythonnet/cffi/pycparser 在冻结环境下无法初始化
-# (pycparser 无法写入 yacc 解析器缓存，导致 YaccError)
-# pywebview 的 edgechromium 后端不需要 pythonnet，但 pywebview 初始化时
-# 会尝试导入 winforms 后端（需要 pythonnet），导致崩溃。
-# 解决方案：在 sys.modules 中注册一个假的 clr 模块，使 winforms 的导入
-# 以 ImportError 失败（pywebview 会捕获并跳过 winforms，直接使用 edgechromium）。
-if getattr(sys, 'frozen', False):
-    import types as _types
-
-    class _DummyClr(_types.ModuleType):
-        """Dummy clr module that raises ImportError on any attribute access"""
-        def __getattr__(self, name):
-            raise ImportError("pythonnet is not available in packaged mode")
-        def __dir__(self):
-            return []
-
-    sys.modules['clr'] = _DummyClr('clr')
-
 # 修复 torch DLL 加载问题：将 torch lib 目录添加到 PATH
 try:
     venv_path = os.path.dirname(sys.executable)
