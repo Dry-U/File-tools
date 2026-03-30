@@ -256,7 +256,7 @@ async def remove_directory(
         # 清理该目录在索引中的文档
         if index_manager:
             try:
-                deleted_count = index_manager.delete_documents_by_directory(expanded_path)
+                index_manager.delete_documents_by_directory(expanded_path)
                 logger.info(f"已从索引中删除目录 {expanded_path} 下的文档")
             except Exception as e:
                 logger.warning(f"清理索引失败: {str(e)}")

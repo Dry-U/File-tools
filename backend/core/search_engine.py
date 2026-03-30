@@ -552,7 +552,7 @@ class SearchEngine:
             import statistics
             try:
                 score_stdev = statistics.stdev(sorted_scores) if len(sorted_scores) > 1 else 0
-            except:
+            except Exception:
                 score_stdev = 0
         else:
             high_score_baseline = max_text_score
