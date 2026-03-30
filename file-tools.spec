@@ -227,25 +227,17 @@ a = Analysis(
     runtime_hooks=[],
     excludes=EXCLUDES,
     noarchive=False,
-    optimize=2,  # 优化级别 2，删除 assert 语句
+    # 注意：不能使用 optimize=2（-OO 模式），因为会删除 docstring
+    # pycparser/PLY 依赖 docstring 构建语法规则，删除后会导致
+    # "yacc: Can not build parser" 错误（PyInstaller Issue #6345）
+    optimize=0,
 )
 
 # 过滤二进制文件
 a.binaries = filter_binaries(a.binaries)
 
-# 修复 pycparser 在冻结模式下的 YaccError：
-# 将 pycparser 的 lextab 和 yacctab 作为数据文件收集（而非打包到 PYZ）
-# 这样 pycparser 可以正常导入它们，不会尝试重新生成
-import pycparser
-pycparser_dir = os.path.dirname(pycparser.__file__)
-for tabfile in ['lextab.py', 'yacctab.py']:
-    tabpath = os.path.join(pycparser_dir, tabfile)
-    if os.path.exists(tabpath):
-        a.datas.append((tabpath, 'pycparser'))
-        print(f"[pycparser] Adding {tabfile} as data file")
-
 # ===== 创建 PYZ 归档 =====
-pyz = PYZ(a.pure, optimize=2)
+pyz = PYZ(a.pure, optimize=0)
 
 # ===== UPX 压缩配置 =====
 # UPX often corrupts DLLs causing "Failed to load Python DLL" errors, disable it

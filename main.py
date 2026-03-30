@@ -29,9 +29,6 @@ import signal
 # 修复 pythonnet 退出报错：禁用 clr 的 atexit 回调
 os.environ['PYTHONNET_SHUTDOWN_MODE'] = 'Soft'
 
-# 修复 pycparser/ply 在 PyInstaller 冻结模式下的 YaccError
-# 现在由 file-tools.spec 处理：将 lextab.py/yacctab.py 作为数据文件收集
-
 # 修复 torch DLL 加载问题：将 torch lib 目录添加到 PATH
 try:
     venv_path = os.path.dirname(sys.executable)
