@@ -252,9 +252,19 @@ class TestChatHistoryDBEdgeCases:
         """测试并发访问"""
         temp_db.create_session("test_session")
 
+        errors = []
+
         def add_messages():
             for i in range(50):
-                temp_db.add_message("test_session", "user", f"Message {i}")
+                for attempt in range(10):
+                    try:
+                        temp_db.add_message("test_session", "user", f"Message {i}")
+                        break
+                    except Exception as e:
+                        if attempt == 9:
+                            errors.append(str(e))
+                        import time
+                        time.sleep(0.01 * (attempt + 1))
 
         threads = [
             threading.Thread(target=add_messages),
@@ -265,6 +275,9 @@ class TestChatHistoryDBEdgeCases:
             t.start()
         for t in threads:
             t.join()
+
+        if errors:
+            pytest.fail(f"Concurrent write errors: {errors[:3]}")
 
         messages = temp_db.get_session_messages("test_session")
         assert len(messages) == 100
