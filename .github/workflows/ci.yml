@@ -454,6 +454,7 @@ jobs:
           generate_release_notes: true
           draft: false
           prerelease: false
+          fail-on-error: false
           body: |
             ## FileTools v${{ github.ref_name }}
 
