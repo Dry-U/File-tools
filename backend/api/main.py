@@ -432,6 +432,7 @@ def _get_frontend_dir() -> Path:
     """获取前端目录路径（兼容开发和打包环境）"""
     try:
         from backend.utils.app_paths import get_app_paths
+
         fd = get_app_paths().frontend_dir
         if fd and fd.exists():
             return fd
