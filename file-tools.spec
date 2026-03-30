@@ -42,6 +42,8 @@ EXCLUDES = [
     # PyTorch 测试和扩展
     'torch.testing', 'torch.hub',
     'torchvision', 'torchaudio',
+    # Not used directly, pulled in by dependencies but can cause build failures
+    'sqlalchemy',
 ]
 
 # Slim 模式额外排除
