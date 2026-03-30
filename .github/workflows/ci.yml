@@ -322,10 +322,8 @@ jobs:
         run: |
           ARCHIVE_DIR="FileTools-v${FILETOOLS_VERSION}-${{ matrix.build_mode }}"
           PACKAGE_NAME="FileTools-${{ matrix.build_mode }}-v${FILETOOLS_VERSION}-windows-x64-portable.zip"
-          cd dist
-          7z a "../${PACKAGE_NAME}" "${ARCHIVE_DIR}"
-          cd ..
-          echo "Created: ${PACKAGE_NAME}"
+          7z a "dist/${PACKAGE_NAME}" "dist/${ARCHIVE_DIR}"
+          echo "Created: dist/${PACKAGE_NAME}"
 
       - name: Create .deb package (Linux)
         if: matrix.os == 'ubuntu-latest'
@@ -392,7 +390,8 @@ jobs:
           # Build .deb
           dpkg-deb --build --root-owner-group "${PKG_ROOT}"
           mv "debbuild/${DEB_PKG}" "dist/${DEB_PKG}"
-
+          # Clean up intermediate deb build directory
+          rm -rf debbuild
           echo "Created: dist/${DEB_PKG}"
 
       - name: Create tar.gz archive (Linux)
@@ -404,10 +403,18 @@ jobs:
         run: |
           ARCHIVE_DIR="FileTools-v${FILETOOLS_VERSION}-${{ matrix.build_mode }}"
           PACKAGE_NAME="FileTools-${{ matrix.build_mode }}-v${FILETOOLS_VERSION}-linux-x64-portable.tar.gz"
-          cd dist
-          tar -czf "../${PACKAGE_NAME}" "${ARCHIVE_DIR}"
-          cd ..
-          echo "Created: ${PACKAGE_NAME}"
+          tar -czf "dist/${PACKAGE_NAME}" -C dist "${ARCHIVE_DIR}"
+          echo "Created: dist/${PACKAGE_NAME}"
+
+      - name: Clean up PyInstaller build directories
+        shell: bash
+        run: |
+          # Remove PyInstaller output dirs - only keep final packages
+          rm -rf dist/FileTools-v*
+          # Remove generated NSIS scripts
+          rm -f installer-*.nsi
+          echo "Cleaned up build intermediates"
+          ls -la dist/
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
