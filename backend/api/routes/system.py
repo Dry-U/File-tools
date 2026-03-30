@@ -142,9 +142,7 @@ async def rebuild_index_stream(
 
     # 检查是否已有重建任务在进行
     if _rebuild_progress_state["in_progress"]:
-        raise HTTPException(
-            status_code=409, detail="重建任务正在进行中，请稍后再试"
-        )
+        raise HTTPException(status_code=409, detail="重建任务正在进行中，请稍后再试")
 
     async def event_generator():
         """SSE事件生成器"""
@@ -167,14 +165,16 @@ async def rebuild_index_stream(
 
             # 在线程池中执行耗时的扫描操作
             loop = asyncio.get_event_loop()
-            stats = await loop.run_in_executor(
-                None, file_scanner.scan_and_index
-            )
+            stats = await loop.run_in_executor(None, file_scanner.scan_and_index)
 
             # 扫描完成，更新最终状态
             _rebuild_progress_state["progress"] = 100
-            _rebuild_progress_state["files_scanned"] = stats.get("total_files_scanned", 0)
-            _rebuild_progress_state["files_indexed"] = stats.get("total_files_indexed", 0)
+            _rebuild_progress_state["files_scanned"] = stats.get(
+                "total_files_scanned", 0
+            )
+            _rebuild_progress_state["files_indexed"] = stats.get(
+                "total_files_indexed", 0
+            )
             _rebuild_progress_state["in_progress"] = False
 
             # 发送完成事件
@@ -197,7 +197,7 @@ async def rebuild_index_stream(
             "Cache-Control": "no-cache",
             "Connection": "keep-alive",
             "X-Accel-Buffering": "no",  # 禁用Nginx缓冲
-        }
+        },
     )
 
 

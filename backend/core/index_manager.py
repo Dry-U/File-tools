@@ -1115,9 +1115,12 @@ class IndexManager:
                 except Exception as e:
                     if "LockBusy" in str(e) and retry < max_retries - 1:
                         import time
+
                         time.sleep(0.5 * (retry + 1))
                     else:
-                        self.logger.warning(f"从Tantivy索引删除目录失败 {directory_path}: {str(e)}")
+                        self.logger.warning(
+                            f"从Tantivy索引删除目录失败 {directory_path}: {str(e)}"
+                        )
                         break
         except Exception as e:
             self.logger.warning(f"删除Tantivy索引文档时出错 {directory_path}: {str(e)}")
@@ -1142,7 +1145,9 @@ class IndexManager:
         except Exception as e:
             self.logger.warning(f"删除向量元数据失败 {directory_path}: {str(e)}")
 
-        self.logger.info(f"目录索引清理完成: {directory_path}，删除了约 {deleted_count} 个文档")
+        self.logger.info(
+            f"目录索引清理完成: {directory_path}，删除了约 {deleted_count} 个文档"
+        )
         return deleted_count if deleted_count >= 0 else 0
 
     def _highlight_text(self, content, query, window_size=120, max_snippets=3):

@@ -547,11 +547,16 @@ class SearchEngine:
             sorted_scores = sorted(all_text_scores, reverse=True)
             # 使用第90百分位作为"高分数"基准，避免被最大值压缩
             high_percentile_idx = max(0, int(len(sorted_scores) * 0.1))
-            high_score_baseline = sorted_scores[high_percentile_idx] if sorted_scores else max_text_score
+            high_score_baseline = (
+                sorted_scores[high_percentile_idx] if sorted_scores else max_text_score
+            )
             # 使用标准差来衡量分数分散程度
             import statistics
+
             try:
-                score_stdev = statistics.stdev(sorted_scores) if len(sorted_scores) > 1 else 0
+                score_stdev = (
+                    statistics.stdev(sorted_scores) if len(sorted_scores) > 1 else 0
+                )
             except Exception:
                 score_stdev = 0
         else:
@@ -568,9 +573,12 @@ class SearchEngine:
                 if score_stdev > 5 and high_score_baseline > 0:
                     # 分散度高时使用对数归一化保留区分度
                     import math
+
                     log_max = math.log(max_text_score + 1)
                     log_ts = math.log(ts + 1)
-                    norm_score = log_ts / log_max if log_max > 0 else ts / max_text_score
+                    norm_score = (
+                        log_ts / log_max if log_max > 0 else ts / max_text_score
+                    )
                 else:
                     # 分散度低时使用线性归一化
                     norm_score = ts / max_text_score
