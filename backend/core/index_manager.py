@@ -1068,6 +1068,83 @@ class IndexManager:
 
         return True
 
+    def delete_documents_by_directory(self, directory_path: str) -> int:
+        """
+        从索引中删除指定目录下的所有文档
+
+        Args:
+            directory_path: 要删除的目录路径
+
+        Returns:
+            删除的文档数量
+        """
+        if not getattr(self, "tantivy_index", None):
+            return 0
+
+        deleted_count = 0
+        directory_path_lower = directory_path.lower()
+
+        # 1. 从Tantivy索引中删除（使用通配符查询）
+        try:
+            # 先清理锁文件
+            lock_file = os.path.join(self.tantivy_index_path, "meta.json.lock")
+            if os.path.exists(lock_file):
+                try:
+                    os.remove(lock_file)
+                except Exception:
+                    pass
+
+            # 使用前缀查询删除所有匹配该目录的文档
+            # Tantivy支持使用 path:directory_path* 格式进行前缀查询
+            prefix_query = f'path:"{directory_path_lower}"*'
+
+            max_retries = 3
+            for retry in range(max_retries):
+                try:
+                    with self.tantivy_index.writer() as writer:
+                        # 使用前缀查询
+                        query = self.tantivy_index.parse_query(prefix_query, ["path"])
+                        delete_method = getattr(writer, "delete_query", None)
+                        if delete_method:
+                            delete_method(query)
+                            writer.commit()
+                            deleted_count = -1  # 表示成功但未精确计数
+                        else:
+                            self.logger.warning("Tantivy writer不支持前缀删除")
+                    break
+                except Exception as e:
+                    if "LockBusy" in str(e) and retry < max_retries - 1:
+                        import time
+                        time.sleep(0.5 * (retry + 1))
+                    else:
+                        self.logger.warning(f"从Tantivy索引删除目录失败 {directory_path}: {str(e)}")
+                        break
+        except Exception as e:
+            self.logger.warning(f"删除Tantivy索引文档时出错 {directory_path}: {str(e)}")
+
+        # 2. 从向量元数据中删除
+        try:
+            docs_to_delete = []
+            for doc_id, metadata in self.vector_metadata.items():
+                path = metadata.get("path", "")
+                if path.lower().startswith(directory_path_lower):
+                    docs_to_delete.append(doc_id)
+
+            for doc_id in docs_to_delete:
+                del self.vector_metadata[doc_id]
+                deleted_count += 1
+
+            # 保存更新后的元数据
+            if docs_to_delete:
+                self.save_indexes()
+                self.logger.info(f"已从向量索引中删除 {len(docs_to_delete)} 个文档")
+
+        except Exception as e:
+            self.logger.warning(f"删除向量元数据失败 {directory_path}: {str(e)}")
+
+        self.logger.info(f"目录索引清理完成: {directory_path}，删除了约 {deleted_count} 个文档")
+        return deleted_count if deleted_count >= 0 else 0
+
     def _highlight_text(self, content, query, window_size=120, max_snippets=3):
         """生成带有高亮关键词的多段文本摘要，并兼容常见的空格/大小写差异"""
         if not content or not query:
@@ -1318,7 +1395,7 @@ class IndexManager:
             highlighted.append(html.escape(text[last:start]))
             # 使用 text-danger 和 fw-bold 高亮
             highlighted.append(
-                f'<span class="text-danger fw-bold">{html.escape(text[start:end])}</span>'
+                f'<span class="text-success fw-bold">{html.escape(text[start:end])}</span>'
             )
             last = end
         # 最后一部分也需要转义

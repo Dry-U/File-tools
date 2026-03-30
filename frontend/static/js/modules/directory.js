@@ -10,6 +10,8 @@ const FileToolsDirectory = (function() {
     let directoriesData = { directories: [] };
     // 防止重复打开对话框
     let isBrowsing = false;
+    // 待删除目录路径（用于模态框确认）
+    let pendingDeletePath = null;
 
     /**
      * 加载目录列表
@@ -143,10 +145,25 @@ const FileToolsDirectory = (function() {
     async function removeDirectory(path) {
         if (!path) return;
 
-        if (!confirm('确定要删除这个目录吗？\n该目录将不再被扫描和监控。')) {
-            return;
+        // 使用 Bootstrap 模态框确认删除
+        pendingDeletePath = path;
+        const modalEl = document.getElementById('deleteDirectoryModal');
+        if (modalEl) {
+            const modal = new bootstrap.Modal(modalEl);
+            modal.show();
+        } else {
+            // 降级：使用原生确认框
+            if (!confirm('确定要删除这个目录吗？\n该目录将不再被扫描和监控。')) {
+                return;
+            }
+            doDeleteDirectory(path);
         }
+    }
 
+    /**
+     * 执行删除目录（由模态框按钮调用）
+     */
+    async function doDeleteDirectory(path) {
         try {
             const response = await fetch('/api/directories', {
                 method: 'DELETE',
@@ -173,7 +190,11 @@ const FileToolsDirectory = (function() {
         loadDirectories,
         renderDirectories,
         browseAndAddDirectory,
-        removeDirectory
+        removeDirectory,
+        doDeleteDirectory,
+        // 暴露 pendingDeletePath 的存取器
+        get pendingDeletePath() { return pendingDeletePath; },
+        set pendingDeletePath(v) { pendingDeletePath = v; }
     };
 })();
 
@@ -182,3 +203,4 @@ const loadDirectories = FileToolsDirectory.loadDirectories;
 const renderDirectories = FileToolsDirectory.renderDirectories;
 const browseAndAddDirectory = FileToolsDirectory.browseAndAddDirectory;
 const removeDirectory = FileToolsDirectory.removeDirectory;
+const doDeleteDirectory = FileToolsDirectory.doDeleteDirectory;

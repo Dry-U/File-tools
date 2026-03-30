@@ -219,6 +219,8 @@
 
     <!-- Bootstrap JS -->
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+    <!-- Marked.js for Markdown rendering -->
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 
     <!-- 设置模态框 (Settings Modal) -->
     <div class="modal fade" id="settingsModal" tabindex="-1" aria-hidden="true" data-bs-backdrop="false">
@@ -386,9 +388,9 @@
                                 <!-- 本地模式配置 -->
                                 <div id="localSettings" class="config-card">
                                     <label class="form-label small text-muted">本地 API URL</label>
-                                    <input type="text" class="form-control form-control-sm" id="localUrlInput"
-                                        placeholder="http://localhost:8000/v1/chat/completions"
-                                        value="http://localhost:8000/v1/chat/completions">
+                                        <input type="text" class="form-control form-control-sm" id="localApiUrlInput"
+                                            placeholder="http://localhost:8000/v1/chat/completions"
+                                            value="http://localhost:8000/v1/chat/completions">
                                     <div class="form-text small">本地模型服务端点</div>
                                 </div>
 
@@ -430,22 +432,6 @@
                                             <i class="bi bi-lightning me-1"></i>测试连接
                                         </button>
                                         <div class="form-text small mt-2 text-center">测试成功后自动保存配置</div>
-                                    </div>
-                                </div>
-
-                                <!-- 安全配置 -->
-                                <div class="security-card">
-                                    <h6 class="small text-light mb-2">安全与隐私</h6>
-                                    <div class="form-check form-switch mb-2">
-                                        <input class="form-check-input" type="checkbox" id="verifySslCheck" checked>
-                                        <label class="form-check-label small text-light" for="verifySslCheck">验证 SSL
-                                            证书</label>
-                                    </div>
-                                    <div class="form-text small mb-2 text-warning">
-                                        <i class="bi bi-exclamation-triangle me-1"></i>禁用后将不验证HTTPS证书，仅用于自签名证书或内网环境
-                                    </div>
-                                    <div class="form-text small">
-                                        <i class="bi bi-shield-check me-1"></i>隐私保护始终启用：自动检测并脱敏手机号、身份证、邮箱
                                     </div>
                                 </div>
                             </div>
@@ -630,6 +616,31 @@
                     <button type="button" class="btn btn-sm btn-outline-secondary border-0"
                         data-bs-dismiss="modal">取消</button>
                     <button type="button" class="btn btn-sm btn-danger px-3" id="confirmDeleteBtn">删除</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 删除目录确认模态框 (Delete Directory Confirmation Modal) -->
+    <div class="modal fade" id="deleteDirectoryModal" tabindex="-1" aria-hidden="true" data-bs-backdrop="false">
+        <div class="modal-dialog modal-dialog-centered modal-sm">
+            <div class="modal-content">
+                <div class="modal-header border-secondary py-2">
+                    <h6 class="modal-title"><i class="bi bi-trash me-2"></i>确认删除</h6>
+                    <button type="button" class="btn btn-llama p-1" data-bs-dismiss="modal" aria-label="Close">
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5"
+                            stroke="currentColor" style="width: 20px; height: 20px;">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" />
+                        </svg>
+                    </button>
+                </div>
+                <div class="modal-body text-center py-4">
+                    <p class="mb-0 small">确定要删除这个目录吗？<br>该目录将不再被扫描和监控。</p>
+                </div>
+                <div class="modal-footer border-secondary justify-content-center p-2">
+                    <button type="button" class="btn btn-sm btn-outline-secondary border-0"
+                        data-bs-dismiss="modal">取消</button>
+                    <button type="button" class="btn btn-sm btn-danger px-3" id="confirmDirectoryDeleteBtn">删除</button>
                 </div>
             </div>
         </div>

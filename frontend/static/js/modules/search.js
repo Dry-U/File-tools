@@ -23,19 +23,34 @@ const FileToolsSearch = (function() {
         // 1. 文件类型
         const activeTypeBtns = document.querySelectorAll('.file-type-btn.active');
         const allTypeBtns = document.querySelectorAll('.file-type-btn');
-        if (activeTypeBtns.length > 0 && activeTypeBtns.length < allTypeBtns.length) {
-            // 展开复合类型（如 ppt,pptx → .ppt,.pptx）
-            const types = [];
-            activeTypeBtns.forEach(btn => {
-                const typeStr = btn.dataset.type;
-                if (typeStr.includes(',')) {
-                    typeStr.split(',').forEach(t => types.push('.' + t.trim()));
-                } else {
-                    types.push('.' + typeStr);
-                }
-            });
+        
+        // 展开复合类型（如 ppt,pptx → .ppt,.pptx）
+        const types = [];
+        activeTypeBtns.forEach(btn => {
+            const typeStr = btn.dataset.type;
+            if (typeStr.includes(',')) {
+                typeStr.split(',').forEach(t => types.push('.' + t.trim()));
+            } else {
+                types.push('.' + typeStr);
+            }
+        });
+        
+        if (activeTypeBtns.length === 0) {
+            // 全不选时显示提示并返回空结果
+            resultsContainer.innerHTML = `
+                <div class="text-center text-warning mt-5">
+                    <i class="bi bi-exclamation-triangle display-4"></i>
+                    <p class="mt-3">请至少选择一种文件类型</p>
+                </div>
+            `;
+            return;
+        }
+        
+        if (activeTypeBtns.length < allTypeBtns.length) {
+            // 部分选择时应用过滤器
             filters.file_types = types;
         }
+        // 如果全部选择，则不设置 file_types 过滤器（搜索所有类型）
 
         // 2. 文件大小 (MB -> Bytes)
         const minSizeInput = document.getElementById('minSize').value;
@@ -234,11 +249,18 @@ const FileToolsSearch = (function() {
 
             // 处理内容格式：PDF/DOCX解析后的纯文本需要适当处理
             if (content && typeof content === 'string') {
-                // 处理换行，保持段落格式
-                content = content.replace(/\n{3,}/g, '\n\n');
-
-                // 使用textContent和<pre>标签保持格式同时防止XSS
-                modalContent.textContent = content;
+                // 检查是否为Markdown文件（根据路径判断）
+                const isMarkdown = path && (path.endsWith('.md') || path.endsWith('.markdown'));
+                
+                if (isMarkdown && typeof marked !== 'undefined') {
+                    // 使用marked.js渲染Markdown
+                    modalContent.innerHTML = marked.parse(content);
+                } else {
+                    // 处理换行，保持段落格式
+                    content = content.replace(/\n{3,}/g, '\n\n');
+                    // 使用textContent和<pre>标签保持格式同时防止XSS
+                    modalContent.textContent = content;
+                }
             } else {
                 modalContent.innerHTML = '<div class="text-muted">文件内容为空</div>';
             }

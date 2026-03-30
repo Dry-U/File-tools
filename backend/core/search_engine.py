@@ -524,6 +524,11 @@ class SearchEngine:
         """
         为纯文本和纯向量结果计算归一化分数
 
+        使用更分散的评分策略：
+        1. 文本分数使用指数归一化，保留更多原始区分度
+        2. 向量分数保持原始相似度
+        3. 应用不同的权重
+
         Args:
             combined: 合并结果字典（就地修改）
             max_text_score: 最大文本分数
@@ -531,13 +536,44 @@ class SearchEngine:
         if max_text_score <= 0:
             max_text_score = 1.0
 
+        # 计算所有文本分数用于更好的归一化
+        all_text_scores = []
+        for result in combined.values():
+            if result.get("search_type") == "text":
+                all_text_scores.append(result.get("text_score", 0.0))
+
+        # 获取分数分布信息用于自适应归一化
+        if len(all_text_scores) > 1:
+            sorted_scores = sorted(all_text_scores, reverse=True)
+            # 使用第90百分位作为"高分数"基准，避免被最大值压缩
+            high_percentile_idx = max(0, int(len(sorted_scores) * 0.1))
+            high_score_baseline = sorted_scores[high_percentile_idx] if sorted_scores else max_text_score
+            # 使用标准差来衡量分数分散程度
+            import statistics
+            try:
+                score_stdev = statistics.stdev(sorted_scores) if len(sorted_scores) > 1 else 0
+            except:
+                score_stdev = 0
+        else:
+            high_score_baseline = max_text_score
+            score_stdev = 0
+
         for result in combined.values():
             if result.get("search_type") == "hybrid":
                 continue
 
             if result.get("search_type") == "text":
                 ts = float(result.get("text_score", 0.0))
-                norm_score = ts / max_text_score
+                # 使用自适应归一化：如果分数分散度高，保持原始比例；分散度低则压缩
+                if score_stdev > 5 and high_score_baseline > 0:
+                    # 分散度高时使用对数归一化保留区分度
+                    import math
+                    log_max = math.log(max_text_score + 1)
+                    log_ts = math.log(ts + 1)
+                    norm_score = log_ts / log_max if log_max > 0 else ts / max_text_score
+                else:
+                    # 分散度低时使用线性归一化
+                    norm_score = ts / max_text_score
                 result["score"] = (norm_score * self.text_weight) * 100.0
             elif result.get("search_type") == "vector":
                 vs = float(result.get("vector_score", 0.0))

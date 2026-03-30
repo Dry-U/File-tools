@@ -21,6 +21,7 @@ from backend.api.dependencies import (
     get_config_loader,
     get_file_monitor,
     get_file_scanner,
+    get_index_manager,
 )
 
 logger = get_logger(__name__)
@@ -223,8 +224,9 @@ async def remove_directory(
     request: DirectoryPath,
     config_loader: ConfigLoader = Depends(get_config_loader),
     file_monitor=Depends(get_file_monitor),
+    index_manager=Depends(get_index_manager),
 ) -> DirectoryResponse:
-    """删除目录（同时从扫描路径和监控目录中移除）"""
+    """删除目录（同时从扫描路径和监控目录中移除，并清理索引）"""
     try:
         path = request.path.strip('"').strip("'")
 
@@ -250,6 +252,14 @@ async def remove_directory(
 
         # 保存配置
         config_loader.save()
+
+        # 清理该目录在索引中的文档
+        if index_manager:
+            try:
+                deleted_count = index_manager.delete_documents_by_directory(expanded_path)
+                logger.info(f"已从索引中删除目录 {expanded_path} 下的文档")
+            except Exception as e:
+                logger.warning(f"清理索引失败: {str(e)}")
 
         return DirectoryResponse(
             status="success",

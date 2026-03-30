@@ -486,6 +486,7 @@ class DocumentParser:
 
             word = win32com.client.Dispatch("Word.Application")
             word.Visible = False
+            word.DisplayAlerts = False  # 禁止所有弹窗，防止Word窗口弹出
 
             abs_path = os.path.abspath(file_path)
             doc = word.Documents.Open(abs_path)
@@ -560,6 +561,7 @@ class DocumentParser:
             # Win32 COM 作为首选
             word = win32com.client.Dispatch("Word.Application")
             word.Visible = False
+            word.DisplayAlerts = False  # 禁止所有弹窗，防止Word窗口弹出
             abs_path = os.path.abspath(file_path)
             doc = word.Documents.Open(abs_path)
             text = doc.Content.Text

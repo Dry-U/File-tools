@@ -167,6 +167,11 @@ def get_data_files():
     """数据文件配置"""
     datas = get_static_files()
 
+    # 添加前端主页面
+    index_html = os.path.join(CURRENT_DIR, 'frontend', 'index.html')
+    if os.path.exists(index_html):
+        datas.append((index_html, 'frontend'))
+
     # 添加默认配置模板
     config_template = os.path.join(CURRENT_DIR, 'config.yaml')
     if os.path.exists(config_template):

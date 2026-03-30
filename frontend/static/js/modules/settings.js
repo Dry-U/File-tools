@@ -137,14 +137,6 @@ const FileToolsSettings = (function() {
             setValue('searchTextWeightInput', config.search.text_weight ?? 0.6);
             setValue('searchVectorWeightInput', config.search.vector_weight ?? 0.4);
         }
-
-        // 安全设置
-        if (config.ai_model && config.ai_model.security) {
-            const verifySslCheck = document.getElementById('verifySslCheck');
-            if (verifySslCheck) {
-                verifySslCheck.checked = config.ai_model.security.verify_ssl ?? true;
-            }
-        }
     }
 
     /**
@@ -201,9 +193,6 @@ const FileToolsSettings = (function() {
                     repeat_penalty: getFloat('repeatPenaltyRange', 1.1),
                     frequency_penalty: getFloat('freqPenaltyRange', 0.0),
                     presence_penalty: getFloat('presencePenaltyRange', 0.0)
-                },
-                security: {
-                    verify_ssl: getChecked('verifySslCheck', true)
                 }
             },
             local_model: {
@@ -224,6 +213,20 @@ const FileToolsSettings = (function() {
      * 保存设置
      */
     async function saveSettings() {
+        // 先检查是否有未保存的更改
+        if (!hasUnsavedChanges()) {
+            // 没有更改，显示提示弹窗，2秒后自动关闭
+            const noChangesModalEl = document.getElementById('noChangesModal');
+            if (noChangesModalEl) {
+                FileToolsUtils.showModal(noChangesModalEl);
+                // 2秒后自动关闭
+                setTimeout(function() {
+                    FileToolsUtils.hideModal(noChangesModalEl);
+                }, 2000);
+            }
+            return;
+        }
+
         const settings = getCurrentSettings();
 
         try {
@@ -456,6 +459,35 @@ const FileToolsSettings = (function() {
         document.getElementById('presencePenaltyRange').value = 0.0;
         document.getElementById('presencePenaltyValue').innerText = '0.0';
 
+        // API 设置重置
+        document.getElementById('apiProviderSelect').value = 'siliconflow';
+        document.getElementById('apiUrlInput').value = 'https://api.siliconflow.cn/v1/chat/completions';
+        document.getElementById('apiKeyInput').value = '';
+        document.getElementById('modelNameInput').value = 'deepseek-ai/DeepSeek-V2.5';
+
+        // 模式重置为本地
+        document.getElementById('modeLocal').checked = true;
+        document.getElementById('modeAPI').checked = false;
+        document.getElementById('localSettings').style.display = 'block';
+        document.getElementById('apiSettings').style.display = 'none';
+
+        // 本地 API URL 重置
+        document.getElementById('localApiUrlInput').value = 'http://localhost:8000/v1/chat/completions';
+
+        // RAG 设置重置
+        document.getElementById('ragTopKInput').value = 5;
+        document.getElementById('ragContextLengthInput').value = 2048;
+
+        // 搜索设置重置
+        document.getElementById('searchTextWeightInput').value = 0.6;
+        document.getElementById('searchVectorWeightInput').value = 0.4;
+
+        // 更新缓存的 provider keys
+        cachedProviderKeys = { siliconflow: '', deepseek: '', custom: '' };
+
+        // 更新 initialSettings 以反映重置后的状态
+        initialSettings = getCurrentSettings();
+
         FileToolsUtils.hideModal(document.getElementById('resetConfirmModal'));
         FileToolsUtils.showToast('已恢复默认参数', 'success');
     }
@@ -496,7 +528,7 @@ const FileToolsSettings = (function() {
     }
 
     /**
-     * 确认重建索引
+     * 确认重建索引（使用SSE流式进度）
      */
     async function confirmRebuild() {
         const modalBody = document.getElementById('rebuildModalBody');
@@ -506,11 +538,98 @@ const FileToolsSettings = (function() {
         closeBtn.style.display = 'none';
         modalFooter.style.display = 'none';
 
+        // 显示进度条UI
         modalBody.innerHTML = `
-            <div class="spinner-border text-primary mb-3" role="status">
-                <span class="visually-hidden">Loading...</span>
+            <div class="text-center">
+                <div class="spinner-border text-primary mb-3" role="status">
+                    <span class="visually-hidden">Loading...</span>
+                </div>
+                <div class="progress mb-2" style="height: 20px;">
+                    <div id="rebuildProgressBar" class="progress-bar progress-bar-striped progress-bar-animated" 
+                         role="progressbar" style="width: 0%;" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100">0%</div>
+                </div>
+                <p id="rebuildStatus" class="mb-0 small text-muted">正在准备重建索引...</p>
+                <p id="rebuildFileCount" class="small text-muted mt-1"></p>
             </div>
-            <p class="mb-0 small text-muted">正在重建索引，请稍候...</p>
+        `;
+
+        let eventSource = null;
+
+        try {
+            // 使用SSE流式接口
+            eventSource = new EventSource('/api/rebuild-index/stream');
+
+            eventSource.onmessage = function(event) {
+                try {
+                    const data = JSON.parse(event.data);
+                    
+                    if (data.status === 'success') {
+                        // 重建完成
+                        const progressBar = document.getElementById('rebuildProgressBar');
+                        progressBar.style.width = '100%';
+                        progressBar.textContent = '100%';
+                        progressBar.className = 'progress-bar bg-success';
+                        
+                        document.getElementById('rebuildStatus').textContent = '索引重建完成！';
+                        document.getElementById('rebuildFileCount').textContent = 
+                            `扫描: ${data.files_scanned || 0} | 索引: ${data.files_indexed || 0}`;
+                        
+                        eventSource.close();
+                        
+                        // 3秒后自动关闭
+                        setTimeout(() => {
+                            closeBtn.style.display = 'block';
+                            modalFooter.style.display = 'flex';
+                            modalFooter.innerHTML = `
+                                <button type="button" class="btn btn-sm btn-primary px-3" data-bs-dismiss="modal">关闭</button>
+                            `;
+                        }, 2000);
+                        
+                    } else if (data.status === 'error') {
+                        throw new Error(data.error || '重建索引失败');
+                    }
+                } catch (e) {
+                    console.error('SSE解析错误:', e);
+                }
+            };
+
+            eventSource.onerror = function(event) {
+                console.error('SSE连接错误:', event);
+                // 如果是完成后的错误（已完成时会关闭连接），不显示错误
+                if (event.target.readyState === EventSource.CLOSED) {
+                    return;
+                }
+                
+                // 降级到普通请求
+                eventSource.close();
+                performFallbackRebuild(modalBody, modalFooter, closeBtn);
+            };
+
+        } catch (error) {
+            console.error('Error rebuilding index:', error);
+            // 降级到普通请求
+            performFallbackRebuild(modalBody, modalFooter, closeBtn);
+        }
+
+        // 清理函数确保EventSource被关闭
+        return () => {
+            if (eventSource) {
+                eventSource.close();
+            }
+        };
+    }
+
+    /**
+     * 降级方案：使用普通POST请求重建索引
+     */
+    async function performFallbackRebuild(modalBody, modalFooter, closeBtn) {
+        modalBody.innerHTML = `
+            <div class="text-center">
+                <div class="spinner-border text-primary mb-3" role="status">
+                    <span class="visually-hidden">Loading...</span>
+                </div>
+                <p class="mb-0 small text-muted">正在重建索引，请稍候...</p>
+            </div>
         `;
 
         try {
@@ -521,9 +640,11 @@ const FileToolsSettings = (function() {
 
             if (response.ok) {
                 modalBody.innerHTML = `
-                    <i class="bi bi-check-circle-fill text-success display-4 mb-3"></i>
-                    <p class="mb-0 small">索引重建完成</p>
-                    <p class="small text-muted mt-1">扫描: ${data.files_scanned || 0} | 索引: ${data.files_indexed || 0}</p>
+                    <div class="text-center">
+                        <i class="bi bi-check-circle-fill text-success display-4 mb-3"></i>
+                        <p class="mb-0 small">索引重建完成</p>
+                        <p class="small text-muted mt-1">扫描: ${data.files_scanned || 0} | 索引: ${data.files_indexed || 0}</p>
+                    </div>
                 `;
             } else {
                 throw new Error(data.detail || '未知错误');
@@ -532,9 +653,11 @@ const FileToolsSettings = (function() {
             console.error('Error rebuilding index:', error);
             const safeErrorMessage = FileToolsUtils.escapeHtml(error.message || '请求失败');
             modalBody.innerHTML = `
-                <i class="bi bi-x-circle-fill text-danger display-4 mb-3"></i>
-                <p class="mb-0 small">索引重建失败</p>
-                <p class="small text-muted mt-1">${safeErrorMessage}</p>
+                <div class="text-center">
+                    <i class="bi bi-x-circle-fill text-danger display-4 mb-3"></i>
+                    <p class="mb-0 small">索引重建失败</p>
+                    <p class="small text-muted mt-1">${safeErrorMessage}</p>
+                </div>
             `;
         } finally {
             closeBtn.style.display = 'block';

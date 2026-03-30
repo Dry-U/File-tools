@@ -63,7 +63,7 @@ async def rebuild_index(
     config_loader: ConfigLoader = Depends(get_config_loader),
     file_scanner=Depends(get_file_scanner),
 ):
-    """重建文件索引"""
+    """重建文件索引（同步版本，保留向后兼容）"""
     # 限流检查
     limiter = get_rate_limiter()
     if config_loader.getboolean("security", "rate_limiter.enabled", True):
@@ -90,6 +90,115 @@ async def rebuild_index(
     except Exception as e:
         logger.error(f"重建索引错误: {str(e)}")
         raise HTTPException(status_code=500, detail=f"重建索引失败: {str(e)}")
+
+
+# 重建进度状态（模块级全局变量）
+_rebuild_progress_state = {
+    "in_progress": False,
+    "progress": 0,
+    "current_file": "",
+    "files_scanned": 0,
+    "files_indexed": 0,
+    "error": None,
+}
+
+
+@router.get("/rebuild-progress")
+async def get_rebuild_progress():
+    """获取当前重建索引的进度状态"""
+    return {
+        "in_progress": _rebuild_progress_state["in_progress"],
+        "progress": _rebuild_progress_state["progress"],
+        "current_file": _rebuild_progress_state["current_file"],
+        "files_scanned": _rebuild_progress_state["files_scanned"],
+        "files_indexed": _rebuild_progress_state["files_indexed"],
+        "error": _rebuild_progress_state["error"],
+    }
+
+
+@router.post("/rebuild-index/stream")
+async def rebuild_index_stream(
+    request: Request,
+    config_loader: ConfigLoader = Depends(get_config_loader),
+    file_scanner=Depends(get_file_scanner),
+):
+    """重建文件索引（带进度流式返回）"""
+    from fastapi.responses import StreamingResponse
+    import json
+    import asyncio
+
+    # 限流检查
+    limiter = get_rate_limiter()
+    if config_loader.getboolean("security", "rate_limiter.enabled", True):
+        client_ip = get_client_ip(request, config_loader)
+        max_req = config_loader.getint("security", "rate_limiter.rebuild_limit", 1)
+        window = config_loader.getint("security", "rate_limiter.rebuild_window", 600)
+        if not limiter.is_allowed(
+            f"rebuild:{client_ip}", max_requests=max_req, window=window
+        ):
+            raise HTTPException(
+                status_code=429, detail="重建索引过于频繁，请10分钟后再试"
+            )
+
+    # 检查是否已有重建任务在进行
+    if _rebuild_progress_state["in_progress"]:
+        raise HTTPException(
+            status_code=409, detail="重建任务正在进行中，请稍后再试"
+        )
+
+    async def event_generator():
+        """SSE事件生成器"""
+        # 重置进度状态
+        _rebuild_progress_state["in_progress"] = True
+        _rebuild_progress_state["progress"] = 0
+        _rebuild_progress_state["current_file"] = ""
+        _rebuild_progress_state["files_scanned"] = 0
+        _rebuild_progress_state["files_indexed"] = 0
+        _rebuild_progress_state["error"] = None
+
+        def progress_callback(progress):
+            """进度回调函数"""
+            _rebuild_progress_state["progress"] = progress
+
+        try:
+            # 设置进度回调
+            original_callback = file_scanner.progress_callback
+            file_scanner.progress_callback = progress_callback
+
+            # 在线程池中执行耗时的扫描操作
+            loop = asyncio.get_event_loop()
+            stats = await loop.run_in_executor(
+                None, file_scanner.scan_and_index
+            )
+
+            # 扫描完成，更新最终状态
+            _rebuild_progress_state["progress"] = 100
+            _rebuild_progress_state["files_scanned"] = stats.get("total_files_scanned", 0)
+            _rebuild_progress_state["files_indexed"] = stats.get("total_files_indexed", 0)
+            _rebuild_progress_state["in_progress"] = False
+
+            # 发送完成事件
+            yield f"data: {json.dumps({'status': 'success', 'progress': 100, **stats})}\n\n"
+
+        except Exception as e:
+            logger.error(f"重建索引错误: {str(e)}")
+            _rebuild_progress_state["error"] = str(e)
+            _rebuild_progress_state["in_progress"] = False
+            yield f"data: {json.dumps({'status': 'error', 'error': str(e)})}\n\n"
+
+        finally:
+            # 恢复原始回调
+            file_scanner.progress_callback = original_callback
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",  # 禁用Nginx缓冲
+        }
+    )
 
 
 @router.get("/health")

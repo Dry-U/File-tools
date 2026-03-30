@@ -1966,6 +1966,7 @@ input[type="date"]::-webkit-calendar-picker-indicator {
     padding: 20px 16px;
     border-bottom: 1px solid var(--llama-border);
     margin-bottom: 16px;
+    background-color: transparent;
 }
 
 .sidebar-logo {
@@ -2246,14 +2247,14 @@ input[type="date"]::-webkit-calendar-picker-indicator {
     background-color: var(--llama-bg) !important;
 }
 
-/* 搜索结果高亮样式 */
-.text-danger {
-    color: #f87171 !important;
+/* 搜索结果高亮样式 - 浅绿色 */
+.text-success {
+    color: #4ade80 !important;
 }
 
 .fw-bold {
     font-weight: 700 !important;
-    background-color: rgba(248, 113, 113, 0.2);
+    background-color: rgba(74, 222, 128, 0.25);
     padding: 1px 3px;
     border-radius: 3px;
 }
@@ -2276,6 +2277,88 @@ input[type="date"]::-webkit-calendar-picker-indicator {
     width: 100% !important;
     box-sizing: border-box !important;
     text-align: left !important;
+}
+
+/* Markdown rendered content styling */
+#previewModalContent h1,
+#previewModalContent h2,
+#previewModalContent h3,
+#previewModalContent h4,
+#previewModalContent h5,
+#previewModalContent h6 {
+    color: var(--llama-text-main) !important;
+    margin-top: 1em !important;
+    margin-bottom: 0.5em !important;
+    font-weight: 600 !important;
+}
+
+#previewModalContent h1 { font-size: 1.5em !important; }
+#previewModalContent h2 { font-size: 1.3em !important; }
+#previewModalContent h3 { font-size: 1.1em !important; }
+
+#previewModalContent p {
+    margin-bottom: 0.8em !important;
+    color: var(--llama-text-main) !important;
+}
+
+#previewModalContent code {
+    background-color: var(--llama-input-bg) !important;
+    padding: 2px 6px !important;
+    border-radius: 4px !important;
+    font-family: 'Consolas', 'Monaco', 'Courier New', monospace !important;
+    font-size: 0.9em !important;
+}
+
+#previewModalContent pre {
+    background-color: var(--llama-input-bg) !important;
+    padding: 12px !important;
+    border-radius: 6px !important;
+    overflow-x: auto !important;
+    margin: 0.8em 0 !important;
+}
+
+#previewModalContent pre code {
+    background: none !important;
+    padding: 0 !important;
+}
+
+#previewModalContent ul,
+#previewModalContent ol {
+    margin-bottom: 0.8em !important;
+    padding-left: 1.5em !important;
+    color: var(--llama-text-main) !important;
+}
+
+#previewModalContent li {
+    margin-bottom: 0.3em !important;
+}
+
+#previewModalContent blockquote {
+    border-left: 3px solid var(--llama-accent) !important;
+    margin: 0.8em 0 !important;
+    padding-left: 1em !important;
+    color: var(--llama-text-sub) !important;
+}
+
+#previewModalContent a {
+    color: #63b3ed !important;
+}
+
+#previewModalContent table {
+    border-collapse: collapse !important;
+    width: 100% !important;
+    margin: 0.8em 0 !important;
+}
+
+#previewModalContent th,
+#previewModalContent td {
+    border: 1px solid var(--llama-border) !important;
+    padding: 6px 10px !important;
+    text-align: left !important;
+}
+
+#previewModalContent th {
+    background-color: var(--llama-input-bg) !important;
 }
 
 /* About page styles for WebView2 */

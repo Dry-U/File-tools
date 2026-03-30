@@ -251,6 +251,21 @@ const FileToolsEventBindings = (function() {
             });
         }
 
+        // 确认删除目录按钮
+        const confirmDirectoryDeleteBtn = document.getElementById('confirmDirectoryDeleteBtn');
+        if (confirmDirectoryDeleteBtn) {
+            confirmDirectoryDeleteBtn.onclick = null;
+            confirmDirectoryDeleteBtn.addEventListener('click', function() {
+                if (typeof FileToolsDirectory !== 'undefined' && FileToolsDirectory.doDeleteDirectory && FileToolsDirectory.pendingDeletePath) {
+                    FileToolsDirectory.doDeleteDirectory(FileToolsDirectory.pendingDeletePath);
+                    FileToolsDirectory.pendingDeletePath = null;
+                } else if (typeof doDeleteDirectory === 'function' && typeof pendingDeletePath !== 'undefined') {
+                    doDeleteDirectory(pendingDeletePath);
+                    pendingDeletePath = null;
+                }
+            });
+        }
+
         // 移除所有剩余的onclick属性（备用方案）
         document.querySelectorAll('[onclick]').forEach(element => {
             element.onclick = null;
