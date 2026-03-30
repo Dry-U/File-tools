@@ -30,13 +30,7 @@ import signal
 os.environ['PYTHONNET_SHUTDOWN_MODE'] = 'Soft'
 
 # 修复 pycparser/ply 在 PyInstaller 冻结模式下的 YaccError
-# 问题是 pycparser.ply.yacc 在冻结模式下无法写入 yacc 解析器缓存
-# 解决方案：预先导入 pycparser 以触发表文件加载，并确保 optimize=True
-if getattr(sys, 'frozen', False):
-    import pycparser.c_parser
-    # 确保 pycparser 使用预编译的表文件，不尝试重新生成
-    # lextab 和 yacctab 应该已经由 PyInstaller 打包进 _internal 目录
-    pass
+# 现在由 file-tools.spec 处理：将 lextab.py/yacctab.py 作为数据文件收集
 
 # 修复 torch DLL 加载问题：将 torch lib 目录添加到 PATH
 try:

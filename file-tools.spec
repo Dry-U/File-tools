@@ -233,6 +233,17 @@ a = Analysis(
 # 过滤二进制文件
 a.binaries = filter_binaries(a.binaries)
 
+# 修复 pycparser 在冻结模式下的 YaccError：
+# 将 pycparser 的 lextab 和 yacctab 作为数据文件收集（而非打包到 PYZ）
+# 这样 pycparser 可以正常导入它们，不会尝试重新生成
+import pycparser
+pycparser_dir = os.path.dirname(pycparser.__file__)
+for tabfile in ['lextab.py', 'yacctab.py']:
+    tabpath = os.path.join(pycparser_dir, tabfile)
+    if os.path.exists(tabpath):
+        a.datas.append((tabpath, 'pycparser'))
+        print(f"[pycparser] Adding {tabfile} as data file")
+
 # ===== 创建 PYZ 归档 =====
 pyz = PYZ(a.pure, optimize=2)
 
