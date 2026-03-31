@@ -299,6 +299,16 @@ jobs:
             exit 1
           fi
 
+      - name: Install NSIS (Windows)
+        if: matrix.os == 'windows-latest'
+        shell: bash
+        run: |
+          # Download NSIS directly (more reliable than Chocolatey)
+          NSIS_URL="https://downloads.sourceforge.net/project/nsis/NSIS%203/3.11/nsis-3.11.zip"
+          curl -L -o nsis.zip "$NSIS_URL"
+          unzip -q nsis.zip -d "${{ runner.temp }}/nsis"
+          echo "${{ runner.temp }}/nsis/nsis-3.11" >> $GITHUB_PATH
+
       - name: Create NSIS installer (Windows)
         if: matrix.os == 'windows-latest'
         shell: bash
@@ -306,8 +316,6 @@ jobs:
           FILETOOLS_VERSION: ${{ env.FILETOOLS_VERSION }}
           FILETOOLS_BUILD_MODE: ${{ env.FILETOOLS_BUILD_MODE }}
         run: |
-          # Install NSIS via Chocolatey
-          choco install nsis -y --no-progress
           # Generate NSIS script and build installer
           python scripts/build_installer.py \
             --mode "${{ matrix.build_mode }}" \
