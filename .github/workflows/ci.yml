@@ -340,11 +340,15 @@ jobs:
           FILETOOLS_VERSION: ${{ env.FILETOOLS_VERSION }}
           FILETOOLS_BUILD_MODE: ${{ env.FILETOOLS_BUILD_MODE }}
         run: |
+          set -e
           ARCHIVE_DIR="FileTools-v${FILETOOLS_VERSION}-${{ matrix.build_mode }}"
           DEB_NAME="filetools-${{ matrix.build_mode }}"
           DEB_VERSION="${FILETOOLS_VERSION}"
           DEB_ARCH="amd64"
           DEB_PKG="${DEB_NAME}_${DEB_VERSION}_${DEB_ARCH}.deb"
+
+          echo "Checking build directory: dist/${ARCHIVE_DIR}"
+          ls -lah "dist/${ARCHIVE_DIR}" 2>/dev/null || { echo "ERROR: Build directory not found"; exit 1; }
 
           PKG_ROOT="debbuild/${DEB_PKG}"
           mkdir -p "${PKG_ROOT}/DEBIAN"
@@ -396,11 +400,13 @@ jobs:
             > "${PKG_ROOT}/usr/share/applications/filetools.desktop"
 
           # Build .deb
-          dpkg-deb --build --root-owner-group "${PKG_ROOT}"
-          mv "debbuild/${DEB_PKG}" "dist/${DEB_PKG}"
+          dpkg-deb --build --root-owner-group "${PKG_ROOT}" || { echo "ERROR: dpkg-deb failed"; exit 1; }
+          mv "debbuild/${DEB_PKG}" "dist/${DEB_PKG}" || { echo "ERROR: mv failed"; exit 1; }
           # Clean up intermediate deb build directory
           rm -rf debbuild
           echo "Created: dist/${DEB_PKG}"
+          # Verify deb file exists
+          ls -la dist/*.deb
 
       - name: Create tar.gz archive (Linux)
         if: matrix.os == 'ubuntu-latest'

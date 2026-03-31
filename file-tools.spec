@@ -39,36 +39,60 @@ EXCLUDES = [
     # Jupyter
     'jupyter', 'IPython', 'ipykernel', 'ipywidgets',
     'nbformat', 'nbconvert',
-    # PyTorch 测试和扩展
-    'torch.testing', 'torch.hub',
-    'torchvision', 'torchaudio',
     # Not used directly, pulled in by dependencies but can cause build failures
     'sqlalchemy',
+    # Large unused packages
+    'sympy', 'networkx',
 ]
 
-# Slim 模式额外排除
+# Slim 模式额外排除 - 无 AI 功能
 if BUILD_MODE == 'slim':
     EXCLUDES.extend([
         # AI 模型相关
-        'transformers',
-        'datasets',
-        'pandas',
-        'scipy',
-        'sklearn',
-        'tensorflow',
-        'tensorboard',
-        'modelscope',
-        'langchain',
+        'torch', 'transformers', 'fastembed',
+        'datasets', 'pandas', 'scipy',
+        'sklearn', 'scikit-learn',
+        'tensorflow', 'tensorboard',
+        'modelscope', 'langchain',
         # 大型科学计算库
-        'numpy.testing',
-        'numpy.distutils',
+        'numpy.testing', 'numpy.distutils',
     ])
 
-# CPU/GPU 模式排除一些非必要项
+# CPU/GPU 模式 - 排除 AI 库中不必要的模块
 elif BUILD_MODE in ['cpu', 'gpu']:
     EXCLUDES.extend([
-        'tensorflow',
-        'tensorboard',
+        'tensorflow', 'tensorboard',
+        # PyTorch 不必要模块 - 激进排除
+        'torch.distributed',
+        'torch.distributions',
+        'torch.testing',
+        'torch.hub',
+        'torch.ao',
+        'torch._dynamo',
+        'torch._functorch',
+        'torch._inductor',
+        'torch.fx',
+        'torch.export',
+        'torch.compiler',
+        'torchvision', 'torchaudio',
+        'torch.utils.tensorboard',
+        'torch.backends.xnnpack',
+        'torch.backends.openmp',
+        'torch.backends.mkldnn',
+        # Transformers 不必要模块 - 只保留核心
+        'transformers.models.auto.modeling_auto',
+        'transformers.onnx',
+        'transformers.utils.sentencepiece',
+        'transformers.pipelines',
+        'transformers.trainer',
+        'transformers.training_args',
+        'transformers.data',
+        # Fastembed 不必要模块
+        'fastembed.sparse',
+        'fastembed.late_interaction',
+        # Other large packages
+        'PIL.ImageQt', 'PIL.PyAccess',
+        'pandas.plotting', 'pandas.core.window',
     ])
 
 # ===== 根据构建模式配置隐藏导入 =====
