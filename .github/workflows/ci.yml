@@ -449,15 +449,15 @@ jobs:
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
-        continue-on-error: true
         with:
-          files: release-artifacts/**/*
+          files: |
+            release-artifacts/**/*.zip
+            release-artifacts/**/*.exe
+            release-artifacts/**/*.deb
+            release-artifacts/**/*.tar.gz
           generate_release_notes: true
           draft: false
           prerelease: false
-          overwrite: true
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           body: |
             ## FileTools v${{ github.ref_name }}
 
@@ -499,6 +499,8 @@ jobs:
             2. Windows: 双击运行 `Setup.exe`，或解压 `portable.zip` 后运行 `FileTools.exe`
             3. Linux: `sudo dpkg -i *.deb`，或解压 tar.gz 后运行 `./FileTools`
             4. 启动后浏览器自动打开 `http://127.0.0.1:8000`
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   # ==================== 版本号自动提交 ====================
   version-bump:
