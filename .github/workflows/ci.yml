@@ -449,13 +449,15 @@ jobs:
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
+        continue-on-error: true
         with:
           files: release-artifacts/**/*
           generate_release_notes: true
           draft: false
           prerelease: false
-          fail-on-error: false
           overwrite: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           body: |
             ## FileTools v${{ github.ref_name }}
 
