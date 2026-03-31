@@ -417,8 +417,10 @@ jobs:
       - name: Clean up PyInstaller build directories
         shell: bash
         run: |
-          # Remove PyInstaller output dirs - only keep final packages
-          rm -rf dist/FileTools-v*
+          # Remove PyInstaller build directory
+          rm -rf build/
+          # Remove unpacked application directory (keep only final packages)
+          rm -rf dist/FileTools-v*/
           # Remove generated NSIS scripts
           rm -f installer-*.nsi
           echo "Cleaned up build intermediates"
@@ -429,9 +431,9 @@ jobs:
         with:
           name: file-tools-${{ matrix.build_mode }}-${{ matrix.os }}-v${{ env.FILETOOLS_VERSION }}
           path: |
-            dist/*.zip
-            dist/*.exe
-            dist/*.tar.gz
+            dist/*Setup.exe
+            dist/*portable.zip
+            dist/*portable.tar.gz
             dist/*.deb
           if-no-files-found: warn
           retention-days: 30
@@ -458,11 +460,12 @@ jobs:
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
+          # Only match final packages, not intermediate build files
           files: |
-            release-artifacts/**/*.zip
-            release-artifacts/**/*.exe
+            release-artifacts/**/*Setup.exe
+            release-artifacts/**/*portable.zip
             release-artifacts/**/*.deb
-            release-artifacts/**/*.tar.gz
+            release-artifacts/**/*portable.tar.gz
           generate_release_notes: true
           draft: false
           prerelease: false

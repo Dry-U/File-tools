@@ -250,10 +250,11 @@ upx_enabled = False
 upx_exclude_list = []
 
 # ===== 创建可执行文件 =====
+# Use onedir mode for large apps (AI libraries) - better startup time and smaller release size
 exe = EXE(
     pyz,
     a.scripts,
-    exclude_binaries=False,  # 收集所有二进制到 exe
+    exclude_binaries=True,  # onedir mode: binaries go to _internal/
     name='FileTools',
     debug=False,
     bootloader_ignore_signals=False,
