@@ -455,6 +455,7 @@ jobs:
           draft: false
           prerelease: false
           fail-on-error: false
+          overwrite: true
           body: |
             ## FileTools v${{ github.ref_name }}
 
