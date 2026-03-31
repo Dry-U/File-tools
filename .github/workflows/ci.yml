@@ -196,17 +196,21 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest]
-        build_mode: [cpu, gpu, slim]
         include:
-          # CPU 版本依赖
-          - build_mode: cpu
+          # Windows: 构建所有版本
+          - os: windows-latest
+            build_mode: cpu
             deps: "ai-cpu"
-          # GPU 版本依赖
-          - build_mode: gpu
+          - os: windows-latest
+            build_mode: gpu
             deps: "ai-gpu"
-          # Slim 版本依赖
-          - build_mode: slim
+          - os: windows-latest
+            build_mode: slim
+            deps: ""
+          # Linux: 仅构建 slim 版本（AI 版本超过 2GB GitHub 限制）
+          # Linux cpu/gpu 使用 pip install 或 Docker 分发
+          - os: ubuntu-latest
+            build_mode: slim
             deps: ""
 
     steps:
@@ -502,9 +506,7 @@ jobs:
             | 文件名格式 | 类型 | 说明 |
             |------------|------|------|
             | `filetools-slim_*_amd64.deb` | 安装包 | `sudo dpkg -i filetools-slim_*_amd64.deb` |
-            | `filetools-cpu_*_amd64.deb` | 安装包 | `sudo dpkg -i filetools-cpu_*_amd64.deb` |
-            | `filetools-gpu_*_amd64.deb` | 安装包 | `sudo dpkg -i filetools-gpu_*_amd64.deb` |
-            | `FileTools-*-v*-linux-x64-portable.tar.gz` | 便携版 | `tar -xzf *.tar.gz && cd FileTools-* && ./FileTools` |
+            | `FileTools-slim-v*-linux-x64-portable.tar.gz` | 便携版 | 解压即用，无需安装 |
 
             .deb 安装到 `/opt/filetools/`，创建 `filetools` 命令行入口和桌面快捷方式。
 
