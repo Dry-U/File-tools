@@ -40,7 +40,7 @@
 
 ; ===== 安装程序属性 =====
 Name "${PRODUCT_NAME} v${PRODUCT_VERSION} (${PRODUCT_MODE})"
-OutFile "dist\FileTools-${PRODUCT_MODE}-v${PRODUCT_VERSION}-Setup.exe"
+OutFile "dist\filetools_${PRODUCT_VERSION}_${PRODUCT_MODE}_windows_amd64_setup.exe"
 InstallDir "$PROGRAMFILES64\${PRODUCT_NAME}"
 InstallDirRegKey HKLM "${PRODUCT_DIR_REGKEY}" ""
 ShowInstDetails show

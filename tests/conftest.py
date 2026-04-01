@@ -1,10 +1,23 @@
+"""
+pytest 配置文件 - 测试环境和 fixtures
+
+包含：
+- CI 环境兼容配置（tantivy/hnswlib mock）
+- 统一的 mock 配置工厂
+- 并发测试支持
+- 共享 fixtures
+"""
+
 import pytest
 import pytest_asyncio
 import tempfile
 import sys
 import os
-from unittest.mock import Mock, MagicMock
-from typing import List, Dict, Any
+import threading
+import concurrent.futures
+from unittest.mock import Mock, MagicMock, patch
+from typing import List, Dict, Any, Callable
+from collections.abc import Generator
 
 # 添加项目根目录到Python路径（只需在顶层 conftest.py 中添加一次）
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
@@ -23,7 +36,402 @@ if _CI_ENV:
 from backend.utils.config_loader import ConfigLoader
 
 
-@pytest_asyncio.fixture()  # type: ignore[misc]
+# =============================================================================
+# Mock 配置工厂 - 统一管理，减少重复代码
+# =============================================================================
+
+class MockConfigFactory:
+    """统一的 Mock 配置工厂，减少测试中的重复代码"""
+
+    # 默认配置数据模板
+    DEFAULT_CONFIG_DATA = {
+        "system": {
+            "data_dir": "./data",
+            "log_level": "INFO",
+            "log_max_size": "10485760",
+            "log_backup_count": "5",
+        },
+        "index": {
+            "tantivy_path": "./data/tantivy",
+            "hnsw_path": "./data/hnsw",
+            "metadata_path": "./data/metadata",
+            "schema_version": "1.0",
+        },
+        "search": {
+            "text_weight": 0.6,
+            "vector_weight": 0.4,
+            "max_results": 20,
+            "min_score": 0.3,
+            "boost_filename": True,
+            "boost_exact_match": True,
+        },
+        "embedding": {
+            "enabled": False,
+            "provider": "fastembed",
+            "model": "bge-small-zh",
+            "dimension": 384,
+        },
+        "ai_model": {
+            "enabled": True,
+            "interface_type": "api",
+            "api_url": "http://localhost:8080/v1/chat/completions",
+            "api_key": "",
+            "context_size": 4096,
+            "max_tokens": 2048,
+            "request_timeout": 120,
+            "mode": "api",
+            "local": {
+                "api_url": "http://localhost:8000",
+                "max_context": 4096,
+                "max_tokens": 512,
+            },
+            "api": {
+                "provider": "siliconflow",
+                "api_url": "https://api.example.com",
+                "model_name": "test-model",
+            },
+            "sampling": {
+                "temperature": 0.7,
+                "top_p": 0.9,
+                "top_k": 40,
+                "min_p": 0.05,
+                "seed": -1,
+            },
+            "penalties": {
+                "repeat_penalty": 1.1,
+                "frequency_penalty": 0.0,
+                "presence_penalty": 0.0,
+            },
+            "security": {
+                "verify_ssl": True,
+                "timeout": 120,
+                "retry_count": 2,
+            },
+        },
+        "rag": {
+            "max_history_turns": 6,
+            "max_history_chars": 800,
+            "max_context": 4096,
+            "temperature": 0.7,
+            "top_p": 0.9,
+            "top_k": 40,
+            "min_p": 0.05,
+            "repeat_penalty": 1.1,
+            "max_session_age_days": 30,
+            "max_sessions": 1000,
+            "fallback_response": "未找到相关信息",
+            "context_exhausted_response": "上下文过长，请重置",
+            "reset_response": "已清空上下文",
+            "greeting_response": "你好！有什么可以帮你的吗？",
+            "greeting_keywords": ["你好", "hi", "hello", "嗨"],
+            "reset_commands": ["重置", "清空上下文", "reset", "restart"],
+        },
+        "file_scanner": {
+            "scan_paths": ["./documents"],
+            "batch_size": 100,
+            "max_file_size": 104857600,  # 100MB
+            "supported_extensions": [".txt", ".pdf", ".doc", ".docx", ".md"],
+            "exclude_patterns": ["*.tmp", ".*", "__pycache__"],
+        },
+        "monitor": {
+            "enabled": True,
+            "debounce_timeout": 0.5,
+            "directories": [],
+        },
+        "chat_history": {
+            "db_path": "./data/chat_history.db",
+        },
+    }
+
+    @classmethod
+    def create_config(cls, custom_overrides: Dict[str, Any] = None) -> Mock:
+        """
+        创建统一格式的 Mock ConfigLoader
+
+        Args:
+            custom_overrides: 自定义配置覆盖，深度合并到默认配置
+
+        Returns:
+            Mock 配置对象
+        """
+        config_data = cls.DEFAULT_CONFIG_DATA.copy()
+        if custom_overrides:
+            config_data = cls._deep_merge(config_data, custom_overrides)
+
+        config = Mock(spec=ConfigLoader)
+        config._config_data = config_data  # 保存引用便于调试
+
+        def get_side_effect(section: str, key: str = None, default: Any = None) -> Any:
+            """统一 getter 逻辑"""
+            if key is None:
+                # 返回整个 section
+                return config_data.get(section, default or {})
+            # 支持嵌套 key 如 "api.model_name"
+            if "." in key:
+                parts = key.split(".")
+                value = config_data.get(section, {})
+                for part in parts:
+                    if isinstance(value, dict):
+                        value = value.get(part)
+                    else:
+                        return default
+                return value if value is not None else default
+            return config_data.get(section, {}).get(key, default)
+
+        config.get.side_effect = get_side_effect
+        config.getint.side_effect = lambda section, key, default=0: int_or_default(
+            get_side_effect(section, key, default)
+        )
+        config.getfloat.side_effect = lambda section, key, default=0.0: float_or_default(
+            get_side_effect(section, key, default)
+        )
+        config.getboolean.side_effect = lambda section, key, default=False: bool_or_default(
+            get_side_effect(section, key, default)
+        )
+        config.save.return_value = True
+
+        return config
+
+    @classmethod
+    def create_minimal_config(cls) -> Mock:
+        """创建最小配置 - 仅包含必需字段"""
+        return cls.create_config({
+            "system": {"data_dir": "./data"},
+            "search": {"max_results": 10},
+            "embedding": {"enabled": False},
+            "ai_model": {"enabled": False},
+        })
+
+    @classmethod
+    def create_search_config(cls,
+                           text_weight: float = 0.6,
+                           vector_weight: float = 0.4,
+                           max_results: int = 20) -> Mock:
+        """创建搜索专用配置"""
+        return cls.create_config({
+            "search": {
+                "text_weight": text_weight,
+                "vector_weight": vector_weight,
+                "max_results": max_results,
+            },
+            "embedding": {"enabled": True},
+        })
+
+    @classmethod
+    def create_rag_config(cls,
+                         enabled: bool = True,
+                         max_history_turns: int = 6,
+                         max_history_chars: int = 800) -> Mock:
+        """创建 RAG 专用配置"""
+        return cls.create_config({
+            "ai_model": {"enabled": enabled},
+            "rag": {
+                "max_history_turns": max_history_turns,
+                "max_history_chars": max_history_chars,
+            },
+        })
+
+    @classmethod
+    def _deep_merge(cls, base: Dict, override: Dict) -> Dict:
+        """深度合并两个字典"""
+        result = base.copy()
+        for key, value in override.items():
+            if key in result and isinstance(result[key], dict) and isinstance(value, dict):
+                result[key] = cls._deep_merge(result[key], value)
+            else:
+                result[key] = value
+        return result
+
+
+class MockSearchEngineFactory:
+    """搜索引擎 Mock 工厂"""
+
+    @staticmethod
+    def create_basic(search_results: List[Dict] = None) -> Mock:
+        """创建基础搜索引擎 Mock"""
+        engine = Mock()
+        engine.search.return_value = search_results or [
+            {
+                "path": "/test/doc1.txt",
+                "filename": "doc1.txt",
+                "content": "Test content",
+                "score": 0.9,
+                "file_type": "txt",
+                "highlights": ["Test"],
+            }
+        ]
+        engine.search_text.return_value = []
+        engine.search_vector.return_value = []
+        return engine
+
+    @staticmethod
+    def create_with_results(results: List[Dict]) -> Mock:
+        """创建带有指定结果的搜索引擎 Mock"""
+        engine = Mock()
+        engine.search.return_value = results
+        return engine
+
+    @staticmethod
+    def create_empty() -> Mock:
+        """创建返回空结果的搜索引擎 Mock"""
+        engine = Mock()
+        engine.search.return_value = []
+        engine.search_text.return_value = []
+        engine.search_vector.return_value = []
+        return engine
+
+
+class MockRAGPipelineFactory:
+    """RAG 管道 Mock 工厂"""
+
+    @staticmethod
+    def create_basic(answer: str = "Test answer", sources: List[str] = None) -> Mock:
+        """创建基础 RAG Mock"""
+        pipeline = Mock()
+        pipeline.query.return_value = {
+            "answer": answer,
+            "sources": sources or ["/test/doc.txt"],
+            "documents": [],
+        }
+        pipeline.get_all_sessions.return_value = []
+        pipeline.clear_session.return_value = True
+        return pipeline
+
+    @staticmethod
+    def create_with_sessions(sessions: List[Dict]) -> Mock:
+        """创建带有会话列表的 RAG Mock"""
+        pipeline = Mock()
+        pipeline.query.return_value = {"answer": "OK", "sources": []}
+        pipeline.get_all_sessions.return_value = sessions
+        return pipeline
+
+
+class MockIndexManagerFactory:
+    """索引管理器 Mock 工厂"""
+
+    @staticmethod
+    def create_basic() -> Mock:
+        """创建基础索引管理器 Mock"""
+        manager = Mock()
+        manager.add_document.return_value = True
+        manager.remove_document.return_value = True
+        manager.search_text.return_value = []
+        manager.search_vector.return_value = []
+        manager.get_document_content.return_value = "Test document content"
+        manager.rebuild_index.return_value = True
+        return manager
+
+    @staticmethod
+    def create_with_documents(docs: List[Dict]) -> Mock:
+        """创建带有文档的索引管理器 Mock"""
+        manager = Mock()
+        manager.add_document.return_value = True
+        manager.remove_document.return_value = True
+        manager.search_text.return_value = docs
+        manager.search_vector.return_value = []
+        manager.get_document_content.return_value = docs[0]["content"] if docs else ""
+        return manager
+
+
+# =============================================================================
+# 辅助函数
+# =============================================================================
+
+def int_or_default(value: Any, default: int = 0) -> int:
+    """安全转换为 int"""
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def float_or_default(value: Any, default: float = 0.0) -> float:
+    """安全转换为 float"""
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def bool_or_default(value: Any, default: bool = False) -> bool:
+    """安全转换为 bool"""
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        return value.lower() in ("true", "1", "yes", "on")
+    return default
+
+
+def run_concurrent_test(
+    func: Callable,
+    args_list: List[tuple],
+    max_workers: int = 4,
+    timeout: float = 10.0,
+) -> List[Any]:
+    """
+    运行并发测试的辅助函数
+
+    Args:
+        func: 要并发执行的函数
+        args_list: 参数列表，每个元素是一个 tuple
+        max_workers: 最大工作线程数
+        timeout: 超时时间（秒）
+
+    Returns:
+        函数执行结果列表
+    """
+    results = []
+    errors = []
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+        future_to_args = {
+            executor.submit(func, *args): args for args in args_list
+        }
+
+        for future in concurrent.futures.as_completed(future_to_args, timeout=timeout):
+            args = future_to_args[future]
+            try:
+                results.append(future.result())
+            except Exception as e:
+                errors.append((args, e))
+
+    if errors:
+        raise AssertionError(
+            f"并发测试失败 {len(errors)}/{len(args_list)} 个线程出错: {errors}"
+        )
+
+    return results
+
+
+def assert_thread_safe(func: Callable, args_list: List[tuple], repetitions: int = 3) -> None:
+    """
+    验证函数线程安全的辅助函数
+
+    Args:
+        func: 要测试的函数
+        args_list: 参数列表
+        repetitions: 重复次数（确保结果一致）
+    """
+    # 运行多次验证结果一致性
+    results = []
+    for _ in range(repetitions):
+        result = run_concurrent_test(func, args_list)
+        results.append(result)
+
+    # 验证所有结果一致
+    first = results[0]
+    for i, r in enumerate(results[1:], 1):
+        assert r == first, (
+            f"线程安全测试失败: 第 0 次和第 {i} 次运行结果不一致。"
+            f"结果0: {first}, 结果{i}: {r}"
+        )
+
+
+# =============================================================================
+# Pytest Fixtures
+# =============================================================================
+
+@pytest_asyncio.fixture()
 def event_loop():
     """创建事件循环用于异步测试"""
     import asyncio
@@ -36,64 +444,60 @@ def event_loop():
 @pytest.fixture(autouse=True)
 def reset_config_loader():
     """自动重置ConfigLoader单例，确保每个测试使用独立配置"""
-    from backend.utils.config_loader import ConfigLoader
-
     ConfigLoader.reset_instance()
     yield
     ConfigLoader.reset_instance()
 
 
+# 导出工厂实例
+mock_config = MockConfigFactory()
+mock_search = MockSearchEngineFactory()
+mock_rag = MockRAGPipelineFactory()
+mock_index = MockIndexManagerFactory()
+
+
 @pytest.fixture
-def temp_config():
-    """创建临时配置用于测试"""
-    with tempfile.TemporaryDirectory() as tmpdir:
-        # Create mock config
-        config = Mock(spec=ConfigLoader)
+def temp_config(tmp_path):
+    """创建临时配置用于测试 - 使用 pytest 的 tmp_path fixture"""
+    # 使用 pytest 的 tmp_path 获取临时目录，更现代且自动清理
+    config = MockConfigFactory.create_config({
+        "system": {"data_dir": str(tmp_path)},
+        "index": {
+            "tantivy_path": str(tmp_path / "tantivy"),
+            "hnsw_path": str(tmp_path / "hnsw"),
+            "metadata_path": str(tmp_path / "metadata"),
+        },
+        "chat_history": {"db_path": str(tmp_path / "chat_history.db")},
+        "file_scanner": {
+            "scan_paths": [str(tmp_path / "documents")],
+            "max_file_size": 100 * 1024 * 1024,
+        },
+    })
+    yield config
 
-        # Setup basic config values
-        config_data = {
-            "system": {"data_dir": tmpdir},
-            "index": {
-                "tantivy_path": f"{tmpdir}/tantivy",
-                "hnsw_path": f"{tmpdir}/hnsw",
-                "metadata_path": f"{tmpdir}/metadata",
-            },
-            "search": {"text_weight": 0.5, "vector_weight": 0.5, "max_results": 10},
-            "embedding": {"enabled": False},
-            "ai_model": {
-                "enabled": False,
-                "interface_type": "api",
-                "api_url": "http://localhost:8080/v1/chat/completions",
-                "context_size": 4096,
-                "request_timeout": 30,
-            },
-            "chat_history": {"db_path": f"{tmpdir}/chat_history.db"},
-            "file_scanner": {
-                "scan_paths": [tmpdir],
-                "batch_size": 100,
-                "max_file_size": 100 * 1024 * 1024,
-            },
-            "monitor": {"enabled": False},
-        }
 
-        # Setup mock methods
-        def get_side_effect(section, key=None, default=None):
-            if key is None:
-                return config_data.get(section, default or {})
-            return config_data.get(section, {}).get(key, default)
+@pytest.fixture
+def mock_config_loader():
+    """统一格式的 Mock 配置加载器"""
+    return MockConfigFactory.create_config()
 
-        config.get.side_effect = get_side_effect
-        config.getint.side_effect = lambda section, key, default=0: int(
-            config_data.get(section, {}).get(key, default)
-        )
-        config.getfloat.side_effect = lambda section, key, default=0.0: float(
-            config_data.get(section, {}).get(key, default)
-        )
-        config.getboolean.side_effect = lambda section, key, default=False: bool(
-            config_data.get(section, {}).get(key, default)
-        )
 
-        yield config
+@pytest.fixture
+def mock_config_minimal():
+    """最小配置 - 仅包含必需字段"""
+    return MockConfigFactory.create_minimal_config()
+
+
+@pytest.fixture
+def mock_config_for_search():
+    """搜索专用配置"""
+    return MockConfigFactory.create_search_config()
+
+
+@pytest.fixture
+def mock_config_for_rag():
+    """RAG 专用配置"""
+    return MockConfigFactory.create_rag_config()
 
 
 @pytest.fixture
@@ -196,18 +600,20 @@ def sample_search_results() -> List[Dict[str, Any]]:
 
 @pytest.fixture
 def mock_search_engine():
-    """模拟搜索引擎"""
-    mock = MagicMock()
-    mock.search.return_value = [
-        {
-            "path": "/test/doc1.txt",
-            "filename": "doc1.txt",
-            "content": "Test content",
-            "score": 0.9,
-            "file_type": "txt",
-        }
-    ]
-    return mock
+    """模拟搜索引擎 - 使用工厂模式"""
+    return MockSearchEngineFactory.create_basic()
+
+
+@pytest.fixture
+def mock_search_engine_with_results(sample_search_results):
+    """模拟搜索引擎 - 带有预设搜索结果"""
+    return MockSearchEngineFactory.create_with_results(sample_search_results)
+
+
+@pytest.fixture
+def mock_search_engine_empty():
+    """模拟搜索引擎 - 返回空结果"""
+    return MockSearchEngineFactory.create_empty()
 
 
 @pytest.fixture
@@ -217,15 +623,288 @@ def mock_file_scanner():
     mock.scan_and_index.return_value = {"indexed": 10, "errors": 0}
     mock.index_file.return_value = True
     mock.remove_file.return_value = True
+    mock.scan_paths = ["./test"]
     return mock
 
 
 @pytest.fixture
 def mock_index_manager():
-    """模拟索引管理器"""
-    mock = MagicMock()
-    mock.add_document.return_value = True
-    mock.remove_document.return_value = True
-    mock.search_text.return_value = []
-    mock.search_vector.return_value = []
-    return mock
+    """模拟索引管理器 - 使用工厂模式"""
+    return MockIndexManagerFactory.create_basic()
+
+
+@pytest.fixture
+def mock_index_manager_with_docs(sample_documents):
+    """模拟索引管理器 - 带有预设文档"""
+    return MockIndexManagerFactory.create_with_documents(sample_documents)
+
+
+@pytest.fixture
+def mock_rag_pipeline():
+    """模拟 RAG 管道"""
+    return MockRAGPipelineFactory.create_basic()
+
+
+@pytest.fixture
+def mock_rag_pipeline_with_sessions():
+    """模拟 RAG 管道 - 带有预设会话"""
+    sessions = [
+        {"session_id": "sess1", "title": "Session 1", "message_count": 5},
+        {"session_id": "sess2", "title": "Session 2", "message_count": 10},
+    ]
+    return MockRAGPipelineFactory.create_with_sessions(sessions)
+
+
+# =============================================================================
+# 边界值测试数据
+# =============================================================================
+
+@pytest.fixture
+def edge_case_search_queries() -> List[str]:
+    """边界值搜索查询 - 各种极端情况"""
+    return [
+        "",  # 空字符串
+        "a",  # 单字符
+        "中",  # 单个中文字符
+        " " * 100,  # 大量空格
+        "a" * 1000,  # 超长查询
+        "中" * 500,  # 超长中文查询
+        "Python\nC++\nJava",  # 包含换行符
+        "Tab\there",  # 包含 Tab
+        "<script>alert('xss')</script>",  # XSS 攻击尝试
+        "../../../etc/passwd",  # 路径遍历
+        "\x00Null",  # 空字节注入
+        "中文English混合123",  # 中英混合
+        "!@#$%^&*()_+-=[]{}|;':\",./<>?",  # 特殊字符
+        "   前导空格",  # 前导空格
+        "尾部空格   ",  # 尾部空格
+        "  前后空格  ",  # 前后空格
+        None,  # None 值（需要特殊处理）
+    ]
+
+
+@pytest.fixture
+def edge_case_document_paths() -> List[str]:
+    """边界值文档路径"""
+    return [
+        "/test/doc.txt",
+        "/test/doc with spaces.txt",
+        "/test/中文文件名.txt",
+        "/test/dir/../doc.txt",  # 路径遍历
+        "/test/dir/./doc.txt",  # 路径简化
+        "/test//double/slash.txt",  # 双斜杠
+        "/test\\windows\\path.txt",  # Windows 路径
+        "/very/long/path/" + "a" * 200 + ".txt",  # 超长路径
+        "/test/unicode_\u4e2d\u6587.txt",  # Unicode
+        "/test/hidden_.txt",  # 隐藏文件
+        "/test/.hidden.txt",  # 点文件
+    ]
+
+
+@pytest.fixture
+def edge_case_file_sizes() -> List[int]:
+    """边界值文件大小"""
+    return [
+        0,  # 空文件
+        1,  # 最小文件
+        512,  # 512 字节
+        1024,  # 1KB
+        1024 * 100,  # 100KB
+        1024 * 1024,  # 1MB
+        1024 * 1024 * 10,  # 10MB
+        1024 * 1024 * 50,  # 50MB
+        1024 * 1024 * 100,  # 100MB (最大限制)
+        1024 * 1024 * 101,  # 超过最大限制
+    ]
+
+
+@pytest.fixture
+def edge_case_scores() -> List[float]:
+    """边界值分数"""
+    return [
+        0.0,  # 最小分数
+        0.001,  # 接近零
+        0.5,  # 中等分数
+        0.999,  # 接近一
+        1.0,  # 最大分数
+        -0.001,  # 负数（不应出现）
+        1.5,  # 超过一（不应出现）
+        float('inf'),  # 无穷大
+        float('-inf'),  # 负无穷
+        float('nan'),  # 非数字
+    ]
+
+
+@pytest.fixture
+def edge_case_timestamps() -> List[float]:
+    """边界值时间戳"""
+    return [
+        0.0,  # Unix 纪元开始
+        1.0,  # 最小正数
+        946684800.0,  # 2000-01-01
+        1700000000.0,  # 2023-11-15
+        1735689600.0,  # 2025-01-01
+        time.time(),  # 当前时间
+        time.time() + 86400 * 365 * 10,  # 未来10年
+        -1.0,  # 负数（无效）
+        float('inf'),  # 无穷大
+    ]
+
+
+@pytest.fixture
+def edge_case_user_inputs() -> List[Dict[str, Any]]:
+    """边界值用户输入 - 用于负面测试"""
+    return [
+        # 空输入
+        {"query": ""},
+        {"query": "   "},
+        # None 输入
+        {"query": None},
+        # 超长输入
+        {"query": "x" * 10000},
+        # 特殊字符
+        {"query": "\x00\x01\x02"},
+        {"query": "\uffff\ufffe"},  # Unicode 替换字符
+        # SQL 注入尝试
+        {"query": "'; DROP TABLE users; --"},
+        # 代码注入尝试
+        {"query": "{{constructor.constructor('alert(1)')()}}"},
+    ]
+
+
+# =============================================================================
+# 并发测试 Fixtures
+# =============================================================================
+
+@pytest.fixture
+def thread_safe_counter():
+    """
+    线程安全计数器 - 用于测试并发访问
+
+    返回一个包含计数器和锁的对象
+    """
+    class Counter:
+        def __init__(self):
+            self.value = 0
+            self._lock = threading.Lock()
+
+        def increment(self):
+            with self._lock:
+                self.value += 1
+                return self.value
+
+        def get(self):
+            with self._lock:
+                return self.value
+
+        def reset(self):
+            with self._lock:
+                self.value = 0
+
+    return Counter()
+
+
+@pytest.fixture
+def concurrentExecutor():
+    """
+    提供一个线程池执行器用于并发测试
+
+    使用方法:
+        def test_concurrent(capfd, concurrentExecutor):
+            with concurrentExecutor(max_workers=4) as executor:
+                futures = [executor.submit(func, arg) for arg in args]
+                results = [f.result() for f in concurrent.futures.as_completed(futures)]
+    """
+    return concurrent.futures.ThreadPoolExecutor
+
+
+@pytest.fixture
+def shared_state_dict():
+    """
+    提供一个线程安全的共享字典用于测试
+
+    用于测试多个线程同时读写共享状态的场景
+    """
+    class ThreadSafeDict:
+        def __init__(self):
+            self._data = {}
+            self._lock = threading.RLock()
+
+        def set(self, key, value):
+            with self._lock:
+                self._data[key] = value
+
+        def get(self, key, default=None):
+            with self._lock:
+                return self._data.get(key, default)
+
+        def update(self, mapping):
+            with self._lock:
+                self._data.update(mapping)
+
+        def delete(self, key):
+            with self._lock:
+                if key in self._data:
+                    del self._data[key]
+
+        def keys(self):
+            with self._lock:
+                return list(self._data.keys())
+
+        def values(self):
+            with self._lock:
+                return list(self._data.values())
+
+        def items(self):
+            with self._lock:
+                return list(self._data.items())
+
+        def __len__(self):
+            with self._lock:
+                return len(self._data)
+
+        def clear(self):
+            with self._lock:
+                self._data.clear()
+
+    return ThreadSafeDict()
+
+
+# =============================================================================
+# 断言增强
+# =============================================================================
+
+class AssertMessages:
+    """统一的断言错误消息模板"""
+
+    # 搜索相关
+    SEARCH_RESULT_COUNT = "搜索结果数量不符合预期"
+    SEARCH_RESULT_TYPE = "搜索结果类型错误"
+    SEARCH_SCORE_RANGE = "搜索分数超出有效范围 [0, 1]"
+    SEARCH_RESULT_SORTED = "搜索结果未按分数降序排列"
+
+    # 配置相关
+    CONFIG_TYPE = "配置值类型错误"
+    CONFIG_VALUE = "配置值不符合预期"
+    CONFIG_MISSING = "缺少必需的配置项"
+
+    # RAG 相关
+    RAG_ANSWER_TYPE = "RAG 回答类型错误"
+    RAG_SOURCES_TYPE = "RAG 来源列表类型错误"
+    RAG_SESSION_TYPE = "RAG 会话类型错误"
+
+    # 并发相关
+    THREAD_SAFE_COUNT = "并发计数不一致，存在线程安全问题"
+    CONCURRENT_RESULT = "并发执行结果不一致"
+    RACE_CONDITION = "检测到竞态条件"
+
+    # 边界值
+    EDGE_CASE_HANDLING = "边界值处理错误"
+    INVALID_INPUT_REJECTED = "无效输入未被正确拒绝"
+    VALID_INPUT_REJECTED = "有效输入被错误拒绝"
+
+
+@pytest.fixture
+def assert_msg():
+    """提供统一断言消息的 fixture"""
+    return AssertMessages

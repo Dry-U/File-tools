@@ -21,10 +21,20 @@ pip install -e .
 pytest tests/
 
 # Run specific test
-pytest tests/test_file_scanner.py -v
+pytest tests/unit/test_file_scanner.py -v
+
+# Run by category
+pytest tests/unit/ -v          # Unit tests only
+pytest tests/integration/ -v   # Integration tests only
+pytest tests/api/ -v           # API tests only
+pytest tests/e2e/ -v           # E2E tests only
 
 # Performance tests
-pytest tests/test_performance.py -v
+pytest tests/integration/test_performance.py -v
+
+# Generate Allure report
+python scripts/run_tests.py --allure
+python scripts/run_tests.py unit --allure  # Unit tests with report
 ```
 
 ### Building Executable (Windows)
@@ -119,6 +129,21 @@ file_monitor = None
 - `mock_indexer`: SmartIndexer instance
 - `mock_rag`: RAGPipeline with mocked model
 - `generate_test_data`: Creates test directories with N text files
+- **Mock Factories** (`tests/factories.py`):
+  - `MockConfigFactory`: `create_config()`, `create_minimal_config()`, `create_search_config()`, `create_rag_config()`
+  - `MockSearchEngineFactory`: `create_mock_search_engine()`
+  - `MockRAGPipelineFactory`: `create_mock_rag_pipeline()`
+  - `MockIndexManagerFactory`: `create_mock_index_manager()`
+- **Concurrent Testing Helpers**:
+  - `run_concurrent_test(func, num_threads=10)`: Run function concurrently
+  - `assert_thread_safe(func, num_runs=5)`: Assert function is thread-safe
+- **Edge Case Fixtures**:
+  - `edge_case_zero`, `edge_case_negative`, `edge_case_unicode`
+  - `edge_case_very_long`, `edge_case_special_chars`
+- **Shared State Fixtures**:
+  - `thread_safe_counter`: Thread-safe counter with lock
+  - `shared_state_dict`: Thread-safe dict with lock
+- **AssertMessages**: Unified assertion messages for readability
 
 ### Data Locations
 - Tantivy index: `data/tantivy_index/`
@@ -140,3 +165,20 @@ file_monitor = None
 - `GET /api/sessions` - Get all chat sessions
 - `DELETE /api/sessions/{session_id}` - Delete specific session
 - `/static/*` - Static files from `frontend/static/`
+
+### Test Reporting (Allure)
+Reports are generated in `reports/` directory:
+- HTML report: `reports/test_report.html`
+- Coverage: `reports/coverage/index.html`
+- Allure results: `reports/allure-results/`
+- Allure report: `reports/allure-report/index.html`
+
+Management scripts:
+```bash
+python scripts/run_tests.py --allure          # Run tests + generate Allure report
+python scripts/run_tests.py unit --allure     # Run unit tests + generate report
+python scripts/allure_report.py generate       # Generate report from existing results
+python scripts/allure_report.py open          # Generate and open report
+python scripts/allure_report.py serve         # Serve report at http://localhost:4040
+python scripts/allure_report.py clean         # Clean all reports
+```

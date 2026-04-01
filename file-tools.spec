@@ -303,7 +303,7 @@ coll = COLLECT(
     strip=False,  # strip can remove necessary symbols and cause DLL loading failures
     upx=upx_enabled,
     upx_exclude=upx_exclude_list,
-    name=f'FileTools-v{APP_VERSION}-{BUILD_MODE}'
+    name=f'filetools_{APP_VERSION}_{BUILD_MODE}'
 )
 
 # ===== 打印构建信息 =====

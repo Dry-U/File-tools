@@ -65,6 +65,7 @@ dev = [
     "pytest-cov>=4.1.0",
     "pytest-asyncio>=0.21.0",
     "pytest-playwright>=0.7.1",
+    "allure-pytest>=2.13.0",
     "ruff>=0.1.0",
     "black>=23.0.0",
     "mypy>=1.0.0",
@@ -101,6 +102,7 @@ dev = [
     "pytest-cov>=4.1.0",
     "pytest-asyncio>=0.21.0",
     "pytest-playwright>=0.7.1",
+    "allure-pytest>=2.13.0",
     "ruff>=0.1.0",
     "black>=23.0.0",
     "mypy>=1.0.0",
@@ -128,11 +130,19 @@ addopts = [
     "--tb=short"
 ]
 markers = [
-    "performance: mark test as performance test",
-    "unit: mark test as unit test",
-    "integration: mark test as integration test",
-    "e2e: mark test as end-to-end test",
-    "slow: mark test as slow running"
+    "severity_blocker: 阻塞缺陷测试",
+    "severity_critical: 关键功能测试",
+    "severity_normal: 普通测试",
+    "severity_minor: 轻微缺陷测试",
+    "feature_search: 搜索功能",
+    "feature_chat: 聊天功能",
+    "feature_index: 索引功能",
+    "feature_config: 配置功能",
+    "performance: 性能测试",
+    "unit: 单元测试",
+    "integration: 集成测试",
+    "e2e: 端到端测试",
+    "slow: 慢速测试"
 ]
 testpaths = ["tests"]
 asyncio_mode = "auto"

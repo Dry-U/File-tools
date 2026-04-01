@@ -71,15 +71,15 @@ class TestHealthEndpoint:
         """测试健康检查 - 健康状态"""
         app.state.initialized = True
         response = client.get("/api/health")
-        assert response.status_code == 200
-        assert response.json()["status"] == "healthy"
+        assert response.status_code == 200, "健康检查应返回 HTTP 200"
+        assert response.json()["status"] == "healthy", "初始化后状态应为 healthy"
 
     def test_health_check_starting(self, client):
         """测试健康检查 - 启动中"""
         app.state.initialized = False
         response = client.get("/api/health")
-        assert response.status_code == 200
-        assert response.json()["status"] == "starting"
+        assert response.status_code == 200, "健康检查应返回 HTTP 200"
+        assert response.json()["status"] == "starting", "未初始化时状态应为 starting"
 
 
 class TestRateLimiter:
@@ -88,13 +88,14 @@ class TestRateLimiter:
     def test_rate_limiter_init(self):
         """测试限流器初始化"""
         limiter = RateLimiter(max_entries=100)
-        assert limiter._max_entries == 100
-        assert limiter._requests == {}
+        assert limiter._max_entries == 100, "max_entries 应该设置为 100"
+        assert limiter._requests == {}, "初始化时请求记录应为空"
 
     def test_rate_limiter_allow_first_request(self):
         """测试首次请求允许"""
         limiter = RateLimiter()
-        assert limiter.is_allowed("test_key", max_requests=10, window=60)
+        is_allowed = limiter.is_allowed("test_key", max_requests=10, window=60)
+        assert is_allowed is True, "首次请求应该被允许"
 
     def test_rate_limiter_block_excess(self):
         """测试超出限制阻止"""
@@ -103,13 +104,15 @@ class TestRateLimiter:
         for i in range(5):
             limiter.is_allowed("test_key", max_requests=3, window=60)
         # 第4个请求应该被阻止
-        assert not limiter.is_allowed("test_key", max_requests=3, window=60)
+        is_allowed = limiter.is_allowed("test_key", max_requests=3, window=60)
+        assert is_allowed is False, "超出限制的请求应该被阻止"
 
     def test_rate_limiter_different_keys(self):
         """测试不同key独立计数"""
         limiter = RateLimiter()
         limiter.is_allowed("key1", max_requests=1, window=60)
-        assert limiter.is_allowed("key2", max_requests=1, window=60)
+        is_allowed_key2 = limiter.is_allowed("key2", max_requests=1, window=60)
+        assert is_allowed_key2 is True, "不同 key 应该独立计数"
 
     def test_rate_limiter_cleanup_expired(self):
         """测试过期清理"""
@@ -118,7 +121,7 @@ class TestRateLimiter:
         limiter._last_cleanup = 0
         limiter.is_allowed("new_key", max_requests=10, window=1)
         # old_key 应该被清理
-        assert "old_key" not in limiter._requests
+        assert "old_key" not in limiter._requests, "过期的 key 应该被清理"
 
     def test_rate_limiter_emergency_cleanup(self):
         """测试紧急清理"""
@@ -129,7 +132,7 @@ class TestRateLimiter:
         # 触发紧急清理
         limiter.is_allowed("new_key", max_requests=10, window=60)
         # 应该只剩下一半
-        assert len(limiter._requests) <= 3
+        assert len(limiter._requests) <= 3, "紧急清理后应只剩一半条目"
 
 
 class TestSearchEndpoint:
@@ -158,10 +161,10 @@ class TestSearchEndpoint:
                 response = client.post(
                     "/api/search", json={"query": "test", "filters": {}}
                 )
-                assert response.status_code == 200
+                assert response.status_code == 200, "搜索成功应返回 HTTP 200"
                 results = response.json()
-                assert len(results) > 0
-                assert results[0]["file_name"] == "doc1.txt"
+                assert len(results) > 0, "搜索结果不应为空"
+                assert results[0]["file_name"] == "doc1.txt", "第一个结果文件名应为 doc1.txt"
 
     def test_search_empty_query(self, client, mock_search_engine):
         """测试空查询"""
@@ -170,14 +173,14 @@ class TestSearchEndpoint:
         ):
             with patch("backend.api.api.get_rate_limiter", return_value=RateLimiter()):
                 response = client.post("/api/search", json={"query": "", "filters": {}})
-                assert response.status_code == 400
-                assert "不能为空" in response.json()["detail"]
+                assert response.status_code == 400, "空查询应返回 HTTP 400"
+                assert "不能为空" in response.json()["detail"], "错误消息应包含'不能为空'"
 
     def test_search_no_query_field(self, client):
         """测试缺少query字段"""
         with patch("backend.api.api.get_rate_limiter", return_value=RateLimiter()):
             response = client.post("/api/search", json={"filters": {}})
-            assert response.status_code == 200  # 会获取None作为query
+            assert response.status_code == 200, "缺少 query 字段应有默认处理"
 
     def test_search_rate_limited(self, client, mock_search_engine):
         """测试搜索限流"""
@@ -190,7 +193,7 @@ class TestSearchEndpoint:
                 with patch("backend.api.api.get_config_loader") as mock_config:
                     mock_config.return_value.getboolean.return_value = True
                     response = client.post("/api/search", json={"query": "test"})
-                    assert response.status_code == 429
+                    assert response.status_code == 429, "限流时应返回 HTTP 429"
 
 
 class TestChatEndpoint:
@@ -213,16 +216,16 @@ class TestChatEndpoint:
                 response = client.post(
                     "/api/chat", json={"query": "Hello", "session_id": "test123"}
                 )
-                assert response.status_code == 200
+                assert response.status_code == 200, "聊天成功应返回 HTTP 200"
                 result = response.json()
-                assert result["answer"] == "Test answer"
+                assert result["answer"] == "Test answer", "回答内容应与 mock 一致"
 
     def test_chat_empty_query(self, client, mock_rag_pipeline):
         """测试空查询"""
         with patch("backend.api.api.get_rag_pipeline", return_value=mock_rag_pipeline):
             with patch("backend.api.api.get_rate_limiter", return_value=RateLimiter()):
                 response = client.post("/api/chat", json={"query": ""})
-                assert response.status_code == 400
+                assert response.status_code == 400, "空查询应返回 HTTP 400"
 
     def test_chat_disabled(self, client):
         """测试AI功能未启用"""
@@ -231,15 +234,15 @@ class TestChatEndpoint:
                 with patch("backend.api.api.get_config_loader") as mock_config:
                     mock_config.return_value.getboolean.return_value = False
                     response = client.post("/api/chat", json={"query": "Hello"})
-                    assert response.status_code == 200
-                    assert "未启用" in response.json()["answer"]
+                    assert response.status_code == 200, "AI 未启用时应优雅降级"
+                    assert "未启用" in response.json()["answer"], "应提示功能未启用"
 
     def test_chat_no_session_id(self, client, mock_rag_pipeline):
         """测试无session_id"""
         with patch("backend.api.api.get_rag_pipeline", return_value=mock_rag_pipeline):
             with patch("backend.api.api.get_rate_limiter", return_value=RateLimiter()):
                 response = client.post("/api/chat", json={"query": "Hello"})
-                assert response.status_code == 200
+                assert response.status_code == 200, "无 session_id 应自动创建新会话"
 
 
 class TestSessionsEndpoint:
@@ -264,50 +267,50 @@ class TestSessionsEndpoint:
         """测试获取会话列表"""
         with patch("backend.api.api.get_rag_pipeline", return_value=mock_rag_pipeline):
             response = client.get("/api/sessions")
-            assert response.status_code == 200
+            assert response.status_code == 200, "获取会话列表应返回 HTTP 200"
             sessions = response.json()["sessions"]
-            assert len(sessions) == 2
+            assert len(sessions) == 2, "应返回 2 个会话"
 
     def test_get_sessions_no_rag(self, client):
         """测试无RAG时获取会话"""
         with patch("backend.api.api.get_rag_pipeline", return_value=None):
             response = client.get("/api/sessions")
-            assert response.status_code == 200
-            assert response.json()["sessions"] == []
+            assert response.status_code == 200, "无 RAG 时应返回空列表"
+            assert response.json()["sessions"] == [], "sessions 应为空列表"
 
     def test_delete_session_success(self, client, mock_rag_pipeline):
         """测试删除会话"""
         with patch("backend.api.api.get_rag_pipeline", return_value=mock_rag_pipeline):
             response = client.delete("/api/sessions/test_session")
-            assert response.status_code == 200
-            assert response.json()["status"] == "success"
+            assert response.status_code == 200, "删除会话应返回 HTTP 200"
+            assert response.json()["status"] == "success", "删除状态应为 success"
 
     def test_delete_session_not_found(self, client, mock_rag_pipeline):
         """测试删除不存在的会话"""
         mock_rag_pipeline.clear_session.return_value = False
         with patch("backend.api.api.get_rag_pipeline", return_value=mock_rag_pipeline):
             response = client.delete("/api/sessions/nonexistent")
-            assert response.status_code == 404
+            assert response.status_code == 404, "删除不存在的会话应返回 HTTP 404"
 
     def test_delete_session_no_rag(self, client):
         """测试无RAG时删除会话"""
         with patch("backend.api.api.get_rag_pipeline", return_value=None):
             response = client.delete("/api/sessions/test")
-            assert response.status_code == 500
+            assert response.status_code == 500, "无 RAG 时删除应返回 HTTP 500"
 
     def test_get_session_messages_success(self, client, mock_rag_pipeline):
         """测试获取会话消息"""
         with patch("backend.api.api.get_rag_pipeline", return_value=mock_rag_pipeline):
             response = client.get("/api/sessions/test_session/messages")
-            assert response.status_code == 200
+            assert response.status_code == 200, "获取消息应返回 HTTP 200"
             messages = response.json()["messages"]
-            assert len(messages) == 2
+            assert len(messages) == 2, "应返回 2 条消息"
 
     def test_get_session_messages_no_rag(self, client):
         """测试无RAG时获取消息"""
         with patch("backend.api.api.get_rag_pipeline", return_value=None):
             response = client.get("/api/sessions/test/messages")
-            assert response.status_code == 500
+            assert response.status_code == 500, "无 RAG 时获取消息应返回 HTTP 500"
 
 
 class TestConfigEndpoint:
@@ -352,10 +355,10 @@ class TestConfigEndpoint:
             "backend.api.api.get_config_loader", return_value=mock_config_loader
         ):
             response = client.get("/api/config")
-            assert response.status_code == 200
+            assert response.status_code == 200, "获取配置应返回 HTTP 200"
             config = response.json()
-            assert "ai_model" in config
-            assert config["ai_model"]["enabled"]
+            assert "ai_model" in config, "配置应包含 ai_model 节"
+            assert config["ai_model"]["enabled"], "ai_model.enabled 应为 true"
 
     def test_update_config_success(self, client, mock_config_loader):
         """测试更新配置"""
@@ -364,8 +367,8 @@ class TestConfigEndpoint:
             "backend.api.api.get_config_loader", return_value=mock_config_loader
         ):
             response = client.post("/api/config", json={"ai_model": {"enabled": True}})
-            assert response.status_code == 200
-            assert response.json()["status"] == "success"
+            assert response.status_code == 200, "更新配置应返回 HTTP 200"
+            assert response.json()["status"] == "success", "更新状态应为 success"
 
     def test_update_config_invalid_data(self, client, mock_config_loader):
         """测试无效配置数据"""
@@ -373,7 +376,7 @@ class TestConfigEndpoint:
             "backend.api.api.get_config_loader", return_value=mock_config_loader
         ):
             response = client.post("/api/config", json="not a dict")
-            assert response.status_code == 400
+            assert response.status_code == 400, "无效配置数据应返回 HTTP 400"
 
     def test_update_config_empty_sections(self, client, mock_config_loader):
         """测试空配置节"""
@@ -381,8 +384,8 @@ class TestConfigEndpoint:
             "backend.api.api.get_config_loader", return_value=mock_config_loader
         ):
             response = client.post("/api/config", json={"unknown_section": {}})
-            assert response.status_code == 200
-            assert response.json()["status"] == "warning"
+            assert response.status_code == 200, "空配置节应被接受"
+            assert response.json()["status"] == "warning", "未知节应返回警告状态"
 
 
 class TestPreviewEndpoint:
@@ -417,14 +420,14 @@ class TestPreviewEndpoint:
                                 response = client.post(
                                     "/api/preview", json={"path": "/test/file.txt"}
                                 )
-                                assert response.status_code == 200
-                                assert "content" in response.json()
+                                assert response.status_code == 200, "预览成功应返回 HTTP 200"
+                                assert "content" in response.json(), "响应应包含 content 字段"
 
     def test_preview_empty_path(self, client):
         """测试空路径"""
         response = client.post("/api/preview", json={"path": ""})
-        assert response.status_code == 200
-        assert "错误" in response.json()["content"]
+        assert response.status_code == 200, "空路径应有处理"
+        assert "错误" in response.json()["content"], "空路径应返回错误消息"
 
     def test_preview_path_not_allowed(self, client, mock_config_loader):
         """测试不允许的路径"""
@@ -433,8 +436,8 @@ class TestPreviewEndpoint:
         ):
             with patch("backend.api.api.is_path_allowed", return_value=False):
                 response = client.post("/api/preview", json={"path": "/etc/passwd"})
-                assert response.status_code == 200
-                assert "超出允许范围" in response.json()["content"]
+                assert response.status_code == 200, "不允许的路径应有处理"
+                assert "超出允许范围" in response.json()["content"], "应提示路径超出范围"
 
     def test_preview_file_not_found(
         self, client, mock_index_manager, mock_config_loader
@@ -451,8 +454,8 @@ class TestPreviewEndpoint:
                         response = client.post(
                             "/api/preview", json={"path": "/test/nonexistent.txt"}
                         )
-                        assert response.status_code == 200
-                        assert "不存在" in response.json()["content"]
+                        assert response.status_code == 200, "文件不存在应有处理"
+                        assert "不存在" in response.json()["content"], "应提示文件不存在"
 
 
 class TestRebuildIndexEndpoint:
@@ -490,10 +493,10 @@ class TestRebuildIndexEndpoint:
                             False  # 禁用限流
                         )
                         response = client.post("/api/rebuild-index")
-                        assert response.status_code == 200
+                        assert response.status_code == 200, "重建索引成功应返回 HTTP 200"
                         result = response.json()
-                        assert result["status"] == "success"
-                        assert result["files_scanned"] == 100
+                        assert result["status"] == "success", "状态应为 success"
+                        assert result["files_scanned"] == 100, "应扫描 100 个文件"
 
     def test_rebuild_index_rate_limited(
         self, client, mock_file_scanner, mock_index_manager
@@ -509,7 +512,7 @@ class TestRebuildIndexEndpoint:
                     with patch("backend.api.api.get_config_loader") as mock_config:
                         mock_config.return_value.getboolean.return_value = True
                         response = client.post("/api/rebuild-index")
-                        assert response.status_code == 429
+                        assert response.status_code == 429, "限流时应返回 HTTP 429"
 
 
 class TestDirectoryEndpoints:
@@ -543,9 +546,9 @@ class TestDirectoryEndpoints:
                 with patch("os.path.exists", return_value=True):
                     with patch("os.path.isdir", return_value=True):
                         response = client.get("/api/directories")
-                        assert response.status_code == 200
+                        assert response.status_code == 200, "获取目录列表应返回 HTTP 200"
                         directories = response.json()["directories"]
-                        assert len(directories) >= 1
+                        assert len(directories) >= 1, "应至少返回 1 个目录"
 
     def test_add_directory_success(self, client, mock_config_loader, mock_file_monitor):
         """测试添加目录"""
@@ -562,8 +565,8 @@ class TestDirectoryEndpoints:
                                 response = client.post(
                                     "/api/directories", json={"path": "/new/path"}
                                 )
-                                assert response.status_code == 200
-                                assert response.json()["status"] == "success"
+                                assert response.status_code == 200, "添加目录应返回 HTTP 200"
+                                assert response.json()["status"] == "success", "状态应为 success"
 
     def test_add_directory_not_exist(
         self, client, mock_config_loader, mock_file_monitor
@@ -579,7 +582,7 @@ class TestDirectoryEndpoints:
                     response = client.post(
                         "/api/directories", json={"path": "/nonexistent"}
                     )
-                    assert response.status_code == 400
+                    assert response.status_code == 400, "添加不存在目录应返回 HTTP 400"
 
     def test_add_directory_not_directory(
         self, client, mock_config_loader, mock_file_monitor
@@ -596,7 +599,7 @@ class TestDirectoryEndpoints:
                         response = client.post(
                             "/api/directories", json={"path": "/test/file.txt"}
                         )
-                        assert response.status_code == 400
+                        assert response.status_code == 400, "添加非目录路径应返回 HTTP 400"
 
     def test_remove_directory_success(
         self, client, mock_config_loader, mock_file_monitor
@@ -612,8 +615,8 @@ class TestDirectoryEndpoints:
                     response = client.request(
                         "DELETE", "/api/directories", json={"path": "/test/path"}
                     )
-                    assert response.status_code == 200
-                    assert response.json()["status"] == "success"
+                    assert response.status_code == 200, "删除目录应返回 HTTP 200"
+                    assert response.json()["status"] == "success", "状态应为 success"
 
 
 class TestPathSecurity:
@@ -632,7 +635,7 @@ class TestPathSecurity:
                 with patch.object(Path, "exists", return_value=True):
                     with patch.object(Path, "is_dir", side_effect=lambda: True):
                         result = is_path_allowed("/allowed/path/file.txt", config)
-                        assert result
+                        assert result is True, "有效路径应该被允许"
 
     def test_is_path_allowed_traversal(self):
         """测试路径遍历攻击"""
@@ -640,7 +643,7 @@ class TestPathSecurity:
 
         config = Mock()
         result = is_path_allowed("../../../etc/passwd", config)
-        assert not result
+        assert result is False, "路径遍历攻击应被阻止"
 
     def test_is_path_allowed_empty(self):
         """测试空路径"""
@@ -648,7 +651,7 @@ class TestPathSecurity:
 
         config = Mock()
         result = is_path_allowed("", config)
-        assert not result
+        assert result is False, "空路径应被拒绝"
 
     def test_is_path_allowed_double_slash(self):
         """测试双斜杠路径"""
@@ -656,7 +659,7 @@ class TestPathSecurity:
 
         config = Mock()
         result = is_path_allowed("//etc/passwd", config)
-        assert not result
+        assert result is False, "双斜杠路径应被阻止"
 
     def test_is_path_allowed_null_byte(self):
         """测试空字节注入攻击"""
@@ -664,7 +667,7 @@ class TestPathSecurity:
 
         config = Mock()
         result = is_path_allowed("/allowed/path/file\x00.txt", config)
-        assert not result
+        assert result is False, "空字节注入应被阻止"
 
     def test_is_path_allowed_url_encoded_traversal(self):
         """测试URL编码的路径遍历攻击"""
@@ -673,7 +676,7 @@ class TestPathSecurity:
         config = Mock()
         # %2e%2e 是 .. 的URL编码
         result = is_path_allowed("/allowed/path/%2e%2e/%2e%2e/etc/passwd", config)
-        assert not result
+        assert result is False, "URL编码的路径遍历应被阻止"
 
     def test_is_path_allowed_double_url_encoded(self):
         """测试双重URL编码的路径遍历攻击"""
@@ -682,7 +685,7 @@ class TestPathSecurity:
         config = Mock()
         # %252e 是 %2e 的双重编码
         result = is_path_allowed("/allowed/path/%252e%252e/etc/passwd", config)
-        assert not result
+        assert result is False, "双重URL编码的路径遍历应被阻止"
 
     def test_is_path_allowed_dotdot_in_middle(self):
         """测试路径中间的 .. 遍历"""
@@ -690,7 +693,7 @@ class TestPathSecurity:
 
         config = Mock()
         result = is_path_allowed("/allowed/path/../secret/file.txt", config)
-        assert not result
+        assert result is False, "路径中间的 .. 遍历应被阻止"
 
     def test_is_path_allowed_none_path(self):
         """测试None路径"""
@@ -698,7 +701,7 @@ class TestPathSecurity:
 
         config = Mock()
         result = is_path_allowed(None, config)  # type: ignore[arg-type]
-        assert not result
+        assert result is False, "None 路径应被拒绝"
 
     def test_is_path_allowed_non_string_path(self):
         """测试非字符串路径"""
@@ -706,7 +709,7 @@ class TestPathSecurity:
 
         config = Mock()
         result = is_path_allowed(12345, config)  # type: ignore[arg-type]
-        assert not result
+        assert result is False, "非字符串路径应被拒绝"
 
     def test_is_path_allowed_no_scan_paths_configured(self):
         """测试未配置扫描路径时拒绝所有访问"""
@@ -715,7 +718,7 @@ class TestPathSecurity:
         config = Mock()
         config.get.return_value = ""
         result = is_path_allowed("/some/path/file.txt", config)
-        assert not result
+        assert result is False, "未配置扫描路径时应拒绝所有访问"
 
 
 class TestRootEndpoint:
@@ -726,15 +729,15 @@ class TestRootEndpoint:
         with patch("pathlib.Path.exists", return_value=True):
             with patch("pathlib.Path.read_text", return_value="<html>Test</html>"):
                 response = client.get("/")
-                assert response.status_code == 200
-                assert "<html>" in response.text
+                assert response.status_code == 200, "根端点应返回 HTTP 200"
+                assert "<html>" in response.text, "响应应包含 HTML 内容"
 
     def test_root_no_frontend(self, client):
         """测试无前端文件"""
         with patch("pathlib.Path.exists", return_value=False):
             response = client.get("/")
-            assert response.status_code == 200
-            assert "message" in response.json()
+            assert response.status_code == 200, "无前端时应优雅降级"
+            assert "message" in response.json(), "响应应包含 message 字段"
 
 
 class TestFaviconEndpoint:
@@ -745,13 +748,13 @@ class TestFaviconEndpoint:
         with patch("pathlib.Path.exists", return_value=True):
             with patch("pathlib.Path.read_bytes", return_value=b"fake_icon_data"):
                 response = client.get("/favicon.ico")
-                assert response.status_code == 200
+                assert response.status_code == 200, "favicon 存在时应返回 HTTP 200"
 
     def test_favicon_not_exists(self, client):
         """测试favicon不存在"""
         with patch("pathlib.Path.exists", return_value=False):
             response = client.get("/favicon.ico")
-            assert response.status_code == 204
+            assert response.status_code == 204, "favicon 不存在时应返回 HTTP 204"
 
 
 class TestModelTestEndpoint:
@@ -765,7 +768,7 @@ class TestModelTestEndpoint:
             mock_mm.return_value = mock_instance
             with patch("backend.api.api.get_config_loader", return_value=Mock()):
                 response = client.get("/api/model/test")
-                assert response.status_code == 200
+                assert response.status_code == 200, "模型连接成功应返回 HTTP 200"
 
     def test_test_model_connection_error(self, client):
         """测试模型连接失败"""
@@ -773,8 +776,8 @@ class TestModelTestEndpoint:
             mock_mm.side_effect = Exception("Connection failed")
             with patch("backend.api.api.get_config_loader", return_value=Mock()):
                 response = client.get("/api/model/test")
-                assert response.status_code == 200
-                assert response.json()["status"] == "error"
+                assert response.status_code == 200, "连接失败时应优雅降级"
+                assert response.json()["status"] == "error", "应返回 error 状态"
 
 
 # 保留原有的导入测试

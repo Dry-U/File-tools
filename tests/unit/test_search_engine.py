@@ -79,11 +79,11 @@ def test_search_engine_initialization():
     # 测试初始化
     search_engine = SearchEngine(mock_index_manager, mock_config)
 
-    assert search_engine is not None
-    assert search_engine.text_weight == 0.6
-    assert search_engine.vector_weight == 0.4
-    assert search_engine.max_results == 50
-    assert search_engine.enable_cache is True
+    assert search_engine is not None, "搜索引擎初始化失败"
+    assert search_engine.text_weight == 0.6, "text_weight 应为 0.6"
+    assert search_engine.vector_weight == 0.4, "vector_weight 应为 0.4"
+    assert search_engine.max_results == 50, "max_results 应为 50"
+    assert search_engine.enable_cache is True, "enable_cache 应为 True"
 
 
 def test_search_engine_weights():
@@ -116,8 +116,8 @@ def test_search_engine_weights():
     search_engine = SearchEngine(mock_index_manager, mock_config)
 
     # 验证权重被正确归一化
-    assert search_engine.text_weight == 0.0
-    assert search_engine.vector_weight == 1.0
+    assert search_engine.text_weight == 0.0, "text_weight 应为 0.0"
+    assert search_engine.vector_weight == 1.0, "vector_weight 应为 1.0"
 
 
 def test_cache_functionality():
@@ -170,10 +170,10 @@ def test_cache_functionality():
     search_engine = SearchEngine(mock_index_manager, mock_config)
 
     # 验证缓存被初始化
-    assert search_engine.enable_cache is True
-    assert search_engine.cache is not None
-    assert search_engine.cache_ttl == 3600
-    assert search_engine.cache_size == 100
+    assert search_engine.enable_cache is True, "enable_cache 应为 True"
+    assert search_engine.cache is not None, "cache 对象应被初始化"
+    assert search_engine.cache_ttl == 3600, "cache_ttl 应为 3600"
+    assert search_engine.cache_size == 100, "cache_size 应为 100"
 
 
 def test_search_method():
@@ -229,7 +229,7 @@ def test_search_method():
     # 测试搜索方法不抛出异常
     try:
         results = search_engine.search("test query")
-        assert isinstance(results, list)
+        assert isinstance(results, list), "搜索结果应为列表类型"
     except Exception:
         # 如果由于缺少依赖而失败，这也是可以接受的
         pass

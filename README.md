@@ -26,8 +26,8 @@
   - **理由:** 专为速度优化的嵌入计算库，支持多种模型提供商，资源消耗小。
 - **LLM 推理 (LLM Inference):** `llama-cpp-python` (本地) 或 OpenAI 兼容 API (远程)
   - **策略:** 默认关闭，按需启用，以节约资源。
-- **文档处理 (Document Processing):** `pdfminer.six`, `python-docx`, `openpyxl`, `markdown`
-  - **策略:** 选用轻量级、专注的解析库，避免引入 `pandas` 等大型依赖。
+- **文档处理 (Document Processing):** `PyMuPDF`, `pdfplumber`, `pdfminer.six`, `pypdf`, `python-docx`, `openpyxl`, `markdown`
+  - **策略:** 采用多级 fallback 解析链（PyMuPDF → pdfplumber → pdfminer.six → pypdf），确保各类文档的健壮解析。
 - **前端资源 (Frontend):** `Bootstrap`, 原生 `JS`, `bootstrap-icons`
   - **策略:** 保持前端资源的轻量化，通过 Pywebview 原生窗口呈现。
 
@@ -54,6 +54,7 @@ File-tools/
 │   │   ├── search_engine.py        # 搜索引擎
 │   │   ├── model_manager.py        # 模型管理器
 │   │   ├── rag_pipeline.py         # RAG 问答流水线
+│   │   ├── text_chunker.py         # 文本分块器
 │   │   ├── chat_history_db.py      # 聊天历史数据库
 │   │   ├── query_processor.py      # 查询处理器
 │   │   ├── privacy_guard.py        # 隐私保护
@@ -91,7 +92,11 @@ File-tools/
 │   ├── DEVELOPER_GUIDE.md  # 开发者文档
 │   └── USAGE_GUIDE.md      # 使用手册
 ├── scripts/                # 辅助脚本
-│   └── version_manager.py  # 版本管理
+│   ├── version_manager.py  # 版本管理
+│   ├── build_installer.py  # 安装包构建
+│   ├── run_tests.py        # 测试运行
+│   ├── allure_report.py    # Allure 报告管理
+│   └── install_allure.py   # Allure CLI 安装
 ├── config.yaml             # 配置文件
 ├── main.py                 # 应用入口
 ├── build.bat               # 构建脚本（Windows EXE）
@@ -173,6 +178,10 @@ API 服务在 `http://127.0.0.1:8000` 上运行；若端口被占用，将自动
 - 就绪检查：`GET /api/health/ready`
 - 存活检查：`GET /api/health/live`
 - 重建索引：`POST /api/rebuild-index`
+- 重建进度：`GET /api/rebuild-progress`
+- 流式重建：`POST /api/rebuild-index/stream`
+- 版本信息：`GET /api/version`
+- 初始化状态：`GET /api/initialization-status`
 
 搜索：
 - 搜索：`POST /api/search`
@@ -201,8 +210,9 @@ API 服务在 `http://127.0.0.1:8000` 上运行；若端口被占用，将自动
 
 - 自动扫描指定目录下的文档
 - 支持增量索引和实时更新
-- 多格式文档内容提取
+- 多格式文档内容提取（PyMuPDF → pdfplumber → pdfminer → pypdf fallback 链）
 - 智能文件过滤（排除系统文件、媒体文件等）
+- 索引重建进度实时反馈（支持 SSE 流式进度）
 
 ### 2. 混合检索
 
@@ -269,6 +279,28 @@ pytest tests/e2e/ -v
 
 # 性能测试
 pytest tests/integration/test_performance.py -v
+
+# 生成 Allure 测试报告
+python scripts/run_tests.py --allure
+
+# 按分类运行并生成报告
+python scripts/run_tests.py unit --allure
+python scripts/run_tests.py integration --allure
+```
+
+### 测试报告
+
+测试报告输出到 `reports/` 目录：
+- HTML 报告：`reports/test_report.html`
+- 覆盖率报告：`reports/coverage/index.html`
+- Allure 报告：`reports/allure-report/index.html`
+
+Allure 报告管理：
+```bash
+python scripts/allure_report.py generate  # 生成报告
+python scripts/allure_report.py open      # 生成并打开报告
+python scripts/allure_report.py serve     # 本地服务方式查看 (http://localhost:4040)
+python scripts/allure_report.py clean     # 清理所有报告
 ```
 
 ## 打包为 .exe
@@ -279,14 +311,24 @@ pytest tests/integration/test_performance.py -v
 # 安装 PyInstaller
 pip install pyinstaller
 
-# 使用 spec 文件打包
-pyinstaller file-tools.spec
-
-# 或者直接使用 build 脚本
-./build_exe.bat  # Windows
+# 使用 build.bat 多版本构建
+./build.bat cpu          # CPU 版本（默认，含完整 AI 功能）
+./build.bat gpu          # GPU 版本（支持 CUDA 加速）
+./build.bat slim         # Slim 版本（仅文件搜索，体积最小）
+./build.bat cpu noupx    # 不使用 UPX 压缩
+./build.bat cpu bump     # 构建并递增版本号
+./build.bat cpu installer # 构建并创建 NSIS 安装包
 ```
 
-打包后的可执行文件将在 `dist/` 目录中生成。
+多版本构建脚本支持以下参数：
+- `cpu` - CPU 版本（默认）
+- `gpu` - GPU 版本
+- `slim` - 精简版本
+- `noupx` - 禁用 UPX 压缩
+- `bump` - 递增 VERSION 中的版本号
+- `installer` - 创建 NSIS 安装包
+
+打包后的可执行文件将在 `dist/` 目录中生成（目录名如 `FileTools-v1.0.0-cpu/`）。
 
 ## 许可证
 

@@ -276,8 +276,8 @@ jobs:
         if: matrix.os == 'windows-latest'
         shell: bash
         run: |
-          ARCHIVE_DIR="FileTools-v${FILETOOLS_VERSION}-${{ matrix.build_mode }}"
-          if [ -f "dist/${ARCHIVE_DIR}/FileTools.exe" ]; then
+          ARCHIVE_DIR="filetools_${FILETOOLS_VERSION}_${{ matrix.build_mode }}"
+          if [ -f "dist/${ARCHIVE_DIR}/FileTools.exe" ] || [ -f "dist/${ARCHIVE_DIR}/filetools.exe" ]; then
             echo "FileTools.exe found"
           else
             echo "ERROR: FileTools.exe not found"
@@ -292,10 +292,11 @@ jobs:
       - name: Verify build output (Linux)
         if: matrix.os == 'ubuntu-latest'
         run: |
-          ARCHIVE_DIR="FileTools-v${FILETOOLS_VERSION}-${{ matrix.build_mode }}"
-          if [ -f "dist/${ARCHIVE_DIR}/FileTools" ]; then
+          ARCHIVE_DIR="filetools_${FILETOOLS_VERSION}_${{ matrix.build_mode }}"
+          if [ -f "dist/${ARCHIVE_DIR}/FileTools" ] || [ -f "dist/${ARCHIVE_DIR}/filetools" ]; then
             echo "FileTools binary found"
-            chmod +x "dist/${ARCHIVE_DIR}/FileTools"
+            [ -f "dist/${ARCHIVE_DIR}/FileTools" ] && chmod +x "dist/${ARCHIVE_DIR}/FileTools"
+            [ -f "dist/${ARCHIVE_DIR}/filetools" ] && chmod +x "dist/${ARCHIVE_DIR}/filetools"
             echo "Build output OK"
           else
             echo "ERROR: FileTools binary not found"
@@ -332,8 +333,8 @@ jobs:
           FILETOOLS_VERSION: ${{ env.FILETOOLS_VERSION }}
           FILETOOLS_BUILD_MODE: ${{ env.FILETOOLS_BUILD_MODE }}
         run: |
-          ARCHIVE_DIR="FileTools-v${FILETOOLS_VERSION}-${{ matrix.build_mode }}"
-          PACKAGE_NAME="FileTools-${{ matrix.build_mode }}-v${FILETOOLS_VERSION}-windows-x64-portable.zip"
+          ARCHIVE_DIR="filetools_${FILETOOLS_VERSION}_${{ matrix.build_mode }}"
+          PACKAGE_NAME="filetools_${FILETOOLS_VERSION}_${{ matrix.build_mode }}_windows_amd64_portable.zip"
           7z a "dist/${PACKAGE_NAME}" "dist/${ARCHIVE_DIR}"
           echo "Created: dist/${PACKAGE_NAME}"
 
@@ -345,11 +346,8 @@ jobs:
           FILETOOLS_BUILD_MODE: ${{ env.FILETOOLS_BUILD_MODE }}
         run: |
           set -e
-          ARCHIVE_DIR="FileTools-v${FILETOOLS_VERSION}-${{ matrix.build_mode }}"
-          DEB_NAME="filetools-${{ matrix.build_mode }}"
-          DEB_VERSION="${FILETOOLS_VERSION}"
-          DEB_ARCH="amd64"
-          DEB_PKG="${DEB_NAME}_${DEB_VERSION}_${DEB_ARCH}.deb"
+          ARCHIVE_DIR="filetools_${FILETOOLS_VERSION}_${{ matrix.build_mode }}"
+          DEB_PKG="filetools_${FILETOOLS_VERSION}_${{ matrix.build_mode }}_linux_amd64.deb"
 
           echo "Checking build directory: dist/${ARCHIVE_DIR}"
           ls -lah "dist/${ARCHIVE_DIR}" 2>/dev/null || { echo "ERROR: Build directory not found"; exit 1; }
@@ -419,8 +417,8 @@ jobs:
           FILETOOLS_VERSION: ${{ env.FILETOOLS_VERSION }}
           FILETOOLS_BUILD_MODE: ${{ env.FILETOOLS_BUILD_MODE }}
         run: |
-          ARCHIVE_DIR="FileTools-v${FILETOOLS_VERSION}-${{ matrix.build_mode }}"
-          PACKAGE_NAME="FileTools-${{ matrix.build_mode }}-v${FILETOOLS_VERSION}-linux-x64-portable.tar.gz"
+          ARCHIVE_DIR="filetools_${FILETOOLS_VERSION}_${{ matrix.build_mode }}"
+          PACKAGE_NAME="filetools_${FILETOOLS_VERSION}_${{ matrix.build_mode }}_linux_amd64_portable.tar.gz"
           tar -czf "dist/${PACKAGE_NAME}" -C dist "${ARCHIVE_DIR}"
           echo "Created: dist/${PACKAGE_NAME}"
 
@@ -431,6 +429,7 @@ jobs:
           rm -rf build/
           # Remove unpacked application directory (keep only final packages)
           rm -rf dist/FileTools-v*/
+          rm -rf dist/filetools_*/
           # Remove generated NSIS scripts
           rm -f installer-*.nsi
           echo "Cleaned up build intermediates"
@@ -441,9 +440,9 @@ jobs:
         with:
           name: file-tools-${{ matrix.build_mode }}-${{ matrix.os }}-v${{ env.FILETOOLS_VERSION }}
           path: |
-            dist/*Setup.exe
-            dist/*portable.zip
-            dist/*portable.tar.gz
+            dist/*_setup.exe
+            dist/*_portable.zip
+            dist/*_portable.tar.gz
             dist/*.deb
           if-no-files-found: warn
           retention-days: 30
@@ -472,52 +471,94 @@ jobs:
         with:
           # Only match final packages, not intermediate build files
           files: |
-            release-artifacts/**/*Setup.exe
-            release-artifacts/**/*portable.zip
+            release-artifacts/**/*_setup.exe
+            release-artifacts/**/*_portable.zip
             release-artifacts/**/*.deb
-            release-artifacts/**/*portable.tar.gz
+            release-artifacts/**/*_portable.tar.gz
           generate_release_notes: true
           draft: false
           prerelease: false
           body: |
-            ## FileTools v${{ github.ref_name }}
+            ## FileTools ${{ github.ref_name }}
+
+            ### 更新日志
+            查看完整变更日志: https://github.com/${{ github.repository }}/compare/v1.0.10...${{ github.ref_name }}
 
             ### 版本说明
 
-            | 版本 | 说明 | 适用场景 |
-            |------|------|----------|
-            | **Slim** | 最小化版本，仅文件搜索 | 轻量使用，无 AI 需求 |
-            | **CPU** | 完整 AI 功能，纯 CPU 推理 | 无 GPU 的普通电脑 |
-            | **GPU** | 完整 AI 功能，CUDA 加速 | 有 NVIDIA GPU 的环境 |
+            | 版本 | 说明 | 体积 | 适用场景 |
+            |------|------|------|----------|
+            | **Slim** | 文件搜索，无 AI | ~100 MB | 轻量使用，仅需搜索功能 |
+            | **CPU** | 完整 AI，CPU 推理 | ~260 MB | 无 GPU 电脑，需要 AI 问答 |
+            | **GPU** | 完整 AI，CUDA 加速 | ~260 MB | NVIDIA 显卡，需要 GPU 加速 |
 
-            ### 下载文件说明
+            ### 下载说明
 
-            #### Windows (x64)
-            | 文件名格式 | 类型 | 说明 |
-            |------------|------|------|
-            | `FileTools-slim-v*-Setup.exe` | 安装程序 | NSIS 安装包，双击安装 |
-            | `FileTools-cpu-v*-Setup.exe` | 安装程序 | NSIS 安装包，双击安装 |
-            | `FileTools-gpu-v*-Setup.exe` | 安装程序 | NSIS 安装包，双击安装 |
-            | `FileTools-*-v*-windows-x64-portable.zip` | 便携版 | 解压即用，无需安装 |
+            #### 📦 命名规则
+            ```
+            filetools_{版本号}_{模式}_{平台}_{架构}_{类型}.{扩展名}
+            ```
+            - **版本号**: 如 1.1.0
+            - **模式**: slim / cpu / gpu
+            - **平台**: windows / linux
+            - **架构**: amd64 (64位)
+            - **类型**: setup (安装程序) / portable (便携版)
 
-            安装程序会自动安装到 `C:\Program Files\FileTools\`，创建桌面快捷方式和开始菜单，支持控制面板卸载。
+            #### 🪟 Windows (x64, 64位)
+            | 文件名 | 大小 | 类型 | 说明 |
+            |--------|------|------|------|
+            | `filetools_1.1.0_slim_windows_amd64_setup.exe` | ~100 MB | 安装程序 | 推荐：自动安装，带卸载 |
+            | `filetools_1.1.0_cpu_windows_amd64_setup.exe` | ~260 MB | 安装程序 | AI 功能，纯 CPU |
+            | `filetools_1.1.0_gpu_windows_amd64_setup.exe` | ~260 MB | 安装程序 | AI 功能，CUDA 加速 |
+            | `filetools_1.1.0_*_windows_amd64_portable.zip` | 同左 | 便携版 | 解压即用，不写注册表 |
 
-            #### Linux (x64, Ubuntu/Debian)
-            | 文件名格式 | 类型 | 说明 |
-            |------------|------|------|
-            | `filetools-slim_*_amd64.deb` | 安装包 | `sudo dpkg -i filetools-slim_*_amd64.deb` |
-            | `FileTools-slim-v*-linux-x64-portable.tar.gz` | 便携版 | 解压即用，无需安装 |
+            - **安装版**：安装到 `C:\Program Files\FileTools\`，创建快捷方式
+            - **便携版**：解压到任意位置，双击 `FileTools.exe` 运行
 
-            .deb 安装到 `/opt/filetools/`，创建 `filetools` 命令行入口和桌面快捷方式。
+            #### 🐧 Linux (x64, 64位, Ubuntu/Debian)
+            > **注意**：Linux AI 版本（cpu/gpu）体积超过 GitHub 2GB 限制，请使用以下方式安装：
 
-            > `_internal/` 文件夹包含 Python 运行时依赖，请勿删除。这是正常结构。
+            **方式 1: pip 安装（推荐）**
+            ```bash
+            pip install filetools[ai-cpu]   # CPU 版本
+            pip install filetools[ai-gpu]   # GPU 版本
+            filetools  # 启动
+            ```
+
+            **方式 2: Docker**
+            ```bash
+            docker run -p 8000:8000 filetools:cpu
+            ```
+
+            **方式 3: 仅文件搜索（Release 下载）**
+            | 文件名 | 大小 | 说明 |
+            |--------|------|------|
+            | `filetools_1.1.0_slim_linux_amd64_portable.tar.gz` | ~128 MB | 便携版，解压即用 |
+            | `filetools_1.1.0_slim_linux_amd64.deb` | ~128 MB | 安装包，`sudo dpkg -i` |
 
             ### 快速开始
 
-            1. 下载对应平台和版本的安装包
-            2. Windows: 双击运行 `Setup.exe`，或解压 `portable.zip` 后运行 `FileTools.exe`
-            3. Linux: `sudo dpkg -i *.deb`，或解压 tar.gz 后运行 `./FileTools`
-            4. 启动后浏览器自动打开 `http://127.0.0.1:8000`
+            **Windows**
+            1. 下载对应版本的 `*_setup.exe` 或 `*_portable.zip`
+            2. 运行安装程序或解压后双击 `FileTools.exe`
+            3. 浏览器自动打开 http://127.0.0.1:8000
+
+            **Linux**
+            ```bash
+            # 方式 1: pip 安装 AI 版本
+            pip install filetools[ai-cpu]
+            filetools
+
+            # 方式 2: 下载 slim 便携版
+            tar -xzf filetools_1.1.0_slim_linux_amd64_portable.tar.gz
+            cd filetools_1.1.0_slim_linux_amd64/
+            ./FileTools
+            ```
+
+            ### 系统要求
+            - **Windows**: Windows 10/11 64位
+            - **Linux**: Ubuntu 20.04+ / Debian 11+ (64位)
+            - **GPU 版本**: NVIDIA 显卡 + CUDA 驱动 11.8+
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 

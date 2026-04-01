@@ -90,7 +90,7 @@ def build_installer(nsis_script: str, version: str, mode: str) -> str:
 
     # Find generated installer
     project_root = Path(__file__).parent.parent
-    pattern = f"FileTools-{mode}-v{version}-Setup.exe"
+    pattern = f"filetools_{version}_{mode}_windows_amd64_setup.exe"
     installer_path = project_root / "dist" / pattern
 
     if installer_path.exists():
@@ -98,11 +98,10 @@ def build_installer(nsis_script: str, version: str, mode: str) -> str:
         print(f"[OK] Installer: {installer_path} ({size_mb:.1f} MB)")
         return str(installer_path)
     else:
-        for f in (project_root / "dist").glob("*.exe"):
-            if "Setup" in f.name:
-                size_mb = f.stat().st_size / (1024 * 1024)
-                print(f"[OK] Installer: {f} ({size_mb:.1f} MB)")
-                return str(f)
+        for f in (project_root / "dist").glob("*_setup.exe"):
+            size_mb = f.stat().st_size / (1024 * 1024)
+            print(f"[OK] Installer: {f} ({size_mb:.1f} MB)")
+            return str(f)
 
     print("[WARN] Generated installer not found")
     return ""
@@ -123,7 +122,7 @@ def create_portable_archive(version: str, mode: str) -> str:
             print(f"[ERROR] Build directory not found")
             return ""
 
-    archive_name = f"FileTools-{mode}-v{version}-portable.zip"
+    archive_name = f"filetools_{version}_{mode}_windows_amd64_portable.zip"
     archive_path = project_root / "dist" / archive_name
 
     print(f"[PACK] Creating portable archive: {archive_name}")

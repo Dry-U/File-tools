@@ -340,8 +340,10 @@ app.include_router(system.router, prefix="/api")
 tests/
 ├── unit/               # 单元测试 - 测试独立函数和方法
 │   ├── test_config_loader.py
+│   ├── test_config_validator.py
 │   ├── test_document_parser.py
 │   ├── test_file_scanner.py
+│   ├── test_async_file_scanner.py
 │   ├── test_file_monitor.py
 │   ├── test_index_manager.py
 │   ├── test_search_engine.py
@@ -351,11 +353,16 @@ tests/
 │   ├── test_query_processor.py
 │   ├── test_privacy_guard.py
 │   ├── test_chat_history_db.py
-│   └── test_logger.py
+│   ├── test_sharded_cache.py
+│   ├── test_metrics.py
+│   ├── test_exceptions.py
+│   ├── test_logger.py
+│   ├── test_edge_cases.py      # 边界值测试
+│   └── test_concurrency.py    # 并发安全测试
 ├── integration/        # 集成测试 - 测试模块间协作
 │   ├── test_file_processing_integration.py
 │   ├── test_rag_workflow.py
-│   └── test_performance.py
+│   └── test_performance.py     # 性能基准测试
 ├── api/                # API 测试 - 测试 API 端点
 │   ├── test_web_api.py
 │   └── test_web_api_simple.py
@@ -364,6 +371,11 @@ tests/
     ├── test_ui_search.py
     └── test_ui_settings.py
 ```
+
+**测试辅助文件：**
+- `tests/conftest.py` - pytest fixtures 和配置
+- `tests/factories.py` - Mock 工厂类
+- `tests/utils.py` - 测试工具函数
 
 ### 运行测试
 
@@ -382,6 +394,32 @@ pytest tests/api/ -v
 
 # 运行端到端测试
 pytest tests/e2e/ -v
+
+# 性能测试
+pytest tests/integration/test_performance.py -v
+
+# 生成 Allure 测试报告
+python scripts/run_tests.py --allure
+
+# 按分类运行并生成报告
+python scripts/run_tests.py unit --allure
+python scripts/run_tests.py integration --allure
+```
+
+### 测试报告 (Allure)
+
+测试报告输出到 `reports/` 目录：
+- HTML 报告：`reports/test_report.html`
+- 覆盖率报告：`reports/coverage/index.html`
+- Allure 结果：`reports/allure-results/`
+- Allure 报告：`reports/allure-report/index.html`
+
+Allure 报告管理：
+```bash
+python scripts/allure_report.py generate  # 从现有结果生成报告
+python scripts/allure_report.py open      # 生成并打开报告
+python scripts/allure_report.py serve     # 本地服务方式查看 (http://localhost:4040)
+python scripts/allure_report.py clean     # 清理所有报告
 ```
 
 ### 测试覆盖目标
