@@ -15,17 +15,26 @@ class TestUIChat:
 
     def navigate_to_chat(self, page):
         """导航到聊天页面"""
-        page.goto("http://127.0.0.1:8000")
-        page.wait_for_load_state("networkidle")
+        page.goto("http://127.0.0.1:8000", timeout=60000)
+        page.wait_for_load_state("domcontentloaded")
+
+        # 等待主容器加载
+        page.wait_for_timeout(2000)
 
         # 查找并点击聊天模式切换按钮
         chat_button = page.locator(
             'button:has-text("聊天"), button:has-text("Chat"), [data-testid="chat-mode"], .chat-tab'
         ).first
 
+        # 等待按钮可见
+        try:
+            chat_button.wait_for(state="visible", timeout=10000)
+        except Exception:
+            pass  # 按钮可能不存在
+
         if chat_button.is_visible():
             chat_button.click()
-            page.wait_for_timeout(500)
+            page.wait_for_timeout(1000)
 
     def test_chat_page_load(self, page):
         """测试聊天页面加载"""

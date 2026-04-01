@@ -13,8 +13,7 @@
 
 import pytest
 import time
-from unittest.mock import Mock, MagicMock, patch
-from typing import List, Dict, Any
+from unittest.mock import Mock
 
 
 class TestSearchEdgeCases:
@@ -429,7 +428,7 @@ class TestNegativeInputValidation:
             # 如果没有抛出异常，检查返回值
             result = mock_search_engine.search.return_value
             assert isinstance(result, list)
-        except (TypeError, ValueError) as e:
+        except (TypeError, ValueError):
             # 应该抛出异常
             assert True
 
@@ -563,19 +562,14 @@ class TestQueryProcessorEdgeCases:
         """测试空查询"""
         from backend.core.query_processor import QueryProcessor
 
-        with patch("backend.core.query_processor.ConfigLoader"):
-            try:
-                processor = QueryProcessor.__new__(QueryProcessor)
-                processor.config_loader = Mock()
-                processor.config_loader.getboolean.return_value = False
-                processor.config_loader.get.return_value = False
-                processor._enabled = False
-
-                result = processor.process("")
-                assert result == "" or result is not None
-            except Exception:
-                # 可能初始化失败，这是可接受的
-                pass
+        # QueryProcessor 不使用 ConfigLoader，直接测试 process 方法
+        try:
+            processor = QueryProcessor()
+            result = processor.process("")
+            assert result == [] or result is not None
+        except Exception:
+            # 可能初始化失败，这是可接受的
+            pass
 
     @pytest.mark.unit
     def test_query_processor_whitespace_only(self):
@@ -593,14 +587,3 @@ class TestQueryProcessorEdgeCases:
         if len(long_query) > max_length:
             truncated = long_query[:max_length]
             assert len(truncated) == max_length
-
-
-# 导出 edge case 数据供其他测试使用
-__all__ = [
-    "edge_case_search_queries",
-    "edge_case_document_paths",
-    "edge_case_file_sizes",
-    "edge_case_scores",
-    "edge_case_timestamps",
-    "edge_case_user_inputs",
-]

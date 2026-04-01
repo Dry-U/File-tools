@@ -11,7 +11,6 @@ Allure CLI 安装脚本
 import argparse
 import urllib.request
 import zipfile
-import shutil
 import os
 from pathlib import Path
 

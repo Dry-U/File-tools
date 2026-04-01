@@ -17,8 +17,9 @@ from backend.utils.network import get_client_ip
 from backend.api.dependencies import (
     get_search_engine,
     get_config_loader,
-    get_rate_limiter,
+    get_rate_limiter as rate_limiter_dependency,
     get_index_manager,
+    get_is_path_allowed,
 )
 from backend.core.constants import ALLOWED_MIME_TYPES, MAX_PREVIEW_LENGTH
 
@@ -66,6 +67,7 @@ async def search(
     http_request: Request,
     search_engine=Depends(get_search_engine),
     config_loader: ConfigLoader = Depends(get_config_loader),
+    limiter=Depends(rate_limiter_dependency),
 ):
     """使用搜索引擎执行搜索
 
@@ -79,7 +81,6 @@ async def search(
         HTTPException: 当搜索失败或限流触发时
     """
     # 限流检查
-    limiter = get_rate_limiter()
     if config_loader.getboolean("security", "rate_limiter.enabled", True):
         # 获取客户端IP（使用安全方式）
         client_ip = get_client_ip(http_request, config_loader)
@@ -172,10 +173,9 @@ async def preview_file(
     request: Request,
     index_manager=Depends(get_index_manager),
     config_loader: ConfigLoader = Depends(get_config_loader),
+    is_path_allowed=Depends(get_is_path_allowed),
 ):
     """预览文件内容，带有路径遍历保护"""
-    from backend.api.dependencies import is_path_allowed
-
     try:
         body = await request.json()
         path = body.get("path", "")

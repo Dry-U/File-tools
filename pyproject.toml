@@ -150,7 +150,6 @@ asyncio_mode = "auto"
 [tool.ruff]
 # 忽略 E402（模块级导入不在顶部）和 F541（无占位符的f-string）
 # 这些是延迟加载重型依赖的设计选择
-ignore = ["E402", "F541"]
 
 [tool.ruff.lint]
 # 同样在lint规则中配置

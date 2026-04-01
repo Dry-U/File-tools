@@ -32,28 +32,54 @@ class TestUISearch:
     def test_search_input_visible(self, page):
         """测试搜索输入框可见"""
         page.goto("http://127.0.0.1:8000")
-        page.wait_for_load_state("networkidle")
+        page.wait_for_load_state("domcontentloaded")
 
         # 查找搜索输入框
         search_input = page.locator(
             'input[type="text"], input[placeholder*="搜索"], input[placeholder*="search"]'
         ).first
+
+        # 等待输入框可见
+        search_input.wait_for(state="visible", timeout=5000)
         assert search_input.is_visible()
 
     def test_search_button_visible(self, page):
         """测试搜索按钮可见"""
         page.goto("http://127.0.0.1:8000")
-        page.wait_for_load_state("networkidle")
+
+        # 等待主内容加载完成
+        page.wait_for_load_state("domcontentloaded")
+        page.wait_for_timeout(1000)  # 额外等待JS执行
 
         # 查找搜索按钮（可能是按钮或图标）
         search_button = page.locator(
             'button:has-text("搜索"), button:has-text("Search"), .search-button, [data-testid="search-button"]'
-        ).first
+        )
+
+        # 等待按钮可见（最多等5秒）
+        button_visible = False
+        try:
+            search_button.first.wait_for(state="visible", timeout=5000)
+            button_visible = True
+        except Exception:
+            pass  # 按钮可能不存在
+
+        # 如果按钮存在，验证它可见
+        if button_visible:
+            assert search_button.first.is_visible()
+            return
 
         # 如果没有找到特定按钮，检查是否有可点击的搜索图标
-        if not search_button.is_visible():
-            search_icon = page.locator('.search-icon, [class*="search"]').first
-            assert search_icon.is_visible()
+        search_icon = page.locator('.search-icon, [class*="search"]').first
+        icon_visible = False
+        try:
+            search_icon.wait_for(state="visible", timeout=3000)
+            icon_visible = True
+        except Exception:
+            pass
+
+        # 至少有一种搜索方式应该可用
+        assert button_visible or icon_visible, "搜索按钮和搜索图标都不存在"
 
     def test_perform_search(self, page):
         """测试执行搜索"""

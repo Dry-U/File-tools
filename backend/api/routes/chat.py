@@ -11,7 +11,7 @@ from backend.utils.network import get_client_ip
 from backend.api.dependencies import (
     get_rag_pipeline,
     get_config_loader,
-    get_rate_limiter,
+    get_rate_limiter as rate_limiter_dependency,
 )
 
 logger = get_logger(__name__)
@@ -24,6 +24,7 @@ async def chat(
     http_request: Request,
     rag_pipeline=Depends(get_rag_pipeline),
     config_loader: ConfigLoader = Depends(get_config_loader),
+    limiter=Depends(rate_limiter_dependency),
 ):
     """与RAG系统进行对话
 
@@ -37,7 +38,6 @@ async def chat(
         HTTPException: 当对话失败或限流触发时
     """
     # 限流检查
-    limiter = get_rate_limiter()
     if config_loader.getboolean("security", "rate_limiter.enabled", True):
         # 获取客户端IP（使用安全方式）
         client_ip = get_client_ip(http_request, config_loader)
@@ -120,6 +120,8 @@ async def delete_session(session_id: str, rag_pipeline=Depends(get_rag_pipeline)
             return {"status": "success", "message": "会话已删除"}
         else:
             raise HTTPException(status_code=404, detail="会话不存在")
+    except HTTPException:
+        raise  # 重新抛出 HTTPException，保持原始状态码
     except Exception as e:
         logger.error(f"删除会话错误: {str(e)}")
         raise HTTPException(status_code=500, detail=f"删除会话失败: {str(e)}")

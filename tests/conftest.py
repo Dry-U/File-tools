@@ -10,14 +10,13 @@ pytest 配置文件 - 测试环境和 fixtures
 
 import pytest
 import pytest_asyncio
-import tempfile
 import sys
 import os
+import time
 import threading
 import concurrent.futures
-from unittest.mock import Mock, MagicMock, patch
+from unittest.mock import Mock, MagicMock
 from typing import List, Dict, Any, Callable
-from collections.abc import Generator
 
 # 添加项目根目录到Python路径（只需在顶层 conftest.py 中添加一次）
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))

@@ -19,3 +19,11 @@ def browser_launch_options():
 def viewport_size():
     """视口大小"""
     return {"width": 1280, "height": 720}
+
+
+@pytest.fixture
+def page(page):
+    """增强的page fixture，带有默认等待"""
+    # 等待 DOM content loaded 而不是 networkidle，后者可能不够
+    page.set_default_timeout(10000)
+    return page

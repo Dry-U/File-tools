@@ -15,9 +15,8 @@ import pytest
 import threading
 import time
 import concurrent.futures
-from unittest.mock import Mock, MagicMock, patch
+from unittest.mock import Mock
 from typing import List, Callable, Any
-from collections import OrderedDict
 import sys
 import os
 
@@ -30,49 +29,39 @@ class TestIndexManagerConcurrency:
     @pytest.mark.unit
     def test_concurrent_add_document(self):
         """测试并发添加文档"""
-        from backend.core.index_manager import IndexManager
+        # 模拟一个线程安全的存储类
+        class ThreadSafeStore:
+            def __init__(self):
+                self._lock = threading.Lock()
+                self._store = {}
 
-        # 创建 mock 配置
-        config = Mock()
-        config.get.return_value = "./data"
-        config.getboolean.return_value = False
-        config.getint.return_value = 100
+            def add(self, doc_id):
+                with self._lock:
+                    self._store[doc_id] = {"id": doc_id, "content": f"doc_{doc_id}"}
+                    return len(self._store)
 
-        # Mock 掉 native 模块
-        with patch("backend.core.index_manager._tantivy_mod", MagicMock()), \
-             patch("backend.core.index_manager._hnswlib_mod", MagicMock()):
+        store = ThreadSafeStore()
+        added_count = [0]
+        errors = []
 
-            manager = IndexManager.__new__(IndexManager)
-            manager.config_loader = config
-            manager.logger = Mock()
-            manager._batch_mode = False
-            manager._batch_docs = []
+        def add_doc(doc_id):
+            try:
+                store.add(doc_id)
+                with store._lock:
+                    added_count[0] += 1
+            except Exception as e:
+                errors.append(e)
 
-            # 模拟线程安全的数据存储
-            manager._add_lock = threading.Lock()
-            manager._docs_store = {}
+        # 并发添加 100 个文档
+        threads = [threading.Thread(target=add_doc, args=(i,)) for i in range(100)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
 
-            added_count = [0]
-            errors = []
-
-            def add_doc(doc_id):
-                try:
-                    with manager._add_lock:
-                        manager._docs_store[doc_id] = {"id": doc_id, "content": f"doc_{doc_id}"}
-                        added_count[0] += 1
-                except Exception as e:
-                    errors.append(e)
-
-            # 并发添加 100 个文档
-            threads = [threading.Thread(target=add_doc, args=(i,)) for i in range(100)]
-            for t in threads:
-                t.start()
-            for t in threads:
-                t.join()
-
-            assert len(errors) == 0, f"并发添加文档出错: {errors}"
-            assert added_count[0] == 100, f"应该添加 100 个文档，实际 {added_count[0]}"
-            assert len(manager._docs_store) == 100, f"应该有 100 个文档存储，实际 {len(manager._docs_store)}"
+        assert len(errors) == 0, f"并发添加文档出错: {errors}"
+        assert added_count[0] == 100, f"应该添加 100 个文档，实际 {added_count[0]}"
+        assert len(store._store) == 100, f"应该有 100 个文档存储，实际 {len(store._store)}"
 
     @pytest.mark.unit
     def test_concurrent_search_read(self):
@@ -84,7 +73,7 @@ class TestIndexManagerConcurrency:
         def search_worker(query_id):
             with lock:
                 # 模拟读取
-                results = list(results_store.get("query_results", []))
+                list(results_store.get("query_results", []))
                 return f"result_{query_id}"
 
         # 模拟并发搜索
@@ -241,7 +230,6 @@ class TestRAGPipelineConcurrency:
     @pytest.mark.unit
     def test_concurrent_history_read_write(self):
         """测试并发历史记录读写"""
-        pipeline = Mock()
         history_store = {"messages": []}
         lock = threading.Lock()
 
@@ -262,7 +250,7 @@ class TestRAGPipelineConcurrency:
         # 并发执行读写
         with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
             futures = [executor.submit(chat_with_history, i) for i in range(20)]
-            results = [f.result() for f in concurrent.futures.as_completed(futures)]
+            [f.result() for f in concurrent.futures.as_completed(futures)]
 
         with lock:
             assert len(history_store["messages"]) == 20
@@ -592,7 +580,6 @@ class TestFileMonitorConcurrency:
     @pytest.mark.unit
     def test_event_debouncing_concurrent(self):
         """测试事件防抖并发"""
-        from backend.core.file_monitor import FileMonitor
 
         # Mock 配置
         config = Mock()

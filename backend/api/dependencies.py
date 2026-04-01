@@ -152,6 +152,12 @@ def get_file_monitor(
     return _app.state.file_monitor
 
 
+def get_is_path_allowed():
+    """返回 is_path_allowed 函数作为依赖注入"""
+    from backend.api.dependencies import is_path_allowed as _is_path_allowed
+    return _is_path_allowed
+
+
 def is_path_allowed(path: str, config_loader: ConfigLoader) -> bool:
     """
     检查路径是否在允许范围内，防止路径遍历攻击

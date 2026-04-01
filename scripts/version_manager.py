@@ -7,7 +7,6 @@
 
 import os
 import re
-import sys
 from pathlib import Path
 
 VERSION_FILE = Path(__file__).parent.parent / "VERSION"
@@ -51,8 +50,6 @@ def write_version(version):
 def get_version_for_ci():
     """为 CI 获取版本号（自动递增 patch）"""
     current = read_version()
-    # 如果是开发版本，使用当前版本号 + build 号
-    build_num = os.environ.get('GITHUB_RUN_NUMBER', '0')
 
     # 如果是 tag 触发，使用 tag 的版本号
     ref = os.environ.get('GITHUB_REF', '')

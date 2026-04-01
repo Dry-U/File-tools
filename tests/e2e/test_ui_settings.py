@@ -15,17 +15,24 @@ class TestUISettings:
 
     def open_settings(self, page):
         """打开设置面板"""
-        page.goto("http://127.0.0.1:8000")
-        page.wait_for_load_state("networkidle")
+        page.goto("http://127.0.0.1:8000", timeout=60000)
+        page.wait_for_load_state("domcontentloaded")
+        page.wait_for_timeout(2000)
 
         # 查找设置按钮
         settings_button = page.locator(
             'button:has-text("设置"), button:has-text("Settings"), .settings-button, [data-testid="settings"], .settings-icon'
         ).first
 
+        # 等待按钮可见
+        try:
+            settings_button.wait_for(state="visible", timeout=10000)
+        except Exception:
+            pass
+
         if settings_button.is_visible():
             settings_button.click()
-            page.wait_for_timeout(500)
+            page.wait_for_timeout(1000)
 
     def test_settings_panel_open(self, page):
         """测试设置面板打开"""

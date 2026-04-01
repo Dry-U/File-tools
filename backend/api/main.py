@@ -74,6 +74,12 @@ class RateLimiter:
 
     def is_allowed(self, key: str, max_requests: int = 10, window: int = 60) -> bool:
         """检查是否允许请求"""
+        # 验证参数
+        if window <= 0:
+            return False
+        if max_requests <= 0:
+            return False
+
         now = time.time()
 
         # 定期清理过期记录

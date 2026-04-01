@@ -14,7 +14,7 @@ from backend.api.dependencies import (
     get_config_loader,
     get_index_manager,
     get_file_scanner,
-    get_rate_limiter,
+    get_rate_limiter as rate_limiter_dependency,
 )
 from backend.utils.network import get_client_ip
 from backend.api.models import HealthCheckResponse
@@ -62,10 +62,10 @@ async def rebuild_index(
     request: Request,
     config_loader: ConfigLoader = Depends(get_config_loader),
     file_scanner=Depends(get_file_scanner),
+    limiter=Depends(rate_limiter_dependency),
 ):
     """重建文件索引（同步版本，保留向后兼容）"""
     # 限流检查
-    limiter = get_rate_limiter()
     if config_loader.getboolean("security", "rate_limiter.enabled", True):
         client_ip = get_client_ip(request, config_loader)
         max_req = config_loader.getint("security", "rate_limiter.rebuild_limit", 1)
@@ -121,6 +121,7 @@ async def rebuild_index_stream(
     request: Request,
     config_loader: ConfigLoader = Depends(get_config_loader),
     file_scanner=Depends(get_file_scanner),
+    limiter=Depends(rate_limiter_dependency),
 ):
     """重建文件索引（带进度流式返回）"""
     from fastapi.responses import StreamingResponse
@@ -128,7 +129,6 @@ async def rebuild_index_stream(
     import asyncio
 
     # 限流检查
-    limiter = get_rate_limiter()
     if config_loader.getboolean("security", "rate_limiter.enabled", True):
         client_ip = get_client_ip(request, config_loader)
         max_req = config_loader.getint("security", "rate_limiter.rebuild_limit", 1)

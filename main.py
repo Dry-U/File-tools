@@ -169,9 +169,14 @@ def run_desktop_app():
     # 设置退出标志
     exit_event = threading.Event()
     window_ref = {'window': None, 'closed': False}
+    app_ready = threading.Event()  # 标记应用是否已就绪
 
     # 信号处理函数
     def signal_handler(signum, _frame):
+        # 如果应用还未就绪（窗口未显示），忽略信号
+        if not app_ready.is_set():
+            logger.debug(f"忽略信号 {signum}，应用尚未就绪")
+            return
         logger.info(f"收到信号 {signum}，准备退出...")
         exit_event.set()
         # 直接关闭窗口，避免重复调用
@@ -254,6 +259,9 @@ def run_desktop_app():
 
     exit_thread = threading.Thread(target=check_exit, daemon=True)
     exit_thread.start()
+
+    # 标记应用已就绪，可以处理退出信号
+    app_ready.set()
 
     webview.start(debug=False)
 
