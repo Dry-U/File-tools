@@ -20,6 +20,7 @@ from backend.api.dependencies import (
     get_rate_limiter as rate_limiter_dependency,
     get_index_manager,
     get_is_path_allowed,
+    get_resolve_path_if_allowed,
 )
 from backend.core.constants import ALLOWED_MIME_TYPES, MAX_PREVIEW_LENGTH
 
@@ -49,9 +50,13 @@ def safe_read_file(path: str, max_length: int = MAX_PREVIEW_LENGTH) -> str:
             open_flags |= os.O_NOFOLLOW
         fd = os.open(path, open_flags)
         with os.fdopen(fd, "r", encoding="utf-8") as f:
+            # 获取文件总长度以检查是否超过限制
+            f.seek(0, os.SEEK_END)
+            file_size = f.tell()
+            f.seek(0)
             content = f.read(max_length)
             # 如果文件内容超过最大长度，添加提示
-            if f.read(1):  # 检查是否还有更多内容
+            if file_size > max_length:
                 content += f"\n\n[内容过长，仅显示前{max_length}字符]"
             return content
     except OSError as e:
@@ -173,7 +178,7 @@ async def preview_file(
     request: Request,
     index_manager=Depends(get_index_manager),
     config_loader: ConfigLoader = Depends(get_config_loader),
-    is_path_allowed=Depends(get_is_path_allowed),
+    resolve_path_if_allowed_fn=Depends(get_resolve_path_if_allowed),
 ):
     """预览文件内容，带有路径遍历保护"""
     try:
@@ -188,8 +193,9 @@ async def preview_file(
                 },
             )
 
-        # 验证路径是否在允许的目录内
-        if not is_path_allowed(path, config_loader):
+        # 验证路径是否在允许的目录内，并获取解析后的路径（避免 TOCTOU）
+        normalized_path = resolve_path_if_allowed_fn(path, config_loader)
+        if normalized_path is None:
             raise HTTPException(
                 status_code=403,
                 detail={
@@ -200,10 +206,7 @@ async def preview_file(
                 },
             )
 
-        # 路径已经由 is_path_allowed 验证和标准化
-        normalized_path = Path(path).resolve()
-
-        # 安全日志：不记录完整路径
+        # normalized_path 已经是 resolve_path_if_allowed 返回的解析后路径
         safe_name = normalized_path.name
         logger.info(f"尝试预览文件: {safe_name}")
 

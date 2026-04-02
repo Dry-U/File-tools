@@ -81,6 +81,11 @@ class SearchEngine:
             "semantic_score_low_threshold", 30.0
         )
 
+        # RRF (Reciprocal Rank Fusion) 配置
+        # RRF 是一种鲁棒的排名融合方法，比加权求和更抗噪声
+        # 公式: RRF(doc) = Σ weight/(k + rank(doc, source))
+        self.rrf_k = get_config_int("rrf_k", 60)  # RRF 常数，通常 60
+
         # 重排权重配置（从配置读取，使用常量作为默认值）
         self.rerank_weights = {
             "base": get_config_float("rerank_base_weight", DEFAULT_RERANK_BASE_WEIGHT),
@@ -147,7 +152,7 @@ class SearchEngine:
         except (TypeError, ValueError):
             # 降级处理：直接转换为字符串
             cache_str = f"{query}:{str(filters)}"
-        return hashlib.md5(cache_str.encode()).hexdigest()
+        return hashlib.sha256(cache_str.encode(), usedforsecurity=False).hexdigest()
 
     def _get_from_cache(self, key: str) -> Optional[Any]:
         """从缓存获取结果"""
@@ -253,29 +258,35 @@ class SearchEngine:
 
         Returns:
             (all_text_results, all_vector_results)
+            每个结果包含原始排名信息 (text_rank, vector_rank)
         """
         all_text_results = []
         all_vector_results = []
-        seen_paths = set()
+        seen_text_paths = set()
+        seen_vector_paths = set()
 
         # 对每个扩展查询执行搜索
         for search_query in expanded_queries[:3]:  # 限制最多3个查询以避免性能问题
             # 执行文本搜索
             text_results = self._search_text(search_query, filters)
-            for result in text_results:
+            for rank, result in enumerate(text_results):
                 path = result.get("path", "")
-                if path and path not in seen_paths:
-                    seen_paths.add(path)
+                if path and path not in seen_text_paths:
+                    seen_text_paths.add(path)
                     result["search_query"] = search_query  # 记录匹配的查询
+                    result["text_rank"] = rank  # 记录在该查询中的排名
+                    result["vector_rank"] = -1  # 初始化向量排名
                     all_text_results.append(result)
 
             # 执行向量搜索
             vector_results = self._search_vector(search_query, filters)
-            for result in vector_results:
+            for rank, result in enumerate(vector_results):
                 path = result.get("path", "")
-                if path and path not in seen_paths:
-                    seen_paths.add(path)
+                if path and path not in seen_vector_paths:
+                    seen_vector_paths.add(path)
                     result["search_query"] = search_query
+                    result["vector_rank"] = rank  # 记录在该查询中的排名
+                    result["text_rank"] = -1  # 初始化文本排名
                     all_vector_results.append(result)
 
         self.logger.info(
@@ -421,6 +432,7 @@ class SearchEngine:
         """
         try:
             # 调用索引管理器的向量搜索功能，获取更多结果以确保过滤后有足够数量
+            # 注意：向量搜索暂不支持 filters 参数，过滤在 _post_process_results 中对合并结果统一处理
             results = self.index_manager.search_vector(
                 query, limit=self.max_results * 3
             )
@@ -454,20 +466,27 @@ class SearchEngine:
                     combined[path]["search_type"] = "text"
                 combined[path]["text_score"] = result["score"]
                 combined[path]["vector_score"] = 0.0
+                combined[path]["text_rank"] = result.get("text_rank", 0)
+                combined[path]["vector_rank"] = result.get("vector_rank", -1)
                 if result["score"] > max_text_score:
                     max_text_score = result["score"]
             else:
-                # 保留更高分的结果
+                # 保留更高分的结果和更好的排名
                 if result["score"] > combined[path]["score"]:
                     prev_vector_score = combined[path]["vector_score"]
+                    prev_vector_rank = combined[path]["vector_rank"]
                     combined[path] = result.copy()
                     combined[path]["search_type"] = result["search_type"]
                     combined[path]["text_score"] = result["score"]
                     combined[path]["vector_score"] = prev_vector_score
+                    combined[path]["vector_rank"] = prev_vector_rank
                 else:
                     combined[path]["text_score"] = max(
                         combined[path]["text_score"], result["score"]
                     )
+                    # 保留最佳排名
+                    if result.get("text_rank", 0) < combined[path].get("text_rank", 9999):
+                        combined[path]["text_rank"] = result.get("text_rank", 0)
 
                 if result["score"] > max_text_score:
                     max_text_score = result["score"]
@@ -475,15 +494,16 @@ class SearchEngine:
         return combined, max_text_score
 
     def _merge_vector_results(
-        self, vector_results: List[Dict], combined: Dict, max_text_score: float
+        self, vector_results: List[Dict], combined: Dict
     ) -> Dict:
         """
-        合并向量搜索结果，计算混合分数
+        合并向量搜索结果（RRF模式）
+
+        保存向量排名信息，由后续的 _calculate_rrf_scores 计算最终分数。
 
         Args:
             vector_results: 向量搜索结果列表
             combined: 已合并的文本结果字典
-            max_text_score: 最大文本分数，用于归一化
 
         Returns:
             更新后的合并结果字典
@@ -491,102 +511,71 @@ class SearchEngine:
         for result in vector_results:
             path = result["path"]
             if path in combined:
-                # 已存在，计算混合分数
-                prev_text_score = combined[path]["text_score"]
+                # 已存在，更新向量信息和排名
                 combined[path]["vector_score"] = result["score"]
-
-                # 归一化并计算加权分数
-                text_norm = (
-                    min(prev_text_score / max_text_score, 1.0)
-                    if max_text_score > 0
-                    else 0.0
-                )
-                vector_norm = min(result["score"], 100.0) / 100.0
-
-                combined_score = (
-                    text_norm * self.text_weight + vector_norm * self.vector_weight
-                ) * 100.0
-                combined[path]["score"] = min(combined_score, 100.0)
+                combined[path]["vector_rank"] = result.get("vector_rank", -1)
                 combined[path]["search_type"] = "hybrid"
             else:
                 # 新路径，直接添加
                 combined[path] = result.copy()
                 combined[path]["text_score"] = 0.0
+                combined[path]["text_rank"] = -1
                 combined[path]["vector_score"] = result["score"]
                 if "search_type" not in combined[path]:
                     combined[path]["search_type"] = "vector"
 
         return combined
 
-    def _calculate_normalized_scores(
-        self, combined: Dict, max_text_score: float
-    ) -> None:
+    def _calculate_rrf_scores(self, combined: Dict) -> None:
         """
-        为纯文本和纯向量结果计算归一化分数
+        使用 Reciprocal Rank Fusion (RRF) 计算混合分数
 
-        使用更分散的评分策略：
-        1. 文本分数使用指数归一化，保留更多原始区分度
-        2. 向量分数保持原始相似度
-        3. 应用不同的权重
+        RRF 是一种鲁棒的排名融合方法，比加权求和更抗噪声。
+        公式: RRF(doc) = Σ weight/(k + rank(doc, source))
+
+        分数映射：
+        - 排名 0 (最佳): ~90-100分
+        - 排名 10: ~60-70分
+        - 排名 50+: <30分
 
         Args:
             combined: 合并结果字典（就地修改）
-            max_text_score: 最大文本分数
         """
-        if max_text_score <= 0:
-            max_text_score = 1.0
+        k = self.rrf_k  # RRF 常数，默认 60
 
-        # 计算所有文本分数用于更好的归一化
-        all_text_scores = []
-        for result in combined.values():
-            if result.get("search_type") == "text":
-                all_text_scores.append(result.get("text_score", 0.0))
-
-        # 获取分数分布信息用于自适应归一化
-        if len(all_text_scores) > 1:
-            sorted_scores = sorted(all_text_scores, reverse=True)
-            # 使用第90百分位作为"高分数"基准，避免被最大值压缩
-            high_percentile_idx = max(0, int(len(sorted_scores) * 0.1))
-            high_score_baseline = (
-                sorted_scores[high_percentile_idx] if sorted_scores else max_text_score
-            )
-            # 使用标准差来衡量分数分散程度
-            import statistics
-
-            try:
-                score_stdev = (
-                    statistics.stdev(sorted_scores) if len(sorted_scores) > 1 else 0
-                )
-            except Exception:
-                score_stdev = 0
-        else:
-            high_score_baseline = max_text_score
-            score_stdev = 0
+        # 预计算最大可能的 RRF 分数（rank=0 for both sources）
+        max_rrf = (self.text_weight + self.vector_weight) / k  # = 1/k when weights sum to 1
 
         for result in combined.values():
-            if result.get("search_type") == "hybrid":
-                continue
+            text_rank = result.get("text_rank", -1)
+            vector_rank = result.get("vector_rank", -1)
 
-            if result.get("search_type") == "text":
-                ts = float(result.get("text_score", 0.0))
-                # 使用自适应归一化：如果分数分散度高，保持原始比例；分散度低则压缩
-                if score_stdev > 5 and high_score_baseline > 0:
-                    # 分散度高时使用对数归一化保留区分度
-                    import math
+            rrf_score = 0.0
 
-                    log_max = math.log(max_text_score + 1)
-                    log_ts = math.log(ts + 1)
-                    norm_score = (
-                        log_ts / log_max if log_max > 0 else ts / max_text_score
-                    )
-                else:
-                    # 分散度低时使用线性归一化
-                    norm_score = ts / max_text_score
-                result["score"] = (norm_score * self.text_weight) * 100.0
-            elif result.get("search_type") == "vector":
-                vs = float(result.get("vector_score", 0.0))
-                vector_norm = vs / 100.0
-                result["score"] = (vector_norm * self.vector_weight) * 100.0
+            # 文本排名贡献
+            if text_rank >= 0:
+                rrf_score += self.text_weight / (k + text_rank)
+
+            # 向量排名贡献
+            if vector_rank >= 0:
+                rrf_score += self.vector_weight / (k + vector_rank)
+
+            # 归一化到 0-100 范围，使用指数衰减使分数更分散
+            # base_score = rrf_score / max_rrf 得到 0-1 的相对分数
+            if max_rrf > 0:
+                relative_score = rrf_score / max_rrf
+                # 使用指数映射：rank 0 -> ~95, rank 10 -> ~65, rank 50 -> ~20
+                result["score"] = min(95 * (relative_score ** 0.7), 100.0)
+            else:
+                result["score"] = 50.0
+
+            # 标记搜索类型
+            if text_rank >= 0 and vector_rank >= 0:
+                result["search_type"] = "hybrid"
+            elif text_rank >= 0:
+                result["search_type"] = "text"
+            else:
+                result["search_type"] = "vector"
 
     def _apply_snippet_boost(self, result: Dict) -> None:
         """
@@ -653,21 +642,26 @@ class SearchEngine:
         """
         合并文本搜索和向量搜索结果
 
+        使用 RRF (Reciprocal Rank Fusion) 算法融合排名：
+        - 使用排名而非原始分数，更鲁棒
+        - RRF(doc) = Σ weight/(k + rank(doc, source))
+        - k 是常数，默认 60
+
         处理流程：
-        1. 合并文本结果去重
-        2. 合并向量结果，计算混合分数
-        3. 计算归一化分数
+        1. 合并文本结果去重（保留最佳排名）
+        2. 合并向量结果
+        3. 使用 RRF 计算混合分数
         4. 应用各种boost因子
         5. 排序返回
         """
-        # 步骤1: 合并文本结果
+        # 步骤1: 合并文本结果（追踪排名）
         combined, max_text_score = self._merge_text_results(text_results)
 
         # 步骤2: 合并向量结果
-        combined = self._merge_vector_results(vector_results, combined, max_text_score)
+        combined = self._merge_vector_results(vector_results, combined)
 
-        # 步骤3: 计算归一化分数
-        self._calculate_normalized_scores(combined, max_text_score)
+        # 步骤3: 使用 RRF 计算混合分数
+        self._calculate_rrf_scores(combined)
 
         # 步骤4: 应用boost因子
         self._apply_boosts(combined)

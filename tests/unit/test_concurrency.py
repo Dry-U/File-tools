@@ -29,6 +29,7 @@ class TestIndexManagerConcurrency:
     @pytest.mark.unit
     def test_concurrent_add_document(self):
         """测试并发添加文档"""
+
         # 模拟一个线程安全的存储类
         class ThreadSafeStore:
             def __init__(self):
@@ -61,7 +62,9 @@ class TestIndexManagerConcurrency:
 
         assert len(errors) == 0, f"并发添加文档出错: {errors}"
         assert added_count[0] == 100, f"应该添加 100 个文档，实际 {added_count[0]}"
-        assert len(store._store) == 100, f"应该有 100 个文档存储，实际 {len(store._store)}"
+        assert (
+            len(store._store) == 100
+        ), f"应该有 100 个文档存储，实际 {len(store._store)}"
 
     @pytest.mark.unit
     def test_concurrent_search_read(self):
@@ -114,7 +117,10 @@ class TestIndexManagerConcurrency:
                 # 模拟一些操作
                 time.sleep(0.001)
 
-        threads = [threading.Thread(target=batch_operation, args=(i % 2 == 0,)) for i in range(20)]
+        threads = [
+            threading.Thread(target=batch_operation, args=(i % 2 == 0,))
+            for i in range(20)
+        ]
         for t in threads:
             t.start()
         for t in threads:
@@ -147,7 +153,9 @@ class TestSearchEngineConcurrency:
             futures = [executor.submit(search, f"query_{i}") for i in range(50)]
             [f.result() for f in concurrent.futures.as_completed(futures)]
 
-        assert engine.search.call_count == 50, f"应该调用 search 50 次，实际 {engine.search.call_count}"
+        assert (
+            engine.search.call_count == 50
+        ), f"应该调用 search 50 次，实际 {engine.search.call_count}"
         assert len(results) == 50
 
     @pytest.mark.unit
@@ -262,12 +270,18 @@ class TestSharedStateConcurrency:
     @pytest.mark.unit
     def test_counter_thread_safety(self, thread_safe_counter):
         """测试计数器线程安全"""
+
         def increment_manytimes(counter, times):
             for _ in range(times):
                 counter.increment()
 
         # 5 个线程，每个增加 100 次
-        threads = [threading.Thread(target=increment_manytimes, args=(thread_safe_counter, 100)) for _ in range(5)]
+        threads = [
+            threading.Thread(
+                target=increment_manytimes, args=(thread_safe_counter, 100)
+            )
+            for _ in range(5)
+        ]
         for t in threads:
             t.start()
         for t in threads:
@@ -280,6 +294,7 @@ class TestSharedStateConcurrency:
     @pytest.mark.unit
     def test_dict_concurrent_access(self, shared_state_dict):
         """测试字典并发访问"""
+
         def write_to_dict(key_prefix, count):
             for i in range(count):
                 shared_state_dict.set(f"{key_prefix}_{i}", f"value_{i}")
@@ -288,14 +303,20 @@ class TestSharedStateConcurrency:
             return shared_state_dict.get(f"{key_prefix}_0")
 
         # 写入线程
-        write_threads = [threading.Thread(target=write_to_dict, args=(f"key_{i}", 10)) for i in range(5)]
+        write_threads = [
+            threading.Thread(target=write_to_dict, args=(f"key_{i}", 10))
+            for i in range(5)
+        ]
         for t in write_threads:
             t.start()
         for t in write_threads:
             t.join()
 
         # 读取线程
-        read_threads = [threading.Thread(target=read_from_dict, args=(f"key_{i}",)) for i in range(5)]
+        read_threads = [
+            threading.Thread(target=read_from_dict, args=(f"key_{i}",))
+            for i in range(5)
+        ]
         for t in read_threads:
             t.start()
         for t in read_threads:
@@ -314,7 +335,9 @@ class TestSharedStateConcurrency:
                 shared_list.extend(items)
 
         # 并发追加
-        threads = [threading.Thread(target=append_many, args=([i],)) for i in range(100)]
+        threads = [
+            threading.Thread(target=append_many, args=([i],)) for i in range(100)
+        ]
         for t in threads:
             t.start()
         for t in threads:
@@ -345,7 +368,10 @@ class TestRateLimiterConcurrency:
                     results["blocked"] += 1
 
         # 20 个不同的 key，并发请求
-        threads = [threading.Thread(target=make_request, args=(f"key_{i % 5}",)) for i in range(100)]
+        threads = [
+            threading.Thread(target=make_request, args=(f"key_{i % 5}",))
+            for i in range(100)
+        ]
         for t in threads:
             t.start()
         for t in threads:
@@ -408,7 +434,9 @@ class TestCacheConcurrency:
         for i in range(100):
             key = f"key_{i}"
             shard_id = get_shard_id(key)
-            t = threading.Thread(target=write_to_shard, args=(shard_id, key, f"value_{i}"))
+            t = threading.Thread(
+                target=write_to_shard, args=(shard_id, key, f"value_{i}")
+            )
             threads.append(t)
 
         for t in threads:
@@ -438,13 +466,12 @@ class TestCacheConcurrency:
                 cache["key_0"] = "new_value"
                 writes[0] += 1
 
-        threads = [
-            threading.Thread(target=invalidate) for _ in range(5)
-        ] + [
+        threads = [threading.Thread(target=invalidate) for _ in range(5)] + [
             threading.Thread(target=write) for _ in range(5)
         ]
 
         import random
+
         random.shuffle(threads)
 
         for t in threads:
@@ -463,6 +490,7 @@ class TestBatchOperationsConcurrency:
     @pytest.mark.unit
     def test_batch_commit_atomicity(self):
         """测试批量提交原子性"""
+
         class BatchCommitter:
             def __init__(self):
                 self._batch = []
@@ -560,7 +588,9 @@ class TestFileMonitorConcurrency:
 
         def handle_event(event_type, path):
             with lock:
-                events.append({"type": event_type, "path": path, "timestamp": time.time()})
+                events.append(
+                    {"type": event_type, "path": path, "timestamp": time.time()}
+                )
 
         # 模拟并发事件
         threads = []
@@ -596,7 +626,10 @@ class TestFileMonitorConcurrency:
             current_time = time.time()
             with lock:
                 last_event = recent_events.get(path)
-                if last_event and (current_time - last_event["time"]) < debounce_timeout:
+                if (
+                    last_event
+                    and (current_time - last_event["time"]) < debounce_timeout
+                ):
                     # 事件被防抖
                     return "debounced"
                 recent_events[path] = {"type": event_type, "time": current_time}
@@ -616,15 +649,15 @@ class TestFileMonitorConcurrency:
 
 
 # 运行测试的辅助函数
-def run_concurrent_test(func: Callable, args_list: List[tuple], max_workers: int = 4) -> List[Any]:
+def run_concurrent_test(
+    func: Callable, args_list: List[tuple], max_workers: int = 4
+) -> List[Any]:
     """运行并发测试的辅助函数"""
     results = []
     errors = []
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
-        future_to_args = {
-            executor.submit(func, *args): args for args in args_list
-        }
+        future_to_args = {executor.submit(func, *args): args for args in args_list}
 
         for future in concurrent.futures.as_completed(future_to_args):
             try:

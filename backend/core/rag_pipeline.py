@@ -666,7 +666,6 @@ class RAGPipeline:
 
     def _preprocess_content(self, content: str, query: str) -> str:
         """内容预处理：智能分块、关键词增强"""
-        import re
 
         # 1. 文本分块：将文档分成逻辑段落
         paragraphs = re.split(r"\n\s*\n|[\n。！？.!?]", content)
@@ -718,7 +717,6 @@ class RAGPipeline:
         self, query: str, content: str, original_result: Dict, filename: str
     ) -> float:
         """计算多维度相关性得分，强化文件名匹配权重"""
-        import re
 
         # 基础得分
         base_score = float(original_result.get("score", 0.0))
@@ -824,7 +822,6 @@ class RAGPipeline:
             logger.warning(f"嵌入模型计算语义相关性失败，使用回退方法: {e}")
 
         # 回退到简化的Jaccard相似度计算
-        import re
 
         query_tokens = set(re.findall(r"\w+", query.lower()))
         content_tokens = set(re.findall(r"\w+", content.lower()))
@@ -854,8 +851,9 @@ class RAGPipeline:
 
         for candidate in candidates:
             # 使用稳定的哈希算法（hashlib 而非内置 hash，避免跨进程不一致）
-            content_hash = hashlib.md5(
-                candidate["content"][:100].encode("utf-8")
+            # 使用 SHA256 替代 MD5（Bandit B324）
+            content_hash = hashlib.sha256(
+                candidate["content"][:100].encode("utf-8"), usedforsecurity=False
             ).hexdigest()
 
             # 如果内容与已选择的文档相似度高，则跳过（避免重复信息）
@@ -880,7 +878,6 @@ class RAGPipeline:
         智能提取与查询最相关的内容片段，而不是固定位置的片段
         """
         # 将内容分割成段落或句子
-        import re
 
         # 根据换行符、句号等分割
         paragraphs = re.split(r"\n\s*\n|[\n。！？.!?]", content)
@@ -972,7 +969,6 @@ class RAGPipeline:
         """
         生成文档的结构化摘要，突出关键信息
         """
-        import re
 
         # 尝试提取文档的关键部分：标题、摘要、引言、结论、参考文献前的部分等
         lines = content.split("\n")
@@ -1223,7 +1219,6 @@ class RAGPipeline:
             return text
 
         # 分割成句子或短语
-        import re
 
         # 按换行符或句号分割
         sentences = re.split(r"[\n。！？.!?]", text)
@@ -1433,7 +1428,6 @@ class RAGPipeline:
         后处理AI的回答，优化格式使其更连贯流畅
         """
         # 移除分点列表格式，将列表项整合为连贯段落
-        import re
 
         # 将数字列表转换为连贯叙述
         answer = re.sub(r"\n\d+\.\s*", "；", answer)  # 将列表数字替换为分号

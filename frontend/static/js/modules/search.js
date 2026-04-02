@@ -252,9 +252,18 @@ const FileToolsSearch = (function() {
                 // 检查是否为Markdown文件（根据路径判断）
                 const isMarkdown = path && (path.endsWith('.md') || path.endsWith('.markdown'));
                 
-                if (isMarkdown && typeof marked !== 'undefined') {
-                    // 使用marked.js渲染Markdown
-                    modalContent.innerHTML = marked.parse(content);
+                if (isMarkdown && typeof marked !== 'undefined' && typeof DOMPurify !== 'undefined') {
+                    // 使用marked.js渲染Markdown，并使用DOMPurify防止XSS攻击
+                    const rawHtml = marked.parse(content);
+                    modalContent.innerHTML = DOMPurify.sanitize(rawHtml, {
+                        ALLOWED_TAGS: ['h1','h2','h3','h4','h5','h6','p','br','hr','ul','ol','li',
+                                       'blockquote','pre','code','em','strong','a','img','table',
+                                       'thead','tbody','tr','th','td','div','span'],
+                        ALLOWED_ATTR: ['href','src','alt','title','class','id']
+                    });
+                } else if (isMarkdown && typeof marked !== 'undefined') {
+                    // DOMPurify不可用时，使用textContent降级
+                    modalContent.textContent = content;
                 } else {
                     // 处理换行，保持段落格式
                     content = content.replace(/\n{3,}/g, '\n\n');
@@ -299,6 +308,9 @@ const FileToolsSearch = (function() {
      */
     function toggleFileType(btn) {
         btn.classList.toggle('active');
+        // 同步更新 aria-pressed 状态
+        const isActive = btn.classList.contains('active');
+        btn.setAttribute('aria-pressed', isActive ? 'true' : 'false');
     }
 
     /**

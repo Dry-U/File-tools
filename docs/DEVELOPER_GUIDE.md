@@ -27,7 +27,7 @@ File-tools/
 │   │   ├── chat_history_db.py      # 聊天历史持久化（SQLite）
 │   │   ├── query_processor.py      # 查询预处理与分词
 │   │   ├── privacy_guard.py        # 隐私保护（敏感路径过滤）
-│   │   ├── sharded_cache.py        # 分片内存缓存
+│   │   ├── sharded_cache.py        # 缓存（基于 cachetools TTLCache）
 │   │   ├── vram_manager.py         # VRAM 感知的上下文管理
 │   │   ├── constants.py            # 全局常量定义
 │   │   └── exceptions.py           # 自定义异常体系
@@ -116,7 +116,7 @@ File-tools/
 - `_combine_results(text_results, vector_results)`: 合并搜索结果
 
 #### 设计要点
-- 支持文本权重和向量权重调节
+- 使用 RRF（倒数排名融合）合并文本和向量搜索结果
 - 实现BM25算法进行文本评分
 - 提供结果去重和排序功能
 - 支持高级过滤器
@@ -188,11 +188,12 @@ File-tools/
 - 数据库文件路径 `data/chat_history.db`，不纳入版本控制
 - 异步安全读写操作
 
-### 7. ShardedCache (分片缓存)
+### 7. ShardedCache (缓存)
 
 #### 功能
-- 基于内存的高性能分片缓存，降低锁竞争
+- 基于 cachetools TTLCache 的线程安全缓存
 - 支持 TTL 过期与容量限制
+- 替代原有的自定义分片缓存实现，降低锁竞争
 
 ### 8. QueryProcessor (查询处理器)
 
@@ -369,7 +370,8 @@ tests/
 └── e2e/                # 端到端测试 - 测试完整用户流程
     ├── test_ui_chat.py
     ├── test_ui_search.py
-    └── test_ui_settings.py
+    ├── test_ui_settings.py
+    └── test_accessibility.py  # 无障碍测试（Playwright + axe-core）
 ```
 
 **测试辅助文件：**

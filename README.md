@@ -58,7 +58,7 @@ File-tools/
 │   │   ├── chat_history_db.py      # 聊天历史数据库
 │   │   ├── query_processor.py      # 查询处理器
 │   │   ├── privacy_guard.py        # 隐私保护
-│   │   ├── sharded_cache.py        # 分片缓存
+│   │   ├── sharded_cache.py        # 缓存（基于 cachetools TTLCache）
 │   │   ├── vram_manager.py         # VRAM 管理器
 │   │   ├── constants.py            # 常量定义
 │   │   └── exceptions.py           # 自定义异常
@@ -218,7 +218,7 @@ API 服务在 `http://127.0.0.1:8000` 上运行；若端口被占用，将自动
 
 - **关键词检索**：基于 Tantivy 的高性能全文检索
 - **语义检索**：基于 HNSWLib 的向量相似度检索
-- **混合排序**：按权重融合文本与向量分数，提升相关性
+- **RRF 排序**：使用倒数排名融合（Reciprocal Rank Fusion）合并结果，提升相关性
 - **高级过滤**：支持文件类型、大小、日期等过滤条件
 
 ### 3. 智能问答 (Smart Chat)
@@ -276,6 +276,9 @@ pytest tests/api/ -v
 
 # 运行端到端测试
 pytest tests/e2e/ -v
+
+# 运行无障碍测试（需要启动服务）
+pytest tests/e2e/test_accessibility.py -v
 
 # 性能测试
 pytest tests/integration/test_performance.py -v

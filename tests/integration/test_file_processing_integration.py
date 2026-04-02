@@ -398,7 +398,9 @@ class TestErrorHandlingIntegration:
         with pytest.raises(FileNotFoundError):
             missing_file.read_text(encoding="utf-8")
 
-    @pytest.mark.skipif(sys.platform == "win32", reason="Windows不支持Unix风格的文件权限")
+    @pytest.mark.skipif(
+        sys.platform == "win32", reason="Windows不支持Unix风格的文件权限"
+    )
     def test_permission_error_handling(self, temp_test_dir):
         """测试权限错误处理"""
         restricted_file = Path(temp_test_dir) / "restricted.txt"

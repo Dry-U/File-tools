@@ -34,10 +34,10 @@ if _CI_ENV:
 
 from backend.utils.config_loader import ConfigLoader
 
-
 # =============================================================================
 # Mock 配置工厂 - 统一管理，减少重复代码
 # =============================================================================
+
 
 class MockConfigFactory:
     """统一的 Mock 配置工厂，减少测试中的重复代码"""
@@ -181,11 +181,15 @@ class MockConfigFactory:
         config.getint.side_effect = lambda section, key, default=0: int_or_default(
             get_side_effect(section, key, default)
         )
-        config.getfloat.side_effect = lambda section, key, default=0.0: float_or_default(
-            get_side_effect(section, key, default)
+        config.getfloat.side_effect = (
+            lambda section, key, default=0.0: float_or_default(
+                get_side_effect(section, key, default)
+            )
         )
-        config.getboolean.side_effect = lambda section, key, default=False: bool_or_default(
-            get_side_effect(section, key, default)
+        config.getboolean.side_effect = (
+            lambda section, key, default=False: bool_or_default(
+                get_side_effect(section, key, default)
+            )
         )
         config.save.return_value = True
 
@@ -194,48 +198,59 @@ class MockConfigFactory:
     @classmethod
     def create_minimal_config(cls) -> Mock:
         """创建最小配置 - 仅包含必需字段"""
-        return cls.create_config({
-            "system": {"data_dir": "./data"},
-            "search": {"max_results": 10},
-            "embedding": {"enabled": False},
-            "ai_model": {"enabled": False},
-        })
+        return cls.create_config(
+            {
+                "system": {"data_dir": "./data"},
+                "search": {"max_results": 10},
+                "embedding": {"enabled": False},
+                "ai_model": {"enabled": False},
+            }
+        )
 
     @classmethod
-    def create_search_config(cls,
-                           text_weight: float = 0.6,
-                           vector_weight: float = 0.4,
-                           max_results: int = 20) -> Mock:
+    def create_search_config(
+        cls, text_weight: float = 0.6, vector_weight: float = 0.4, max_results: int = 20
+    ) -> Mock:
         """创建搜索专用配置"""
-        return cls.create_config({
-            "search": {
-                "text_weight": text_weight,
-                "vector_weight": vector_weight,
-                "max_results": max_results,
-            },
-            "embedding": {"enabled": True},
-        })
+        return cls.create_config(
+            {
+                "search": {
+                    "text_weight": text_weight,
+                    "vector_weight": vector_weight,
+                    "max_results": max_results,
+                },
+                "embedding": {"enabled": True},
+            }
+        )
 
     @classmethod
-    def create_rag_config(cls,
-                         enabled: bool = True,
-                         max_history_turns: int = 6,
-                         max_history_chars: int = 800) -> Mock:
+    def create_rag_config(
+        cls,
+        enabled: bool = True,
+        max_history_turns: int = 6,
+        max_history_chars: int = 800,
+    ) -> Mock:
         """创建 RAG 专用配置"""
-        return cls.create_config({
-            "ai_model": {"enabled": enabled},
-            "rag": {
-                "max_history_turns": max_history_turns,
-                "max_history_chars": max_history_chars,
-            },
-        })
+        return cls.create_config(
+            {
+                "ai_model": {"enabled": enabled},
+                "rag": {
+                    "max_history_turns": max_history_turns,
+                    "max_history_chars": max_history_chars,
+                },
+            }
+        )
 
     @classmethod
     def _deep_merge(cls, base: Dict, override: Dict) -> Dict:
         """深度合并两个字典"""
         result = base.copy()
         for key, value in override.items():
-            if key in result and isinstance(result[key], dict) and isinstance(value, dict):
+            if (
+                key in result
+                and isinstance(result[key], dict)
+                and isinstance(value, dict)
+            ):
                 result[key] = cls._deep_merge(result[key], value)
             else:
                 result[key] = value
@@ -336,6 +351,7 @@ class MockIndexManagerFactory:
 # 辅助函数
 # =============================================================================
 
+
 def int_or_default(value: Any, default: int = 0) -> int:
     """安全转换为 int"""
     try:
@@ -383,9 +399,7 @@ def run_concurrent_test(
     errors = []
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
-        future_to_args = {
-            executor.submit(func, *args): args for args in args_list
-        }
+        future_to_args = {executor.submit(func, *args): args for args in args_list}
 
         for future in concurrent.futures.as_completed(future_to_args, timeout=timeout):
             args = future_to_args[future]
@@ -402,7 +416,9 @@ def run_concurrent_test(
     return results
 
 
-def assert_thread_safe(func: Callable, args_list: List[tuple], repetitions: int = 3) -> None:
+def assert_thread_safe(
+    func: Callable, args_list: List[tuple], repetitions: int = 3
+) -> None:
     """
     验证函数线程安全的辅助函数
 
@@ -430,15 +446,6 @@ def assert_thread_safe(func: Callable, args_list: List[tuple], repetitions: int 
 # Pytest Fixtures
 # =============================================================================
 
-@pytest_asyncio.fixture()
-def event_loop():
-    """创建事件循环用于异步测试"""
-    import asyncio
-
-    loop = asyncio.get_event_loop_policy().new_event_loop()
-    yield loop
-    loop.close()
-
 
 @pytest.fixture(autouse=True)
 def reset_config_loader():
@@ -459,19 +466,21 @@ mock_index = MockIndexManagerFactory()
 def temp_config(tmp_path):
     """创建临时配置用于测试 - 使用 pytest 的 tmp_path fixture"""
     # 使用 pytest 的 tmp_path 获取临时目录，更现代且自动清理
-    config = MockConfigFactory.create_config({
-        "system": {"data_dir": str(tmp_path)},
-        "index": {
-            "tantivy_path": str(tmp_path / "tantivy"),
-            "hnsw_path": str(tmp_path / "hnsw"),
-            "metadata_path": str(tmp_path / "metadata"),
-        },
-        "chat_history": {"db_path": str(tmp_path / "chat_history.db")},
-        "file_scanner": {
-            "scan_paths": [str(tmp_path / "documents")],
-            "max_file_size": 100 * 1024 * 1024,
-        },
-    })
+    config = MockConfigFactory.create_config(
+        {
+            "system": {"data_dir": str(tmp_path)},
+            "index": {
+                "tantivy_path": str(tmp_path / "tantivy"),
+                "hnsw_path": str(tmp_path / "hnsw"),
+                "metadata_path": str(tmp_path / "metadata"),
+            },
+            "chat_history": {"db_path": str(tmp_path / "chat_history.db")},
+            "file_scanner": {
+                "scan_paths": [str(tmp_path / "documents")],
+                "max_file_size": 100 * 1024 * 1024,
+            },
+        }
+    )
     yield config
 
 
@@ -658,6 +667,7 @@ def mock_rag_pipeline_with_sessions():
 # 边界值测试数据
 # =============================================================================
 
+
 @pytest.fixture
 def edge_case_search_queries() -> List[str]:
     """边界值搜索查询 - 各种极端情况"""
@@ -728,9 +738,9 @@ def edge_case_scores() -> List[float]:
         1.0,  # 最大分数
         -0.001,  # 负数（不应出现）
         1.5,  # 超过一（不应出现）
-        float('inf'),  # 无穷大
-        float('-inf'),  # 负无穷
-        float('nan'),  # 非数字
+        float("inf"),  # 无穷大
+        float("-inf"),  # 负无穷
+        float("nan"),  # 非数字
     ]
 
 
@@ -746,7 +756,7 @@ def edge_case_timestamps() -> List[float]:
         time.time(),  # 当前时间
         time.time() + 86400 * 365 * 10,  # 未来10年
         -1.0,  # 负数（无效）
-        float('inf'),  # 无穷大
+        float("inf"),  # 无穷大
     ]
 
 
@@ -775,6 +785,7 @@ def edge_case_user_inputs() -> List[Dict[str, Any]]:
 # 并发测试 Fixtures
 # =============================================================================
 
+
 @pytest.fixture
 def thread_safe_counter():
     """
@@ -782,6 +793,7 @@ def thread_safe_counter():
 
     返回一个包含计数器和锁的对象
     """
+
     class Counter:
         def __init__(self):
             self.value = 0
@@ -824,6 +836,7 @@ def shared_state_dict():
 
     用于测试多个线程同时读写共享状态的场景
     """
+
     class ThreadSafeDict:
         def __init__(self):
             self._data = {}
@@ -872,6 +885,7 @@ def shared_state_dict():
 # =============================================================================
 # 断言增强
 # =============================================================================
+
 
 class AssertMessages:
     """统一的断言错误消息模板"""

@@ -26,7 +26,10 @@
       "Bash(where:*)",
       "Bash(export:*)",
       "Bash(powershell -Command:*)",
-      "Bash(git -C D:Python_workFile-tools log --oneline -15)"
+      "Bash(git -C D:Python_workFile-tools log --oneline -15)",
+      "Bash(npx skills:*)",
+      "mcp__EXA__get_code_context_exa",
+      "mcp__EXA__crawling_exa"
     ]
   }
 }

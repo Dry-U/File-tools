@@ -2,6 +2,7 @@
 # -*- coding: utf-8 -*-
 # pyright: reportOptionalMemberAccess=false
 import os
+import re
 import shutil
 import time
 import logging
@@ -11,6 +12,7 @@ from datetime import datetime
 from typing import Dict, Any
 import json
 import threading
+import functools
 
 from backend.core.text_chunker import TextChunker
 
@@ -1199,8 +1201,6 @@ class IndexManager:
 
     def _extract_keywords(self, query):
         """从查询中提取关键词"""
-        import re
-        import jieba
 
         def _clean_keyword(token: str) -> str:
             return token.strip()
@@ -1227,8 +1227,13 @@ class IndexManager:
         return keywords
 
     def _build_highlight_regex(self, keywords):
-        """构建高亮正则表达式模式"""
-        import re
+        """构建高亮正则表达式模式（带缓存）"""
+        # 使用 frozenset 作为缓存键
+        cache_key = frozenset(keywords)
+        if hasattr(self, '_highlight_regex_cache'):
+            cached = self._highlight_regex_cache.get(cache_key)
+            if cached is not None:
+                return cached
 
         def _build_pattern(token: str):
             # 允许字符之间穿插空白，适配 "J a v a" 这类被拆分的文本
@@ -1241,7 +1246,16 @@ class IndexManager:
                 return re.compile(pattern, re.IGNORECASE)
             return re.compile(escaped, re.IGNORECASE)
 
-        return [_build_pattern(token) for token in keywords if token]
+        result = [_build_pattern(token) for token in keywords if token]
+
+        # 初始化缓存（如果需要）
+        if not hasattr(self, '_highlight_regex_cache'):
+            self._highlight_regex_cache = {}
+        # 限制缓存大小
+        if len(self._highlight_regex_cache) < 100:
+            self._highlight_regex_cache[cache_key] = result
+
+        return result
 
     def _find_matches(self, content, patterns, keywords):
         """在内容中查找匹配项"""
@@ -1287,8 +1301,6 @@ class IndexManager:
         self, content, matches, query, keywords, window_size=120, max_snippets=3
     ):
         """从匹配项中选择最佳摘要片段"""
-        import re
-
         # 合并窗口
         windows = []
         for start, end in matches:
@@ -1671,8 +1683,6 @@ class IndexManager:
 
             # 尝试字符查询
             try:
-                import re
-
                 for ch in re.findall(r"\w", query_str_processed or ""):
                     if search_content:
                         queries_to_try.append(

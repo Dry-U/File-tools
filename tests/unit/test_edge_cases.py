@@ -168,20 +168,21 @@ class TestScoreEdgeCases:
     @pytest.mark.unit
     def test_score_infinity(self):
         """测试无穷大分数"""
-        result = {"path": "/test/doc.txt", "score": float('inf')}
-        assert result["score"] == float('inf')
+        result = {"path": "/test/doc.txt", "score": float("inf")}
+        assert result["score"] == float("inf")
 
     @pytest.mark.unit
     def test_score_negative_infinity(self):
         """测试负无穷分数"""
-        result = {"path": "/test/doc.txt", "score": float('-inf')}
-        assert result["score"] == float('-inf')
+        result = {"path": "/test/doc.txt", "score": float("-inf")}
+        assert result["score"] == float("-inf")
 
     @pytest.mark.unit
     def test_score_nan(self):
         """测试 NaN 分数"""
-        result = {"path": "/test/doc.txt", "score": float('nan')}
+        result = {"path": "/test/doc.txt", "score": float("nan")}
         import math
+
         assert math.isnan(result["score"])
 
 
@@ -256,8 +257,8 @@ class TestTimestampEdgeCases:
     @pytest.mark.unit
     def test_timestamp_infinity(self):
         """测试无穷大时间戳"""
-        ts = float('inf')
-        assert ts == float('inf')
+        ts = float("inf")
+        assert ts == float("inf")
 
 
 class TestDocumentPathEdgeCases:
@@ -539,12 +540,16 @@ class TestRateLimiterEdgeCases:
         def make_request(key_prefix):
             for i in range(10):
                 try:
-                    result = limiter.is_allowed(f"{key_prefix}", max_requests=5, window=60)
+                    result = limiter.is_allowed(
+                        f"{key_prefix}", max_requests=5, window=60
+                    )
                     results.append(result)
                 except Exception as e:
                     errors.append(e)
 
-        threads = [threading.Thread(target=make_request, args=(f"key_{i}",)) for i in range(5)]
+        threads = [
+            threading.Thread(target=make_request, args=(f"key_{i}",)) for i in range(5)
+        ]
         for t in threads:
             t.start()
         for t in threads:

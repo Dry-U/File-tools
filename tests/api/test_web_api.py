@@ -221,7 +221,9 @@ class TestChatEndpoint:
         dependency_override[dependencies.get_rag_pipeline] = lambda: mock_rag_pipeline
         dependency_override[dependencies.get_rate_limiter] = lambda: RateLimiter()
 
-        response = client.post("/api/chat", json={"query": "Hello", "session_id": "test123"})
+        response = client.post(
+            "/api/chat", json={"query": "Hello", "session_id": "test123"}
+        )
         assert response.status_code == 200, "聊天成功应返回 HTTP 200"
         result = response.json()
         assert result["answer"] == "Test answer", "回答内容应与 mock 一致"
@@ -291,7 +293,9 @@ class TestSessionsEndpoint:
         assert response.status_code == 200, "无 RAG 时应返回空列表"
         assert response.json()["sessions"] == [], "sessions 应为空列表"
 
-    def test_delete_session_success(self, client, mock_rag_pipeline, dependency_override):
+    def test_delete_session_success(
+        self, client, mock_rag_pipeline, dependency_override
+    ):
         """测试删除会话"""
         dependency_override[dependencies.get_rag_pipeline] = lambda: mock_rag_pipeline
 
@@ -299,7 +303,9 @@ class TestSessionsEndpoint:
         assert response.status_code == 200, "删除会话应返回 HTTP 200"
         assert response.json()["status"] == "success", "删除状态应为 success"
 
-    def test_delete_session_not_found(self, client, mock_rag_pipeline, dependency_override):
+    def test_delete_session_not_found(
+        self, client, mock_rag_pipeline, dependency_override
+    ):
         """测试删除不存在的会话"""
         mock_rag_pipeline.clear_session.return_value = False
         dependency_override[dependencies.get_rag_pipeline] = lambda: mock_rag_pipeline
@@ -314,7 +320,9 @@ class TestSessionsEndpoint:
         response = client.delete("/api/sessions/test")
         assert response.status_code == 500, "无 RAG 时删除应返回 HTTP 500"
 
-    def test_get_session_messages_success(self, client, mock_rag_pipeline, dependency_override):
+    def test_get_session_messages_success(
+        self, client, mock_rag_pipeline, dependency_override
+    ):
         """测试获取会话消息"""
         dependency_override[dependencies.get_rag_pipeline] = lambda: mock_rag_pipeline
 
@@ -377,7 +385,9 @@ class TestConfigEndpoint:
         assert "ai_model" in config, "配置应包含 ai_model 节"
         assert config["ai_model"]["enabled"], "ai_model.enabled 应为 true"
 
-    def test_update_config_success(self, client, mock_config_loader, dependency_override):
+    def test_update_config_success(
+        self, client, mock_config_loader, dependency_override
+    ):
         """测试更新配置"""
         mock_config_loader.save.return_value = True
         dependency_override[dependencies.get_config_loader] = lambda: mock_config_loader
@@ -386,14 +396,18 @@ class TestConfigEndpoint:
         assert response.status_code == 200, "更新配置应返回 HTTP 200"
         assert response.json()["status"] == "success", "更新状态应为 success"
 
-    def test_update_config_invalid_data(self, client, mock_config_loader, dependency_override):
+    def test_update_config_invalid_data(
+        self, client, mock_config_loader, dependency_override
+    ):
         """测试无效配置数据"""
         dependency_override[dependencies.get_config_loader] = lambda: mock_config_loader
 
         response = client.post("/api/config", json="not a dict")
         assert response.status_code == 400, "无效配置数据应返回 HTTP 400"
 
-    def test_update_config_empty_sections(self, client, mock_config_loader, dependency_override):
+    def test_update_config_empty_sections(
+        self, client, mock_config_loader, dependency_override
+    ):
         """测试空配置节"""
         dependency_override[dependencies.get_config_loader] = lambda: mock_config_loader
 
@@ -423,11 +437,6 @@ class TestPreviewEndpoint:
         mock_config.getboolean.return_value = False
         mock_config.getint.return_value = 5242880  # 5MB
 
-        # Override all dependencies
-        dependency_override[dependencies.get_index_manager] = lambda: mock_index_manager
-        dependency_override[dependencies.get_config_loader] = lambda: mock_config
-        dependency_override[dependencies.get_is_path_allowed] = lambda: lambda path, config: True
-
         # Create a mock Path class that returns chainable mock objects
         mock_path_instance = MagicMock()
         mock_path_instance.exists.return_value = True
@@ -435,13 +444,28 @@ class TestPreviewEndpoint:
         mock_path_instance.is_symlink.return_value = False
         mock_path_instance.stat.return_value.st_size = 100
         mock_path_instance.resolve.return_value = mock_path_instance  # chainable
+        mock_path_instance.name = "file.txt"
 
-        def mock_path_constructor(path_str):
+        def mock_resolve_path(path_str, config):
             return mock_path_instance
 
+        # Override all dependencies
+        dependency_override[dependencies.get_index_manager] = lambda: mock_index_manager
+        dependency_override[dependencies.get_config_loader] = lambda: mock_config
+        dependency_override[dependencies.get_is_path_allowed] = (
+            lambda: lambda path, config: True
+        )
+        dependency_override[dependencies.get_resolve_path_if_allowed] = (
+            lambda: mock_resolve_path
+        )
+
         # Patch Path in the search module and safe_read_file
-        with patch("backend.api.routes.search.safe_read_file", return_value="Test document content"), \
-             patch("backend.api.routes.search.Path", side_effect=mock_path_constructor):
+        with (
+            patch(
+                "backend.api.routes.search.safe_read_file",
+                return_value="Test document content",
+            ),
+        ):
             response = client.post("/api/preview", json={"path": "/test/file.txt"})
             assert response.status_code == 200, "预览成功应返回 HTTP 200"
             assert "content" in response.json(), "响应应包含 content 字段"
@@ -452,31 +476,56 @@ class TestPreviewEndpoint:
         assert response.status_code == 400, "空路径应返回 HTTP 400"
         assert "error" in response.json()["detail"], "空路径应返回错误信息"
 
-    def test_preview_path_not_allowed(self, client, mock_index_manager, dependency_override):
+    def test_preview_path_not_allowed(
+        self, client, mock_index_manager, dependency_override
+    ):
         """测试不允许的路径"""
         mock_config = Mock()
         mock_config.get.return_value = "/test/path"
         mock_config.getboolean.return_value = False
 
+        def mock_resolve_path_none(path_str, config):
+            return None
+
         dependency_override[dependencies.get_index_manager] = lambda: mock_index_manager
         dependency_override[dependencies.get_config_loader] = lambda: mock_config
-        dependency_override[dependencies.get_is_path_allowed] = lambda: lambda path, config: False
+        dependency_override[dependencies.get_is_path_allowed] = (
+            lambda: lambda path, config: False
+        )
+        dependency_override[dependencies.get_resolve_path_if_allowed] = (
+            lambda: mock_resolve_path_none
+        )
 
         response = client.post("/api/preview", json={"path": "/etc/passwd"})
         assert response.status_code == 403, "不允许的路径应返回 HTTP 403"
 
-    def test_preview_file_not_found(self, client, mock_index_manager, dependency_override):
+    def test_preview_file_not_found(
+        self, client, mock_index_manager, dependency_override
+    ):
         """测试文件不存在"""
         mock_config = Mock()
         mock_config.get.return_value = "/test/path"
 
+        mock_path_instance = MagicMock()
+        mock_path_instance.exists.return_value = False
+        mock_path_instance.is_dir.return_value = False
+
+        def mock_resolve_path(path_str, config):
+            return mock_path_instance
+
         dependency_override[dependencies.get_index_manager] = lambda: mock_index_manager
         dependency_override[dependencies.get_config_loader] = lambda: mock_config
-        dependency_override[dependencies.get_is_path_allowed] = lambda: lambda path, config: True
+        dependency_override[dependencies.get_is_path_allowed] = (
+            lambda: lambda path, config: True
+        )
+        dependency_override[dependencies.get_resolve_path_if_allowed] = (
+            lambda: mock_resolve_path
+        )
 
-        with patch.object(Path, "exists", return_value=False):
-            response = client.post("/api/preview", json={"path": "/test/nonexistent.txt"})
-            assert response.status_code == 404, "文件不存在应返回 HTTP 404"
+        response = client.post(
+            "/api/preview", json={"path": "/test/nonexistent.txt"}
+        )
+        assert response.status_code == 404, "文件不存在应返回 HTTP 404"
 
 
 class TestRebuildIndexEndpoint:
@@ -500,7 +549,9 @@ class TestRebuildIndexEndpoint:
         manager.rebuild_index.return_value = True
         return manager
 
-    def test_rebuild_index_success(self, client, mock_file_scanner, mock_index_manager, dependency_override):
+    def test_rebuild_index_success(
+        self, client, mock_file_scanner, mock_index_manager, dependency_override
+    ):
         """测试成功重建索引"""
         mock_config = Mock()
         mock_config.getboolean.return_value = False
@@ -516,7 +567,9 @@ class TestRebuildIndexEndpoint:
         assert result["status"] == "success", "状态应为 success"
         assert result["files_scanned"] == 100, "应扫描 100 个文件"
 
-    def test_rebuild_index_rate_limited(self, client, mock_file_scanner, mock_index_manager, dependency_override):
+    def test_rebuild_index_rate_limited(
+        self, client, mock_file_scanner, mock_index_manager, dependency_override
+    ):
         """测试重建索引限流"""
         limiter = Mock()
         limiter.is_allowed.return_value = False
@@ -551,18 +604,25 @@ class TestDirectoryEndpoints:
         monitor.get_monitored_directories.return_value = ["/test/path1"]
         return monitor
 
-    def test_get_directories_success(self, client, mock_config_loader, mock_file_monitor, dependency_override):
+    def test_get_directories_success(
+        self, client, mock_config_loader, mock_file_monitor, dependency_override
+    ):
         """测试获取目录列表"""
         dependency_override[dependencies.get_config_loader] = lambda: mock_config_loader
         dependency_override[dependencies.get_file_monitor] = lambda: mock_file_monitor
 
-        with patch("os.path.exists", return_value=True), patch("os.path.isdir", return_value=True):
+        with (
+            patch("os.path.exists", return_value=True),
+            patch("os.path.isdir", return_value=True),
+        ):
             response = client.get("/api/directories")
             assert response.status_code == 200, "获取目录列表应返回 HTTP 200"
             directories = response.json()["directories"]
             assert len(directories) >= 1, "应至少返回 1 个目录"
 
-    def test_add_directory_success(self, client, mock_config_loader, mock_file_monitor, dependency_override):
+    def test_add_directory_success(
+        self, client, mock_config_loader, mock_file_monitor, dependency_override
+    ):
         """测试添加目录"""
         mock_file_scanner = Mock()
 
@@ -570,14 +630,18 @@ class TestDirectoryEndpoints:
         dependency_override[dependencies.get_file_monitor] = lambda: mock_file_monitor
         dependency_override[dependencies.get_file_scanner] = lambda: mock_file_scanner
 
-        with patch("os.path.exists", return_value=True), \
-             patch("os.path.isdir", return_value=True), \
-             patch("os.path.abspath", return_value="/new/path"):
+        with (
+            patch("os.path.exists", return_value=True),
+            patch("os.path.isdir", return_value=True),
+            patch("os.path.abspath", return_value="/new/path"),
+        ):
             response = client.post("/api/directories", json={"path": "/new/path"})
             assert response.status_code == 200, "添加目录应返回 HTTP 200"
             assert response.json()["status"] == "success", "状态应为 success"
 
-    def test_add_directory_not_exist(self, client, mock_config_loader, mock_file_monitor, dependency_override):
+    def test_add_directory_not_exist(
+        self, client, mock_config_loader, mock_file_monitor, dependency_override
+    ):
         """测试添加不存在的目录"""
         mock_file_scanner = Mock()
 
@@ -589,7 +653,9 @@ class TestDirectoryEndpoints:
             response = client.post("/api/directories", json={"path": "/nonexistent"})
             assert response.status_code == 400, "添加不存在目录应返回 HTTP 400"
 
-    def test_add_directory_not_directory(self, client, mock_config_loader, mock_file_monitor, dependency_override):
+    def test_add_directory_not_directory(
+        self, client, mock_config_loader, mock_file_monitor, dependency_override
+    ):
         """测试添加非目录路径"""
         mock_file_scanner = Mock()
 
@@ -597,12 +663,16 @@ class TestDirectoryEndpoints:
         dependency_override[dependencies.get_file_monitor] = lambda: mock_file_monitor
         dependency_override[dependencies.get_file_scanner] = lambda: mock_file_scanner
 
-        with patch("os.path.exists", return_value=True), \
-             patch("os.path.isdir", return_value=False):
+        with (
+            patch("os.path.exists", return_value=True),
+            patch("os.path.isdir", return_value=False),
+        ):
             response = client.post("/api/directories", json={"path": "/test/file.txt"})
             assert response.status_code == 400, "添加非目录路径应返回 HTTP 400"
 
-    def test_remove_directory_success(self, client, mock_config_loader, mock_file_monitor, dependency_override):
+    def test_remove_directory_success(
+        self, client, mock_config_loader, mock_file_monitor, dependency_override
+    ):
         """测试删除目录"""
         mock_file_scanner = Mock()
         mock_index_manager = Mock()
@@ -613,7 +683,9 @@ class TestDirectoryEndpoints:
         dependency_override[dependencies.get_index_manager] = lambda: mock_index_manager
 
         with patch("os.path.abspath", return_value="/test/path"):
-            response = client.request("DELETE", "/api/directories", json={"path": "/test/path"})
+            response = client.request(
+                "DELETE", "/api/directories", json={"path": "/test/path"}
+            )
             assert response.status_code == 200, "删除目录应返回 HTTP 200"
             assert response.json()["status"] == "success", "状态应为 success"
 
@@ -762,7 +834,9 @@ class TestModelTestEndpoint:
             mock_instance = Mock()
             mock_instance.test_connection.return_value = {"status": "ok"}
             mock_mm.return_value = mock_instance
-            with patch("backend.api.dependencies.get_config_loader", return_value=Mock()):
+            with patch(
+                "backend.api.dependencies.get_config_loader", return_value=Mock()
+            ):
                 response = client.get("/api/model/test")
                 assert response.status_code == 200, "模型连接成功应返回 HTTP 200"
 
@@ -770,7 +844,9 @@ class TestModelTestEndpoint:
         """测试模型连接失败"""
         with patch("backend.core.model_manager.ModelManager") as mock_mm:
             mock_mm.side_effect = Exception("Connection failed")
-            with patch("backend.api.dependencies.get_config_loader", return_value=Mock()):
+            with patch(
+                "backend.api.dependencies.get_config_loader", return_value=Mock()
+            ):
                 response = client.get("/api/model/test")
                 assert response.status_code == 200, "连接失败时应优雅降级"
                 assert response.json()["status"] == "error", "应返回 error 状态"

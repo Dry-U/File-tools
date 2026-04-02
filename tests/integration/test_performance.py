@@ -117,12 +117,12 @@ def test_performance_query_response_time(generate_test_data, temp_config):
     avg_time = results["query"]["avg_query_time"]
     p99_time = results["query"]["p99_query_time"]
 
-    assert avg_time < PERFORMANCE_THRESHOLDS["query_time_avg"], (
-        f"平均查询时间 {avg_time:.3f}s 超过阈值 {PERFORMANCE_THRESHOLDS['query_time_avg']}s"
-    )
-    assert p99_time < PERFORMANCE_THRESHOLDS["query_time_p99"], (
-        f"P99查询时间 {p99_time:.3f}s 超过阈值 {PERFORMANCE_THRESHOLDS['query_time_p99']}s"
-    )
+    assert (
+        avg_time < PERFORMANCE_THRESHOLDS["query_time_avg"]
+    ), f"平均查询时间 {avg_time:.3f}s 超过阈值 {PERFORMANCE_THRESHOLDS['query_time_avg']}s"
+    assert (
+        p99_time < PERFORMANCE_THRESHOLDS["query_time_p99"]
+    ), f"P99查询时间 {p99_time:.3f}s 超过阈值 {PERFORMANCE_THRESHOLDS['query_time_p99']}s"
 
 
 @pytest.mark.performance
@@ -135,12 +135,12 @@ def test_performance_indexing_throughput(generate_test_data, temp_config):
     throughput = results["indexing"]["throughput_docs_per_sec"]
     avg_time = results["indexing"]["avg_index_time_per_doc"]
 
-    assert throughput >= PERFORMANCE_THRESHOLDS["throughput_docs_per_sec"], (
-        f"索引吞吐量 {throughput:.2f} docs/s 低于阈值 {PERFORMANCE_THRESHOLDS['throughput_docs_per_sec']} docs/s"
-    )
-    assert avg_time < PERFORMANCE_THRESHOLDS["index_time_per_doc"], (
-        f"单文档平均索引时间 {avg_time:.3f}s 超过阈值 {PERFORMANCE_THRESHOLDS['index_time_per_doc']}s"
-    )
+    assert (
+        throughput >= PERFORMANCE_THRESHOLDS["throughput_docs_per_sec"]
+    ), f"索引吞吐量 {throughput:.2f} docs/s 低于阈值 {PERFORMANCE_THRESHOLDS['throughput_docs_per_sec']} docs/s"
+    assert (
+        avg_time < PERFORMANCE_THRESHOLDS["index_time_per_doc"]
+    ), f"单文档平均索引时间 {avg_time:.3f}s 超过阈值 {PERFORMANCE_THRESHOLDS['index_time_per_doc']}s"
 
 
 @pytest.mark.performance
@@ -152,9 +152,9 @@ def test_performance_memory_usage(generate_test_data, temp_config):
 
     memory_mb = results["indexing"]["memory_mb"]
 
-    assert memory_mb < PERFORMANCE_THRESHOLDS["memory_max_mb"], (
-        f"内存使用 {memory_mb:.2f}MB 超过阈值 {PERFORMANCE_THRESHOLDS['memory_max_mb']}MB"
-    )
+    assert (
+        memory_mb < PERFORMANCE_THRESHOLDS["memory_max_mb"]
+    ), f"内存使用 {memory_mb:.2f}MB 超过阈值 {PERFORMANCE_THRESHOLDS['memory_max_mb']}MB"
 
 
 @pytest.mark.performance
@@ -175,29 +175,29 @@ def test_performance_scalability(generate_test_data, temp_config):
         index_time = results["indexing"]["total_index_time"]
         memory_mb = results["indexing"]["memory_mb"]
 
-        assert avg_query_time < PERFORMANCE_THRESHOLDS["query_time_avg"], (
-            f"规模 {scale}: 平均查询时间 {avg_query_time:.3f}s 超过阈值"
-        )
-        assert index_time < 300, (
-            f"规模 {scale}: 索引时间 {index_time:.2f}s 超过 300s 限制"
-        )
-        assert memory_mb < PERFORMANCE_THRESHOLDS["memory_max_mb"], (
-            f"规模 {scale}: 内存使用 {memory_mb:.2f}MB 超过阈值"
-        )
+        assert (
+            avg_query_time < PERFORMANCE_THRESHOLDS["query_time_avg"]
+        ), f"规模 {scale}: 平均查询时间 {avg_query_time:.3f}s 超过阈值"
+        assert (
+            index_time < 300
+        ), f"规模 {scale}: 索引时间 {index_time:.2f}s 超过 300s 限制"
+        assert (
+            memory_mb < PERFORMANCE_THRESHOLDS["memory_max_mb"]
+        ), f"规模 {scale}: 内存使用 {memory_mb:.2f}MB 超过阈值"
 
     # 验证可扩展性：性能应该随规模线性或亚线性增长
     for scale in scales[1:]:
         prev_scale = scales[0]
         ratio = scale / prev_scale
         time_ratio = (
-            scale_results[scale]["indexing"]["total_index_time"] /
-            scale_results[prev_scale]["indexing"]["total_index_time"]
+            scale_results[scale]["indexing"]["total_index_time"]
+            / scale_results[prev_scale]["indexing"]["total_index_time"]
         )
 
         # 索引时间增长比率应小于规模增长比率（亚线性）
-        assert time_ratio < ratio * 1.5, (
-            f"可扩展性警告: 规模 {scale} 的索引时间比率 {time_ratio:.2f} 超过规模比率 {ratio:.2f}"
-        )
+        assert (
+            time_ratio < ratio * 1.5
+        ), f"可扩展性警告: 规模 {scale} 的索引时间比率 {time_ratio:.2f} 超过规模比率 {ratio:.2f}"
 
 
 @pytest.mark.performance
@@ -209,9 +209,9 @@ def test_performance_stress_test(generate_test_data, temp_config):
     results = benchmark.run_full_benchmark(test_dir)
 
     # 宽松的阈值用于压力测试
-    assert results["query"]["avg_query_time"] < 5.0, (
-        f"压力测试: 平均查询时间 {results['query']['avg_query_time']:.3f}s 超过 5s"
-    )
-    assert results["query"]["p99_query_time"] < 10.0, (
-        f"压力测试: P99查询时间 {results['query']['p99_query_time']:.3f}s 超过 10s"
-    )
+    assert (
+        results["query"]["avg_query_time"] < 5.0
+    ), f"压力测试: 平均查询时间 {results['query']['avg_query_time']:.3f}s 超过 5s"
+    assert (
+        results["query"]["p99_query_time"] < 10.0
+    ), f"压力测试: P99查询时间 {results['query']['p99_query_time']:.3f}s 超过 10s"

@@ -203,6 +203,7 @@ search:
   rerank_length_weight: 0.05
   rerank_recency_weight: 0.1
   result_boost: true
+  rrf_k: 60
   semantic_score_high_threshold: 60.0
   semantic_score_low_threshold: 30.0
   text_weight: 0.6

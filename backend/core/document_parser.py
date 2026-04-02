@@ -1,11 +1,18 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-"""文档解析器模块 - 处理多种格式文档的内容提取"""
+"\"\"\"文档解析器模块 - 处理多种格式文档的内容提取\"\"\""
 
+import atexit
 import os
 import logging
 from functools import wraps
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeoutError
+
+# 共享线程池用于超时控制，避免每次创建新线程池的开销
+_timeout_executor = ThreadPoolExecutor(max_workers=10)
+
+# 注册退出时关闭线程池，防止资源泄漏
+atexit.register(lambda: _timeout_executor.shutdown(wait=False))
 
 
 def timeout(seconds=30):
@@ -18,24 +25,16 @@ def timeout(seconds=30):
     def decorator(func):
         @wraps(func)
         def wrapper(*args, **kwargs):
-            # 使用线程池实现超时控制
-            executor = ThreadPoolExecutor(max_workers=1)
-            future = executor.submit(func, *args, **kwargs)
+            # 使用共享线程池实现超时控制
+            future = _timeout_executor.submit(func, *args, **kwargs)
             try:
                 return future.result(timeout=seconds)
             except FutureTimeoutError:
-                # 关键：不能在这里等待线程池 shutdown(wait=True)，否则会把“超时”变成假超时
                 try:
                     future.cancel()
                 except Exception:
                     pass
                 raise TimeoutError(f"文档解析超时（{seconds}秒）")
-            finally:
-                try:
-                    executor.shutdown(wait=False, cancel_futures=True)
-                except TypeError:
-                    # 兼容旧 Python：没有 cancel_futures 参数
-                    executor.shutdown(wait=False)
 
         return wrapper
 

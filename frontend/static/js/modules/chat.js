@@ -20,6 +20,11 @@ const FileToolsChat = (function() {
      * @returns {string} 会话 ID
      */
     function generateSessionId() {
+        // 使用 crypto.randomUUID() 如果可用（现代浏览器）
+        // 否则降级使用时间戳+随机数
+        if (typeof crypto !== 'undefined' && crypto.randomUUID) {
+            return 'session_' + crypto.randomUUID();
+        }
         return 'session_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
     }
 

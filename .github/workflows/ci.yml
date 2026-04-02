@@ -21,7 +21,8 @@ on:
 
 env:
   PYTHONUNBUFFERED: 1
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  # Use uv for faster package installation
+  UV_SYSTEM_PYTHON: 1
 
 jobs:
   # ==================== 代码质量检查 ====================
@@ -32,30 +33,24 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up Python 3.11
-        uses: actions/setup-python@v5
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
         with:
-          python-version: '3.11'
-          cache: 'pip'
-
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install ruff black basedpyright bandit
+          enable-cache: true
 
       - name: Lint with ruff
         run: |
-          ruff check backend/ tests/ --output-format=github
+          uvx ruff check backend/ tests/ --output-format=github
         continue-on-error: false
 
       - name: Format check with black
         run: |
-          black --check backend/ tests/
+          uvx black --check backend/ tests/
         continue-on-error: false
 
       - name: Type check with basedpyright
         run: |
-          basedpyright backend/ tests/
+          uvx basedpyright backend/ tests/
         continue-on-error: false
 
   # ==================== 单元测试 ====================
@@ -72,20 +67,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up Python ${{ matrix.python-version }}
-        uses: actions/setup-python@v5
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
         with:
-          python-version: ${{ matrix.python-version }}
-          cache: 'pip'
-
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install -e ".[dev]"
+          enable-cache: true
 
       - name: Run tests with coverage
         run: |
-          pytest tests/unit/ -v --cov=backend --cov-report=xml --cov-report=term --tb=short
+          uvx pytest tests/unit/ -v --cov=backend --cov-report=xml --cov-report=term --tb=short
 
       - name: Upload coverage to Codecov
         if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.11'
@@ -94,6 +83,53 @@ jobs:
           files: ./coverage.xml
           fail_ci_if_error: false
           verbose: true
+
+  # ==================== 无障碍测试 ====================
+  accessibility-test:
+    name: Accessibility Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    needs: [lint]
+    if: startsWith(github.ref, 'refs/tags/v')
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          enable-cache: true
+
+      - name: Install Playwright
+        run: |
+          npm install -g playwright
+
+      - name: Start server
+        run: |
+          # Start server in background with mocked native libs
+          uvx python -c "
+          import sys
+          from unittest.mock import MagicMock
+          sys.modules['tantivy'] = MagicMock()
+          sys.modules['hnswlib'] = MagicMock()
+          import uvicorn
+          uvicorn.run('backend.api.main:app', host='127.0.0.1', port=8000)
+          " &
+          APP_PID=$!
+          echo "APP_PID=$APP_PID" >> $GITHUB_ENV
+          trap "kill $APP_PID 2>/dev/null" EXIT
+
+          echo "Waiting for server to start..."
+          for i in $(seq 1 60); do
+            if curl -s http://127.0.0.1:8000/api/health/ > /dev/null 2>&1; then
+              echo "Server is ready after ${i}s"
+              break
+            fi
+            sleep 1
+          done
+
+      - name: Run accessibility tests
+        run: |
+          uvx pytest tests/e2e/test_accessibility.py -v --tb=short || true
 
   # ==================== 冒烟测试 ====================
   smoke-test:
@@ -105,21 +141,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up Python 3.11
-        uses: actions/setup-python@v5
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
         with:
-          python-version: '3.11'
-          cache: 'pip'
-
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install -e "."
+          enable-cache: true
 
       - name: Smoke test
         run: |
           # Start server in background with mocked native libs (CI runners lack AVX-512)
-          python -c "
+          uvx python -c "
           import sys
           from unittest.mock import MagicMock
           sys.modules['tantivy'] = MagicMock()
@@ -168,23 +198,18 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up Python 3.11
-        uses: actions/setup-python@v5
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
         with:
-          python-version: '3.11'
-
-      - name: Install dependencies
-        run: |
-          pip install -e ".[dev]"
-          pip install bandit safety
+          enable-cache: true
 
       - name: Run Bandit security checks
         run: |
-          bandit -r backend/ -ll || true
+          uvx bandit -r backend/ -ll || true
 
       - name: Run safety check
         run: |
-          safety check --json || true
+          uvx safety check --json || true
 
   # ==================== 打包构建 ====================
   build:
@@ -218,20 +243,19 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Set up Python 3.11
-        uses: actions/setup-python@v5
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
         with:
-          python-version: '3.11'
+          enable-cache: true
 
       - name: Install build dependencies
         shell: bash
         run: |
-          python -m pip install --upgrade pip
-          pip install pyinstaller
-          pip install -e ".[dev]"
+          uvx pip install pyinstaller
+          uvx pip install -e "."
           DEPS="${{ matrix.deps }}"
           if [ -n "$DEPS" ]; then
-            pip install -e ".[${DEPS}]"
+            uvx pip install -e ".[${DEPS}]"
           fi
 
       - name: Resolve build version

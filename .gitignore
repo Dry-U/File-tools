@@ -210,3 +210,6 @@ Thumbs.db
 
 # Chinese paper/docs
 论文/
+
+# npm packages (for CI only, installed via npx)
+node_modules/

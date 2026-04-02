@@ -155,7 +155,15 @@ def get_file_monitor(
 def get_is_path_allowed():
     """返回 is_path_allowed 函数作为依赖注入"""
     from backend.api.dependencies import is_path_allowed as _is_path_allowed
+
     return _is_path_allowed
+
+
+def get_resolve_path_if_allowed():
+    """返回 resolve_path_if_allowed 函数作为依赖注入"""
+    from backend.api.dependencies import resolve_path_if_allowed as _resolve_path_if_allowed
+
+    return _resolve_path_if_allowed
 
 
 def is_path_allowed(path: str, config_loader: ConfigLoader) -> bool:
@@ -280,6 +288,120 @@ def is_path_allowed(path: str, config_loader: ConfigLoader) -> bool:
     safe_path_name = file_path.name if len(file_path.parts) > 0 else "unknown"
     logger.warning(f"路径不在允许范围内: ...{safe_path_name}")
     return False
+
+
+def resolve_path_if_allowed(path: str, config_loader: ConfigLoader) -> Path | None:
+    """
+    检查路径是否在允许范围内，如果允许则返回解析后的 Path 对象。
+
+    这是 is_path_allowed 的增强版本，返回解析后的路径以避免 TOCTOU 问题。
+    调用方应直接使用返回的路径，而不是重新解析。
+
+    Args:
+        path: 要检查的路径
+        config_loader: 配置加载器
+
+    Returns:
+        解析后的 Path 对象（如果允许），否则返回 None
+    """
+    if not path or not isinstance(path, str):
+        return None
+
+    # 检查空字节注入攻击
+    if "\x00" in path:
+        logger.warning(f"路径包含空字节: {path[:50]}...")
+        return None
+
+    # URL 解码检查
+    try:
+        decoded_path = urllib.parse.unquote(path)
+        double_decoded = urllib.parse.unquote(decoded_path)
+        for decoded in [decoded_path, double_decoded]:
+            if ".." in decoded or "//" in decoded or "/./" in decoded:
+                logger.warning(f"路径包含编码的遍历模式: {path[:50]}...")
+                return None
+    except Exception as e:
+        logger.warning(f"URL 解码失败: {path[:50]}... - {e}")
+        return None
+
+    # 标准化路径
+    path = path.strip('"').strip("'")
+
+    # 检查路径遍历模式
+    if ".." in path or path.startswith("//"):
+        logger.warning(f"路径包含遍历模式: {path[:50]}...")
+        return None
+
+    normalized_check = os.path.normpath(path)
+    if ".." in normalized_check:
+        logger.warning(f"路径包含规范化后的遍历模式: {path[:50]}...")
+        return None
+
+    try:
+        original_path = Path(path)
+
+        # 检查符号链接
+        try:
+            if original_path.is_symlink():
+                logger.warning(f"路径是符号链接，拒绝访问: {path[:50]}...")
+                return None
+        except (OSError, ValueError):
+            pass
+
+        file_path = original_path.resolve()
+
+        # 再次检查 resolve 后的符号链接
+        try:
+            if file_path.is_symlink():
+                logger.warning(f"解析后的路径是符号链接，拒绝访问: {file_path}")
+                return None
+        except (OSError, ValueError):
+            pass
+    except (OSError, ValueError) as e:
+        logger.warning(f"路径解析失败: {path[:50]}... - {e}")
+        return None
+
+    # 获取允许的扫描路径
+    scan_paths = config_loader.get("file_scanner", "scan_paths", "")
+    if not scan_paths:
+        logger.warning("未配置扫描路径，拒绝所有文件访问")
+        return None
+
+    # 构建允许的路径列表
+    allowed_paths = []
+    if isinstance(scan_paths, str):
+        path_list = [p.strip() for p in scan_paths.split(";") if p.strip()]
+    elif isinstance(scan_paths, list):
+        path_list = scan_paths
+    else:
+        path_list = []
+
+    for sp in path_list:
+        sp = str(sp).strip()
+        if sp:
+            try:
+                allowed_path = Path(sp).resolve()
+                if allowed_path.exists() and allowed_path.is_dir():
+                    allowed_paths.append(allowed_path)
+            except (OSError, ValueError):
+                logger.debug(f"无效的允许路径: {sp}")
+                continue
+
+    if not allowed_paths:
+        logger.warning("没有有效的允许路径")
+        return None
+
+    # 检查路径是否在允许范围内
+    for allowed_path in allowed_paths:
+        try:
+            file_path.relative_to(allowed_path)
+            return file_path  # 返回解析后的路径
+        except ValueError:
+            continue
+
+    safe_path_name = file_path.name if len(file_path.parts) > 0 else "unknown"
+    logger.warning(f"路径不在允许范围内: ...{safe_path_name}")
+    return None
 
 
 # O_NOFOLLOW 标志（防止通过符号链接跟踪读取文件）

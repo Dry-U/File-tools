@@ -6,7 +6,7 @@ File Tools 是一个基于Python的本地文件智能管理工具，提供高效
 
 ## 核心特性
 
-- **混合检索**：结合Tantivy全文检索和HNSWLib向量检索
+- **混合检索**：结合Tantivy全文检索和HNSWLib向量检索，使用RRF算法融合结果
 - **智能问答**：基于RAG技术的文档智能问答
 - **多格式支持**：PDF、Word、Excel、PPT、Markdown等多种文档格式
 - **设置持久化**：前端设置可直接保存到配置文件
@@ -307,8 +307,9 @@ POST /api/directories/browse
 - `file_types`: 支持的文件类型
 
 ### 搜索配置 (search)
-- `text_weight`: 文本搜索权重
-- `vector_weight`: 向量搜索权重
+- `text_weight`: 文本搜索权重（RRF融合因子）
+- `vector_weight`: 向量搜索权重（RRF融合因子）
+- `rrf_k`: RRF算法常数（默认60）
 - `max_results`: 最大返回结果数
 - `enable_cache`: 是否启用缓存
 
