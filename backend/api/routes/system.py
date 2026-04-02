@@ -127,6 +127,7 @@ async def rebuild_index_stream(
     from fastapi.responses import StreamingResponse
     import json
     import asyncio
+    import queue
 
     # 限流检查
     if config_loader.getboolean("security", "rate_limiter.enabled", True):
@@ -144,6 +145,9 @@ async def rebuild_index_stream(
     if _rebuild_progress_state["in_progress"]:
         raise HTTPException(status_code=409, detail="重建任务正在进行中，请稍后再试")
 
+    # 用于线程间通信的队列
+    progress_queue = queue.Queue()
+
     async def event_generator():
         """SSE事件生成器"""
         # 重置进度状态
@@ -155,17 +159,69 @@ async def rebuild_index_stream(
         _rebuild_progress_state["error"] = None
 
         def progress_callback(progress):
-            """进度回调函数"""
-            _rebuild_progress_state["progress"] = progress
+            """进度回调函数 - 发送进度到队列"""
+            try:
+                progress_queue.put_nowait(('progress', progress))
+            except queue.Full:
+                pass  # 忽略队列满的情况
+
+        async def poll_progress():
+            """定期检查队列并发送进度更新"""
+            while _rebuild_progress_state["in_progress"]:
+                try:
+                    # 等待最多0.5秒，同时检查停止标志
+                    item = progress_queue.get(timeout=0.5)
+                    if item[0] == 'progress':
+                        progress = item[1]
+                        _rebuild_progress_state["progress"] = progress
+                        # 发送进度更新
+                        yield f"data: {json.dumps({'status': 'progress', 'progress': progress})}\n\n"
+                except queue.Empty:
+                    # 队列为空但仍在进行，发送心跳
+                    if _rebuild_progress_state["in_progress"]:
+                        yield f"data: {json.dumps({'status': 'heartbeat', 'progress': _rebuild_progress_state['progress']})}\n\n"
+                    continue
+                except Exception as e:
+                    logger.debug(f"轮询进度错误: {e}")
+                    break
 
         try:
             # 设置进度回调
             original_callback = file_scanner.progress_callback
             file_scanner.progress_callback = progress_callback
 
-            # 在线程池中执行耗时的扫描操作
+            # 并行执行：轮询进度 + 运行扫描
             loop = asyncio.get_event_loop()
-            stats = await loop.run_in_executor(None, file_scanner.scan_and_index)
+
+            # 创建扫描任务
+            scan_task = loop.run_in_executor(None, file_scanner.scan_and_index)
+
+            # 轮询进度直到扫描完成
+            scan_done = False
+            while not scan_done:
+                # 检查扫描是否完成
+                if scan_task.done():
+                    scan_done = True
+                    break
+
+                # 处理队列中的进度更新
+                try:
+                    item = progress_queue.get_nowait()
+                    if item[0] == 'progress':
+                        progress = item[1]
+                        _rebuild_progress_state["progress"] = progress
+                        yield f"data: {json.dumps({'status': 'progress', 'progress': progress})}\n\n"
+                except queue.Empty:
+                    pass
+
+                # 让出控制权
+                await asyncio.sleep(0.1)
+
+            # 获取扫描结果
+            try:
+                stats = scan_task.result()
+            except Exception as e:
+                raise e
 
             # 扫描完成，更新最终状态
             _rebuild_progress_state["progress"] = 100
@@ -189,6 +245,7 @@ async def rebuild_index_stream(
         finally:
             # 恢复原始回调
             file_scanner.progress_callback = original_callback
+            _rebuild_progress_state["in_progress"] = False
 
     return StreamingResponse(
         event_generator(),
@@ -199,6 +256,37 @@ async def rebuild_index_stream(
             "X-Accel-Buffering": "no",  # 禁用Nginx缓冲
         },
     )
+
+
+@router.delete("/rebuild-index")
+async def cancel_rebuild_index(
+    request: Request,
+    file_scanner=Depends(get_file_scanner),
+):
+    """取消正在进行的重建索引任务"""
+    global _rebuild_progress_state
+
+    if not _rebuild_progress_state["in_progress"]:
+        return {"status": "success", "message": "没有正在进行的重建任务"}
+
+    try:
+        # 停止扫描
+        file_scanner.stop_scan()
+
+        # 更新进度状态
+        _rebuild_progress_state["in_progress"] = False
+        _rebuild_progress_state["progress"] = 0
+        _rebuild_progress_state["error"] = "用户取消"
+
+        return {
+            "status": "success",
+            "message": "重建任务已取消",
+            "files_scanned": _rebuild_progress_state["files_scanned"],
+            "files_indexed": _rebuild_progress_state["files_indexed"],
+        }
+    except Exception as e:
+        logger.error(f"取消重建索引错误: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"取消重建失败: {str(e)}")
 
 
 @router.get("/health")

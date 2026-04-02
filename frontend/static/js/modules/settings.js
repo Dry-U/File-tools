@@ -528,15 +528,53 @@ const FileToolsSettings = (function() {
     }
 
     /**
+     * 取消重建索引
+     */
+    async function cancelRebuild() {
+        try {
+            const response = await fetch('/api/rebuild-index', {
+                method: 'DELETE'
+            });
+            const data = await response.json();
+
+            if (response.ok) {
+                FileToolsUtils.showToast('已取消重建索引', 'info');
+            } else {
+                throw new Error(data.detail || '取消失败');
+            }
+        } catch (error) {
+            console.error('Cancel rebuild error:', error);
+            FileToolsUtils.showToast('取消失败: ' + error.message, 'error');
+        }
+
+        // 隐藏模态框
+        const modalEl = document.getElementById('rebuildIndexModal');
+        if (modalEl) {
+            FileToolsUtils.hideModal(modalEl);
+        }
+    }
+
+    /**
      * 确认重建索引（使用SSE流式进度）
      */
     async function confirmRebuild() {
+        const modalEl = document.getElementById('rebuildIndexModal');
         const modalBody = document.getElementById('rebuildModalBody');
         const modalFooter = document.getElementById('rebuildModalFooter');
         const closeBtn = document.getElementById('rebuildCloseBtn');
 
-        closeBtn.style.display = 'none';
+        // 显示取消按钮
+        closeBtn.style.display = 'block';
+        closeBtn.innerHTML = `
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5"
+                stroke="currentColor" style="width: 20px; height: 20px;">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" />
+            </svg>
+        `;
+        closeBtn.onclick = cancelRebuild;
         modalFooter.style.display = 'none';
+
+        let eventSource = null;
 
         // 显示进度条UI
         modalBody.innerHTML = `
@@ -545,15 +583,13 @@ const FileToolsSettings = (function() {
                     <span class="visually-hidden">Loading...</span>
                 </div>
                 <div class="progress mb-2" style="height: 20px;">
-                    <div id="rebuildProgressBar" class="progress-bar progress-bar-striped progress-bar-animated" 
+                    <div id="rebuildProgressBar" class="progress-bar progress-bar-striped progress-bar-animated"
                          role="progressbar" style="width: 0%;" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100">0%</div>
                 </div>
                 <p id="rebuildStatus" class="mb-0 small text-muted">正在准备重建索引...</p>
                 <p id="rebuildFileCount" class="small text-muted mt-1"></p>
             </div>
         `;
-
-        let eventSource = null;
 
         try {
             // 使用SSE流式接口
@@ -562,31 +598,44 @@ const FileToolsSettings = (function() {
             eventSource.onmessage = function(event) {
                 try {
                     const data = JSON.parse(event.data);
-                    
+
                     if (data.status === 'success') {
                         // 重建完成
                         const progressBar = document.getElementById('rebuildProgressBar');
                         progressBar.style.width = '100%';
                         progressBar.textContent = '100%';
                         progressBar.className = 'progress-bar bg-success';
-                        
+
                         document.getElementById('rebuildStatus').textContent = '索引重建完成！';
-                        document.getElementById('rebuildFileCount').textContent = 
+                        document.getElementById('rebuildFileCount').textContent =
                             `扫描: ${data.files_scanned || 0} | 索引: ${data.files_indexed || 0}`;
-                        
+
                         eventSource.close();
-                        
+
                         // 3秒后自动关闭
                         setTimeout(() => {
                             closeBtn.style.display = 'block';
+                            closeBtn.onclick = null;
                             modalFooter.style.display = 'flex';
                             modalFooter.innerHTML = `
                                 <button type="button" class="btn btn-sm btn-primary px-3" data-bs-dismiss="modal">关闭</button>
                             `;
                         }, 2000);
-                        
+
+                    } else if (data.status === 'progress') {
+                        // 更新进度条
+                        const progress = data.progress || 0;
+                        const progressBar = document.getElementById('rebuildProgressBar');
+                        if (progressBar) {
+                            progressBar.style.width = progress + '%';
+                            progressBar.textContent = progress + '%';
+                        }
+                        document.getElementById('rebuildStatus').textContent = '正在重建索引... ' + progress + '%';
+
                     } else if (data.status === 'error') {
                         throw new Error(data.error || '重建索引失败');
+                    } else if (data.status === 'heartbeat') {
+                        // 心跳包，不需要处理
                     }
                 } catch (e) {
                     console.error('SSE解析错误:', e);
@@ -599,7 +648,7 @@ const FileToolsSettings = (function() {
                 if (event.target.readyState === EventSource.CLOSED) {
                     return;
                 }
-                
+
                 // 降级到普通请求
                 eventSource.close();
                 performFallbackRebuild(modalBody, modalFooter, closeBtn);
@@ -611,12 +660,19 @@ const FileToolsSettings = (function() {
             performFallbackRebuild(modalBody, modalFooter, closeBtn);
         }
 
-        // 清理函数确保EventSource被关闭
-        return () => {
+        // 添加模态框关闭事件监听，以便在用户点击X或外部区域时取消重建
+        const handleModalHidden = function() {
             if (eventSource) {
                 eventSource.close();
             }
+            // 如果重建正在进行中，发送取消请求
+            if (closeBtn.onclick === cancelRebuild) {
+                cancelRebuild();
+            }
+            closeBtn.onclick = null;
+            modalEl.removeEventListener('hidden.bs.modal', handleModalHidden);
         };
+        modalEl.addEventListener('hidden.bs.modal', handleModalHidden);
     }
 
     /**

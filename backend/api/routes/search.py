@@ -5,7 +5,6 @@
 import os
 import sys
 import errno
-from pathlib import Path
 import numpy as np
 from typing import List
 from fastapi import APIRouter, HTTPException, Request, Depends
@@ -19,7 +18,6 @@ from backend.api.dependencies import (
     get_config_loader,
     get_rate_limiter as rate_limiter_dependency,
     get_index_manager,
-    get_is_path_allowed,
     get_resolve_path_if_allowed,
 )
 from backend.core.constants import ALLOWED_MIME_TYPES, MAX_PREVIEW_LENGTH

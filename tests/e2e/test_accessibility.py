@@ -19,7 +19,7 @@ import os
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
 
-from playwright.sync_api import Page, expect
+from playwright.sync_api import Page
 
 
 # WCAG 2.1 AA 标准颜色对比度要求
@@ -178,12 +178,12 @@ class TestAccessibility:
                 input_type = inp.get_attribute("type") or "text"
                 has_aria_label = inp.get_attribute("aria-label")
                 has_aria_labelledby = inp.get_attribute("aria-labelledby")
-                has_id = inp.get_attribute("id")
 
                 # 尝试找关联的 label
+                input_id = inp.get_attribute("id")
                 associated_label = 0
-                if has_id:
-                    associated_label = page.locator(f"label[for='{has_id}']").count()
+                if input_id:
+                    associated_label = page.locator(f"label[for='{input_id}']").count()
 
                 print(f"\n  输入 {i+1}: type={input_type}")
                 print(f"    aria-label: {bool(has_aria_label)}")
@@ -415,7 +415,6 @@ if __name__ == "__main__":
                 input_type = inp.get_attribute("type") or "text"
                 has_aria_label = inp.get_attribute("aria-label")
                 has_aria_labelledby = inp.get_attribute("aria-labelledby")
-                has_id = inp.get_attribute("id")
 
                 # 尝试找关联的 label
                 label_id = inp.get_attribute("id")

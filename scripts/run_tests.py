@@ -15,6 +15,7 @@
 import argparse
 import subprocess
 import shutil
+import sys
 from pathlib import Path
 
 # 项目根目录
@@ -44,7 +45,8 @@ def run_pytest(args: list, description: str) -> int:
     print(f"  {description}")
     print(f"{'='*60}\n")
 
-    cmd = ["python", "-m", "pytest"] + args
+    # 使用当前 Python 解释器确保使用 uv 虚拟环境
+    cmd = [sys.executable, "-m", "pytest"] + args
     print(f"执行命令: {' '.join(cmd)}")
 
     result = subprocess.run(cmd, cwd=PROJECT_ROOT)

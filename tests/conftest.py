@@ -9,7 +9,6 @@ pytest 配置文件 - 测试环境和 fixtures
 """
 
 import pytest
-import pytest_asyncio
 import sys
 import os
 import time

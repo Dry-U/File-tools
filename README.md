@@ -26,8 +26,8 @@
   - **理由:** 专为速度优化的嵌入计算库，支持多种模型提供商，资源消耗小。
 - **LLM 推理 (LLM Inference):** `llama-cpp-python` (本地) 或 OpenAI 兼容 API (远程)
   - **策略:** 默认关闭，按需启用，以节约资源。
-- **文档处理 (Document Processing):** `PyMuPDF`, `pdfplumber`, `pdfminer.six`, `pypdf`, `python-docx`, `openpyxl`, `markdown`
-  - **策略:** 采用多级 fallback 解析链（PyMuPDF → pdfplumber → pdfminer.six → pypdf），确保各类文档的健壮解析。
+- **文档处理 (Document Processing):** `PyMuPDF`, `pdfplumber`, `python-docx`, `openpyxl`, `markdown`
+  - **策略:** 采用优化的解析链（PyMuPDF + pdfplumber），10秒超时控制，避免大文件阻塞。
 - **前端资源 (Frontend):** `Bootstrap`, 原生 `JS`, `bootstrap-icons`
   - **策略:** 保持前端资源的轻量化，通过 Pywebview 原生窗口呈现。
 
@@ -210,7 +210,7 @@ API 服务在 `http://127.0.0.1:8000` 上运行；若端口被占用，将自动
 
 - 自动扫描指定目录下的文档
 - 支持增量索引和实时更新
-- 多格式文档内容提取（PyMuPDF → pdfplumber → pdfminer → pypdf fallback 链）
+- 多格式文档内容提取（PyMuPDF + pdfplumber，10秒超时）
 - 智能文件过滤（排除系统文件、媒体文件等）
 - 索引重建进度实时反馈（支持 SSE 流式进度）
 

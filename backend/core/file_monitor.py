@@ -313,17 +313,22 @@ class FileMonitor:
         # 使用线程池并行处理事件
         if events_to_process:
             if self._executor:
-                # 提交所有事件到线程池
-                futures = [
-                    self._executor.submit(self._handle_event, event_info)
-                    for event_info in events_to_process
-                ]
-                # 等待所有任务完成
-                for future in futures:
-                    try:
-                        future.result(timeout=5.0)
-                    except Exception as e:
-                        self.logger.debug(f"事件处理失败: {e}")
+                try:
+                    # 提交所有事件到线程池
+                    futures = [
+                        self._executor.submit(self._handle_event, event_info)
+                        for event_info in events_to_process
+                    ]
+                    # 等待所有任务完成
+                    for future in futures:
+                        try:
+                            future.result(timeout=5.0)
+                        except Exception as e:
+                            self.logger.debug(f"事件处理失败: {e}")
+                except RuntimeError as e:
+                    # 线程池已关闭，忽略此批次的事件
+                    self.logger.debug(f"线程池已关闭，跳过 {len(events_to_process)} 个事件: {e}")
+                    self._dropped_count += len(events_to_process)
             else:
                 # 线程池未初始化，串行处理
                 for event_info in events_to_process:

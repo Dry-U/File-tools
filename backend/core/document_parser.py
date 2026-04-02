@@ -15,11 +15,11 @@ _timeout_executor = ThreadPoolExecutor(max_workers=10)
 atexit.register(lambda: _timeout_executor.shutdown(wait=False))
 
 
-def timeout(seconds=30):
+def timeout(seconds=10):
     """超时装饰器 - 限制函数执行时间
 
     Args:
-        seconds: 超时时间（秒），默认30秒
+        seconds: 超时时间（秒），默认10秒（优化后减少等待时间）
     """
 
     def decorator(func):
@@ -89,9 +89,9 @@ class DocumentParser:
     MAX_OUTPUT_SIZE_DOC_MB = 10  # Word输出文本最大大小
     MAX_OUTPUT_SIZE_TEXT_MB = 10  # 文本文件输出最大大小
 
-    @timeout(30)
+    @timeout(10)
     def _parse_pptx(self, file_path):
-        """解析PPTX文件（30秒超时）"""
+        """解析PPTX文件（10秒超时）"""
         try:
             # 延迟导入以避免启动时依赖检查失败
             import pptx
@@ -293,9 +293,15 @@ class DocumentParser:
 
         return metadata
 
-    @timeout(30)
+    @timeout(10)
     def _parse_pdf(self, file_path):
-        """解析PDF文件（30秒超时）"""
+        """解析PDF文件（10秒超时，优化版）
+
+        优化策略：
+        1. 只使用 PyMuPDF（最快）+ pdfplumber（表格支持）
+        2. 移除 pdfminer、pypdf、textract 回退链，减少等待时间
+        3. 10秒超时（从30秒减少）提高响应速度
+        """
 
         # 检查文件大小，避免加载过大PDF导致内存问题
         file_size = os.path.getsize(file_path)
@@ -307,8 +313,7 @@ class DocumentParser:
         text = ""
         max_text_length = self.MAX_OUTPUT_SIZE_PDF
 
-        # 1. 优先使用PyMuPDF (fitz)
-        # PyMuPDF非常健壮，能处理许多pdfminer无法处理的损坏PDF，且对中文支持较好
+        # 1. 优先使用PyMuPDF (fitz) - 最快
         if fitz:
             doc = None
             try:
@@ -329,7 +334,7 @@ class DocumentParser:
                     except Exception:
                         pass
 
-        # 2. 如果PyMuPDF失败或结果为空，尝试pdfplumber (基于pdfminer.six)
+        # 2. 如果PyMuPDF失败或结果为空，尝试pdfplumber（表格支持）
         if (not text or not text.strip()) and pdfplumber:
             try:
                 with pdfplumber.open(file_path) as pdf:
@@ -344,51 +349,10 @@ class DocumentParser:
             except Exception as e:
                 self.logger.warning(f"pdfplumber解析PDF失败 {file_path}: {str(e)}")
 
-        # 3. 如果pdfplumber也失败或结果为空，尝试pdfminer.high_level
-        if not text or not text.strip():
-            try:
-                # 尝试使用pdfminer，因为它在处理中文和布局方面通常比PyPDF2更好
-                extracted_text = pdfminer.high_level.extract_text(file_path)
-                if len(extracted_text) <= max_text_length:
-                    text = extracted_text
-                else:
-                    text = extracted_text[:max_text_length] + "\n... (内容已截断)"
-            except Exception as e:
-                self.logger.warning(f"pdfminer解析PDF失败 {file_path}: {str(e)}")
+        # 优化：移除 pdfminer、pypdf、textract 回退链
+        # 这些解析器速度慢且非必要，移除后显著提升大文件处理速度
 
-        # 4. 如果pdfminer失败或结果为空，尝试pypdf
         if not text or not text.strip():
-            try:
-                with open(file_path, "rb") as file:
-                    reader = pypdf.PdfReader(file)
-                    pages = reader.pages
-                    if pages:
-                        for page_num in range(len(pages)):
-                            if len(text) > max_text_length:
-                                text = text[:max_text_length] + "\n... (内容已截断)"
-                                break
-                            page = pages[page_num]
-                            extracted = page.extract_text() or ""
-                            if extracted:
-                                text += extracted
-            except Exception as e:
-                self.logger.error(f"pypdf解析PDF失败 {file_path}: {str(e)}")
-
-        # 5. 如果仍然为空，尝试textract
-        if not text or not text.strip():
-            if textract:
-                try:
-                    extracted = textract.process(file_path).decode(
-                        "utf-8", errors="ignore"
-                    )
-                    if len(extracted) <= max_text_length:
-                        return extracted
-                    else:
-                        return extracted[:max_text_length] + "\n... (内容已截断)"
-                except Exception as te:
-                    self.logger.warning(
-                        f"无法使用textract解析PDF文件 {file_path}: {str(te)}"
-                    )
             return "错误: 无法解析PDF内容"
 
         # 最终检查文本长度
@@ -397,9 +361,9 @@ class DocumentParser:
 
         return text
 
-    @timeout(30)
+    @timeout(10)
     def _parse_docx(self, file_path):
-        """解析Word文档"""
+        """解析Word文档（10秒超时）"""
         try:
             # 检查文件大小，避免加载过大文件导致内存问题
             file_size = os.path.getsize(file_path)
@@ -530,9 +494,9 @@ class DocumentParser:
             except Exception:
                 pass
 
-    @timeout(30)
+    @timeout(10)
     def _parse_doc_win32(self, file_path):
-        """使用win32com解析.doc文件 (仅Windows)"""
+        """使用win32com解析.doc文件 (仅Windows, 10秒超时)"""
         if not win32com:
             # 尝试使用textract作为后备
             if textract:
@@ -685,9 +649,9 @@ class DocumentParser:
             except (OSError, ValueError) as e2:
                 return f"错误: 无法解析CSV内容\n{str(e2)}"
 
-    @timeout(30)
+    @timeout(10)
     def _parse_excel(self, file_path):
-        """解析Excel文件"""
+        """解析Excel文件（10秒超时）"""
         try:
             # 检查文件大小，避免加载过大文件导致内存问题
             file_size = os.path.getsize(file_path)

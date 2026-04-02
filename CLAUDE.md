@@ -72,7 +72,7 @@ main.py → Pywebview Window + FastAPI (后台线程)
 **ConfigLoader**: All components receive `ConfigLoader` instance; access config via `config_loader.get('section', 'key', default)` with type-safe methods `getboolean()`, `getint()`.
 
 **Document Parsing Fallback Chain** (`backend/core/document_parser.py`):
-- PDF: PyMuPDF → pdfplumber → pdfminer.six → PyPDF2 → textract
+- PDF: PyMuPDF → pdfplumber (10秒超时，避免大文件阻塞)
 - Word: python-docx → win32com → textract
 - Each parser enforces file size limits (10-100MB) to prevent memory issues
 

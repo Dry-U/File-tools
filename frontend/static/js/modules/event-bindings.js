@@ -258,12 +258,17 @@ const FileToolsEventBindings = (function() {
             confirmDirectoryDeleteBtn.addEventListener('click', function() {
                 if (typeof FileToolsDirectory !== 'undefined' && FileToolsDirectory.doDeleteDirectory && FileToolsDirectory.pendingDeletePath) {
                     FileToolsDirectory.doDeleteDirectory(FileToolsDirectory.pendingDeletePath);
-                    FileToolsDirectory.pendingDeletePath = null;
                 } else if (typeof doDeleteDirectory === 'function' && typeof pendingDeletePath !== 'undefined') {
                     doDeleteDirectory(pendingDeletePath);
-                    pendingDeletePath = null;
                 }
             });
+        }
+
+        // 初始化删除目录模态框事件
+        if (typeof FileToolsDirectory !== 'undefined' && FileToolsDirectory.initDeleteModalEvents) {
+            FileToolsDirectory.initDeleteModalEvents();
+        } else if (typeof initDeleteModalEvents === 'function') {
+            initDeleteModalEvents();
         }
 
         // 移除所有剩余的onclick属性（备用方案）

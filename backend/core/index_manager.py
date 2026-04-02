@@ -12,7 +12,6 @@ from datetime import datetime
 from typing import Dict, Any
 import json
 import threading
-import functools
 
 from backend.core.text_chunker import TextChunker
 

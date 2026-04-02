@@ -8,9 +8,10 @@ import re
 import platform
 import time
 import asyncio
+import queue
 from datetime import datetime
 from pathlib import Path
-from typing import List, Dict, Optional, Any, Tuple, Callable
+from typing import List, Dict, Optional, Any, Tuple, Callable, Generator
 import logging
 import fnmatch
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -33,6 +34,16 @@ try:
     AIOFILES_AVAILABLE = True
 except ImportError:
     AIOFILES_AVAILABLE = False
+
+# 可选的快速扫描支持（Rust-based scandir）
+try:
+    from scandir_rs import Scandir, Walk
+
+    SCANDIR_RS_AVAILABLE = True
+except ImportError:
+    SCANDIR_RS_AVAILABLE = False
+    Scandir = None
+    Walk = None
 
 
 class FileScanner:
@@ -383,9 +394,18 @@ class FileScanner:
         return default_extensions
 
     def scan_and_index(self) -> Dict:
-        """扫描所有配置的路径并索引文件（使用并行处理优化性能）"""
+        """扫描所有配置的路径并索引文件（流式并行处理优化性能）
+
+        优化策略:
+        1. 流式收集文件，边收集边处理，无需等待全部收集完成
+        2. 使用os.scandir替代os.walk减少stat()调用
+        3. 线程池并行处理文件，减少等待时间
+        4. 实时进度报告（收集阶段0-5%，处理阶段5-95%）
+
+        LlamaIndex benchmark: 异步并行处理比顺序执行快3.5x
+        """
         start_time = time.time()
-        self.logger.info("开始扫描并索引文件")
+        self.logger.info("开始扫描并索引文件（流式模式）")
         self.logger.info(
             f"开始扫描: {len(self.scan_paths)} 个路径, 并行线程: {self.max_workers}"
         )
@@ -405,7 +425,7 @@ class FileScanner:
                 "last_scan_time": None,
             }
 
-        # 初始化进度
+        # 初始化进度 - 报告0%开始收集
         if self.progress_callback:
             try:
                 self.progress_callback(0)
@@ -420,66 +440,92 @@ class FileScanner:
             except Exception as e:
                 self.logger.warning(f"启动批量模式失败: {e}")
 
-        # 收集所有待扫描文件
-        all_files = self._collect_files()
-        total_files = len(all_files)
-        self.logger.info(f"共收集到 {total_files} 个待扫描文件")
-
-        if total_files == 0:
-            self.logger.warning("没有找到需要扫描的文件")
-            return self.scan_stats
-
-        # 使用线程池并行处理文件（批量提交，避免任务堆积）
-        processed_count = 0
-        last_progress_update = 0
+        # 流式处理：边收集边处理
         batch_size = self.batch_size * self.max_workers  # 动态计算批次大小
+        file_buffer = []
+        processed_count = 0
+        total_collected = 0
+        collection_done = False
+        last_progress_update = 0
+
+        # 初始化进度报告状态
+        reported_collection_progress = False
 
         with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
-            # 分批处理文件，避免一次性提交所有任务导致内存问题
-            for batch_start in range(0, total_files, batch_size):
+            # 流式收集文件并处理
+            for file_path in self._collect_files_streaming():
                 if self._is_stop_requested():
-                    executor.shutdown(wait=False)
-                    self.logger.info("扫描已被停止")
                     break
 
-                # 获取当前批次
-                batch_end = min(batch_start + batch_size, total_files)
-                current_batch = all_files[batch_start:batch_end]
+                total_collected += 1
+                file_buffer.append(file_path)
 
-                # 提交当前批次任务
-                future_to_file = {
-                    executor.submit(self._process_file_worker, file_path): file_path
-                    for file_path in current_batch
+                # 收集阶段进度报告（0-5%）
+                # 每收集1000个文件报告一次进度
+                if total_collected % 1000 == 0 and self.progress_callback:
+                    try:
+                        # 收集阶段进度范围: 0-5%
+                        self.progress_callback(min(5, total_collected // 200))
+                    except Exception as e:
+                        self.logger.debug(f"收集阶段进度回调失败: {e}")
+
+                # 当缓冲区满时，处理当前批次
+                if len(file_buffer) >= batch_size:
+                    # 提交批次处理任务
+                    futures = {
+                        executor.submit(self._process_file_worker, fp): fp
+                        for fp in file_buffer
+                    }
+
+                    # 处理完成的任务
+                    for future in as_completed(futures):
+                        if self._is_stop_requested():
+                            executor.shutdown(wait=False)
+                            break
+                        file_path = futures[future]
+                        try:
+                            future.result()
+                            processed_count += 1
+
+                            # 处理阶段进度报告（5-95%）
+                            # 基于已处理文件数/预计总数估算进度
+                            estimated_total = max(total_collected, processed_count)
+                            progress = 5 + int((processed_count / estimated_total) * 90)
+                            if (
+                                progress > last_progress_update
+                                or processed_count - last_progress_update >= 100
+                            ):
+                                if self.progress_callback:
+                                    try:
+                                        self.progress_callback(min(95, progress))
+                                    except Exception as e:
+                                        self.logger.debug(f"更新进度回调失败: {e}")
+                                last_progress_update = processed_count
+
+                        except Exception as e:
+                            self.logger.error(f"处理文件失败 {file_path}: {e}")
+
+                    # 清空缓冲区
+                    file_buffer.clear()
+
+            # 处理剩余文件
+            if file_buffer and not self._is_stop_requested():
+                futures = {
+                    executor.submit(self._process_file_worker, fp): fp
+                    for fp in file_buffer
                 }
 
-                # 处理完成的任务
-                batch_completed = 0
-                for future in as_completed(future_to_file):
-                    file_path = future_to_file[future]
+                for future in as_completed(futures):
+                    if self._is_stop_requested():
+                        break
+                    file_path = futures[future]
                     try:
                         future.result()
                         processed_count += 1
-                        batch_completed += 1
-
-                        # 更新进度（每1%或每100个文件更新一次）
-                        progress = int((processed_count / total_files) * 100)
-                        if (
-                            progress > last_progress_update
-                            or processed_count - last_progress_update >= 100
-                        ):
-                            if self.progress_callback:
-                                try:
-                                    self.progress_callback(min(99, progress))
-                                except Exception as e:
-                                    self.logger.debug(f"更新进度回调失败: {e}")
-                            last_progress_update = processed_count
-
                     except Exception as e:
                         self.logger.error(f"处理文件失败 {file_path}: {e}")
 
-                self.logger.debug(
-                    f"批次完成: {batch_start}-{batch_end} ({batch_completed}/{len(current_batch)})"
-                )
+            collection_done = True
 
         # 结束索引批量模式（提交所有剩余文档）
         if self.index_manager:
@@ -524,36 +570,213 @@ class FileScanner:
                 self.logger.error(f"收集文件失败 {path}: {e}")
         return all_files
 
-    def _collect_files_from_dir(self, dir_path: Path, files_list: List[Path]):
-        """从目录收集文件（递归）"""
+    def _collect_files_from_dir(self, dir_path: Path, files_list: List[Path], progress_info: dict = None):
+        """从目录收集文件（递归）- 使用os.scandir优化性能"""
         if not dir_path.exists() or not dir_path.is_dir():
             return
 
         try:
-            for root, dirs, files in os.walk(dir_path):
+            self._scan_dir_recursive(dir_path, files_list, progress_info)
+        except PermissionError:
+            self.logger.warning(f"无权限访问目录: {dir_path}")
+        except Exception as e:
+            self.logger.error(f"收集文件失败 {dir_path}: {e}")
+
+    def _collect_files_streaming(self) -> Generator[Path, None, None]:
+        """流式收集文件路径 - 生成器模式，边收集边yield
+
+        使用os.scandir进行高效目录遍历，配合排除模式过滤。
+        文件被找到时立即yield，而非等待全部收集完成。
+        """
+        for path in self.scan_paths:
+            if self._is_stop_requested():
+                break
+            yield from self._collect_files_from_dir_streaming(Path(path))
+
+    def _collect_files_from_dir_streaming(self, dir_path: Path) -> Generator[Path, None, None]:
+        """从目录流式收集文件（递归）- 使用os.scandir优化性能"""
+        if not dir_path.exists() or not dir_path.is_dir():
+            return
+
+        try:
+            yield from self._scan_dir_recursive_streaming(dir_path)
+        except PermissionError:
+            self.logger.warning(f"无权限访问目录: {dir_path}")
+        except Exception as e:
+            self.logger.error(f"收集文件失败 {dir_path}: {e}")
+
+    def _scan_dir_recursive_streaming(self, dir_path: Path) -> Generator[Path, None, None]:
+        """使用os.scandir递归扫描目录（生成器模式），比os.walk更快"""
+        # 每处理 N 个条目检查一次停止标志
+        _CHECK_STOP_INTERVAL = 100
+        entry_count = 0
+
+        try:
+            with os.scandir(dir_path) as entries:
+                for entry in entries:
+                    if self._is_stop_requested():
+                        self.logger.info(f"扫描已停止: {dir_path}")
+                        return
+
+                    entry_count += 1
+                    if entry_count % _CHECK_STOP_INTERVAL == 0 and self._is_stop_requested():
+                        return
+
+                    try:
+                        if entry.is_dir(follow_symlinks=False):
+                            if not any(
+                                self._match_exclude(pattern, entry.name)
+                                for pattern in self.exclude_patterns
+                            ):
+                                # 递归扫描子目录
+                                yield from self._scan_dir_recursive_streaming(Path(entry.path))
+                        elif entry.is_file(follow_symlinks=False):
+                            try:
+                                stat_result = entry.stat()
+                                if stat_result.st_mode & 0o170000 != 0o100000:
+                                    continue
+                            except OSError:
+                                continue
+                            file_ext = Path(entry.name).suffix.lower()
+                            if file_ext in self.all_extensions:
+                                yield Path(entry.path)
+                    except (PermissionError, OSError):
+                        continue
+        except PermissionError:
+            self.logger.warning(f"无权限访问目录: {dir_path}")
+        except Exception as e:
+            self.logger.debug(f"扫描目录失败 {dir_path}: {e}")
+
+    def _scan_dir_recursive(self, dir_path: Path, files_list: List[Path], progress_info: dict = None):
+        """使用os.scandir递归扫描目录，比os.walk更快"""
+        # 每处理 N 个条目检查一次停止标志，避免过于频繁的锁竞争
+        _CHECK_STOP_INTERVAL = 100
+        entry_count = 0
+        # 每 N 个文件报告一次进度
+        _PROGRESS_INTERVAL = 500
+
+        try:
+            with os.scandir(dir_path) as entries:
+                for entry in entries:
+                    # 频繁检查停止请求，提高取消响应速度
+                    if self._is_stop_requested():
+                        self.logger.info(f"扫描已停止，当前目录: {dir_path}")
+                        return
+
+                    entry_count += 1
+                    if entry_count % _CHECK_STOP_INTERVAL == 0:
+                        # 每 N 个条目检查一次（平衡响应速度与性能）
+                        if self._is_stop_requested():
+                            self.logger.info(f"扫描已停止（周期性检查），当前目录: {dir_path}")
+                            return
+
+                    try:
+                        if entry.is_dir(follow_symlinks=False):
+                            # 过滤排除的目录
+                            if not any(
+                                self._match_exclude(pattern, entry.name)
+                                for pattern in self.exclude_patterns
+                            ):
+                                # 递归扫描子目录
+                                self._scan_dir_recursive(Path(entry.path), files_list, progress_info)
+                                # 子目录返回后再次检查停止标志
+                                if self._is_stop_requested():
+                                    return
+                        elif entry.is_file(follow_symlinks=False):
+                            # 检查是否为普通文件（不是管道、设备等特殊文件）
+                            try:
+                                stat_result = entry.stat()
+                                if stat_result.st_mode & 0o170000 != 0o100000:
+                                    continue  # 跳过特殊文件
+                            except OSError:
+                                continue
+                            # 快速扩展名检查（不调用stat）
+                            file_ext = Path(entry.name).suffix.lower()
+                            if file_ext in self.all_extensions:
+                                files_list.append(Path(entry.path))
+                                # 定期报告收集进度
+                                if progress_info and len(files_list) % _PROGRESS_INTERVAL == 0:
+                                    if self.progress_callback:
+                                        try:
+                                            # 收集阶段进度：0-5%
+                                            progress = min(4, int(len(files_list) / 1000))
+                                            self.progress_callback(progress)
+                                        except Exception:
+                                            pass
+                    except (PermissionError, OSError):
+                        continue
+        except PermissionError:
+            self.logger.warning(f"无权限访问目录: {dir_path}")
+        except Exception as e:
+            self.logger.debug(f"扫描目录失败 {dir_path}: {e}")
+
+    def _collect_files_fast(self, progress_info: dict = None) -> List[Path]:
+        """快速收集所有需要扫描的文件路径
+
+        使用os.scandir进行高效目录遍历，配合排除模式过滤。
+        scandir-rs虽然快，但由于其内部队列机制与我们的目录排除逻辑不兼容，暂不使用。
+        """
+        all_files = []
+
+        for path in self.scan_paths:
+            if self._is_stop_requested():
+                break
+            try:
+                self._collect_files_from_dir(Path(path), all_files, progress_info)
+            except Exception as e:
+                self.logger.error(f"收集文件失败 {path}: {e}")
+
+        return all_files
+
+    def _collect_with_scandir_rs(self, dir_path: Path, files_list: List[Path]):
+        """使用scandir-rs收集文件（Rust并行遍历)
+
+        scandir-rs使用Rayon进行并行目录遍历，比os.walk快4x以上。
+        Walk返回(root, subdirs, files)元组，类似os.walk。
+
+        注意：scandir-rs返回相对路径，需要从dir_path目录运行才能正确解析路径。
+        """
+        if not dir_path.exists() or not dir_path.is_dir():
+            return
+
+        original_cwd = os.getcwd()
+        try:
+            # scandir-rs需要从目标目录运行以返回正确的相对路径
+            os.chdir(dir_path)
+
+            walk = Walk(".", skip_hidden=False)
+
+            for root, subdirs, files in walk:
                 if self._is_stop_requested():
+                    walk.stop()
                     break
 
-                # 过滤排除的目录
-                dirs[:] = [
-                    d
-                    for d in dirs
-                    if not any(
-                        self._match_exclude(pattern, d)
-                        for pattern in self.exclude_patterns
-                    )
+                # 过滤排除的子目录（使用我们的_match_exclude函数）
+                subdirs[:] = [
+                    d for d in subdirs
+                    if not any(self._match_exclude(pattern, d) for pattern in self.exclude_patterns)
                 ]
 
                 for file_name in files:
                     if self._is_stop_requested():
                         break
                     file_path = Path(root) / file_name
-                    if self._should_index(str(file_path)):
+                    # 检查是否为普通文件（不是管道、设备等特殊文件）
+                    try:
+                        stat_result = file_path.stat()
+                        if stat_result.st_mode & 0o170000 != 0o100000:
+                            continue  # 跳过特殊文件
+                    except OSError:
+                        continue
+                    # 快速扩展名检查
+                    file_ext = file_path.suffix.lower()
+                    if file_ext in self.all_extensions:
                         files_list.append(file_path)
-        except PermissionError:
-            self.logger.warning(f"无权限访问目录: {dir_path}")
+
         except Exception as e:
-            self.logger.error(f"收集文件失败 {dir_path}: {e}")
+            self.logger.error(f"scandir-rs遍历失败 {dir_path}: {e}")
+        finally:
+            os.chdir(original_cwd)
 
     def _process_file_worker(self, file_path: Path) -> bool:
         """工作线程：处理单个文件"""
@@ -564,7 +787,7 @@ class FileScanner:
             return False
 
     def _scan_directory(self, dir_path: Path, total_estimate: int = 0) -> None:
-        """递归扫描目录并索引符合条件的文件
+        """递归扫描目录并索引符合条件的文件（使用os.scandir优化）
 
         Args:
             dir_path: 要扫描的目录路径
@@ -587,65 +810,67 @@ class FileScanner:
             self.logger.info(f"开始遍历目录: {dir_path}")
             file_count = 0
 
-            for root, dirs, files in os.walk(dir_path):
-                if self._is_stop_requested():
-                    self.logger.info(f"扫描被停止，已处理 {file_count} 个项目")
-                    return
-
-                for file_name in files:
-                    if self._is_stop_requested():
-                        self.logger.info(f"扫描被停止，已处理 {file_count} 个项目")
-                        return
-
-                    try:
-                        file_path = Path(root) / file_name
-
-                        # 检查文件是否为有效的普通文件
-                        try:
-                            stat_result = file_path.stat()
-                            # 跳过特殊文件（如管道、设备文件等）
-                            if not (stat_result.st_mode & 0o170000 == 0o100000):
-                                continue
-                        except OSError:
-                            self.logger.warning(f"无法获取文件状态 {file_path}, 跳过")
-                            continue
-
-                        self.logger.debug(f"处理文件: {file_path}")
-                        self._process_file(file_path)
-                        file_count += 1
-
-                        # 更新进度（如果启用）
-                        if (
-                            enable_progress
-                            and file_count % self._PROGRESS_FREQUENCY == 0
-                        ):
-                            progress = min(
-                                99,
-                                int(
-                                    (
-                                        self.scan_stats["total_files_scanned"]
-                                        / total_estimate
-                                    )
-                                    * 100
-                                ),
-                            )
+            # 使用os.scandir递归扫描
+            def scan_recursive(current_dir: Path):
+                nonlocal file_count
+                try:
+                    with os.scandir(current_dir) as entries:
+                        for entry in entries:
+                            if self._is_stop_requested():
+                                return
                             try:
-                                if self.progress_callback:
-                                    self.progress_callback(progress)
+                                if entry.is_dir(follow_symlinks=False):
+                                    # 过滤排除的目录
+                                    if not any(
+                                        self._match_exclude(pattern, entry.name)
+                                        for pattern in self.exclude_patterns
+                                    ):
+                                        scan_recursive(Path(entry.path))
+                                elif entry.is_file(follow_symlinks=False):
+                                    # 检查文件是否为有效的普通文件
+                                    try:
+                                        stat_result = entry.stat()
+                                        if stat_result.st_mode & 0o170000 != 0o100000:
+                                            continue
+                                    except OSError:
+                                        continue
+
+                                    self._process_file(Path(entry.path))
+                                    file_count += 1
+
+                                    # 更新进度（如果启用）
+                                    if enable_progress and file_count % self._PROGRESS_FREQUENCY == 0:
+                                        progress = min(
+                                            99,
+                                            int(
+                                                (
+                                                    self.scan_stats["total_files_scanned"]
+                                                    / total_estimate
+                                                )
+                                                * 100
+                                            ),
+                                        )
+                                        try:
+                                            if self.progress_callback:
+                                                self.progress_callback(progress)
+                                        except Exception as e:
+                                            self.logger.warning(f"更新进度回调失败: {str(e)}")
+
+                                    # 记录日志
+                                    if file_count % log_frequency == 0:
+                                        self.logger.info(f"已处理 {file_count} 个文件...")
+
+                            except (PermissionError, OSError):
+                                continue
                             except Exception as e:
-                                self.logger.warning(f"更新进度回调失败: {str(e)}")
+                                self.logger.debug(f"处理条目失败 {entry.path}: {e}")
+                                continue
+                except PermissionError:
+                    self.logger.warning(f"无权限访问目录: {current_dir}")
+                except Exception as e:
+                    self.logger.error(f"扫描目录失败 {current_dir}: {str(e)}")
 
-                        # 记录日志
-                        if file_count % log_frequency == 0:
-                            self.logger.info(f"已处理 {file_count} 个文件...")
-
-                    except Exception as e:
-                        # 单个文件处理失败不应停止整个扫描
-                        self.logger.error(
-                            f"处理文件失败 {file_name} in {root}: {str(e)}"
-                        )
-                        continue
-
+            scan_recursive(dir_path)
             self.logger.info(f"目录扫描完成，共处理 {file_count} 个文件")
 
         except PermissionError:
@@ -657,154 +882,143 @@ class FileScanner:
         """处理单个文件，检查是否应索引并执行索引操作（线程安全）"""
         file_path_str = str(file_path)
 
-        # 检查文件是否变更（使用缓存）
-        if not self._is_file_changed(file_path_str):
-            self._increment_stat("total_files_scanned")
-            self.logger.debug(f"文件未变更，跳过: {file_path_str}")
+        # 获取文件stat信息（用于缓存检查和后续使用）
+        try:
+            file_stat = os.stat(file_path_str)
+        except Exception:
+            self.logger.debug(f"无法获取文件状态 {file_path_str}")
             return False
+
+        quick_key = f"{file_stat.st_size}:{file_stat.st_mtime}"
+
+        # 检查文件是否变更（使用缓存）
+        with self._cache_lock:
+            cached = self._file_hash_cache.get(file_path_str)
+            if cached:
+                cached_quick_key, cached_hash, _ = cached
+                if cached_quick_key == quick_key:
+                    self._increment_stat("total_files_scanned")
+                    self.logger.debug(f"文件未变更，跳过: {file_path_str}")
+                    return False
 
         self._increment_stat("total_files_scanned")
 
-        # 检查是否应索引该文件
-        if self._should_index(file_path_str):
-            try:
-                # 记录文件大小
-                file_stat = file_path.stat()
-                file_size = file_stat.st_size
-                self._increment_stat("total_size_scanned", file_size)
-
-                # 执行索引操作
-                success = self._index_file(file_path_str)
-                if success:
-                    self._increment_stat("total_files_indexed")
-                    self.logger.debug(
-                        f"成功索引文件: {file_path_str}, 大小: {file_size} bytes"
-                    )
-                    return True
-                else:
-                    self._increment_stat("total_files_skipped")
-                    self.logger.debug(f"跳过索引文件: {file_path_str} (索引失败)")
-                    return False
-            except PermissionError:
-                self.logger.warning(f"无权限访问文件: {file_path_str}")
-                self._increment_stat("total_files_skipped")
-                return False
-            except OSError as e:
-                self.logger.warning(f"操作系统错误访问文件 {file_path_str}: {str(e)}")
-                self._increment_stat("total_files_skipped")
-                return False
-            except Exception as e:
-                self.logger.error(
-                    f"处理文件失败 {file_path_str}: {str(e)}", exc_info=True
-                )
-                self._increment_stat("total_files_skipped")
-                return False
-        else:
+        # 检查是否应索引该文件（传入stat_result避免重复调用stat）
+        if not self._should_index(file_path_str, file_stat):
             self._increment_stat("total_files_skipped")
             self.logger.debug(f"跳过文件: {file_path_str} (不符合索引条件)")
             return False
 
-    def _should_index(self, path: str) -> bool:
-        """检查是否应索引文件：扩展名、排除模式、文件大小、系统文件"""
-        file_path = Path(path)
-
-        # 检查文件大小
         try:
-            file_size = file_path.stat().st_size
-            if file_size > self.max_file_size:
+            # 记录文件大小
+            file_size = file_stat.st_size
+            self._increment_stat("total_size_scanned", file_size)
+
+            # 执行索引操作
+            success = self._index_file_with_stat(file_path_str, file_stat)
+            if success:
+                self._increment_stat("total_files_indexed")
+                # 更新缓存
+                current_hash = self._get_file_hash(file_path_str, quick_key)
+                with self._cache_lock:
+                    self._file_hash_cache[file_path_str] = (quick_key, current_hash, time.time())
+                    if len(self._file_hash_cache) > self._cache_max_size:
+                        self._trim_cache()
                 self.logger.debug(
-                    f"跳过过大文件: {os.path.basename(path)}, 大小: {file_size/1024/1024:.1f}MB"
+                    f"成功索引文件: {file_path_str}, 大小: {file_size} bytes"
                 )
+                return True
+            else:
+                self._increment_stat("total_files_skipped")
+                self.logger.debug(f"跳过索引文件: {file_path_str} (索引失败)")
                 return False
-            self.logger.debug(f"文件大小检查通过: {path}, 大小: {file_size}")
+        except PermissionError:
+            self.logger.warning(f"无权限访问文件: {file_path_str}")
+            self._increment_stat("total_files_skipped")
+            return False
+        except OSError as e:
+            self.logger.warning(f"操作系统错误访问文件 {file_path_str}: {str(e)}")
+            self._increment_stat("total_files_skipped")
+            return False
         except Exception as e:
-            self.logger.warning(f"获取文件大小失败 {path}: {str(e)}")
+            self.logger.error(
+                f"处理文件失败 {file_path_str}: {str(e)}", exc_info=True
+            )
+            self._increment_stat("total_files_skipped")
             return False
 
-        # 检查文件扩展名
+    # 媒体文件扩展名集合（用于快速查找）
+    _MEDIA_EXTENSIONS = frozenset([
+        ".jpg", ".jpeg", ".png", ".gif", ".bmp", ".tiff", ".svg", ".webp",
+        ".mp3", ".wav", ".flac", ".ogg", ".m4a", ".mp4", ".avi", ".mov",
+        ".mkv", ".wmv",
+    ])
+
+    # 可能包含可执行文件的扩展名（需要检查文件头）
+    _EXECUTABLE_EXTENSIONS = frozenset([
+        ".exe", ".dll", ".sys", ".bat", ".cmd", ".ps1", ".vbs", ".js", ".jar",
+        ".bin", ".sh", ".bash", ".out", ".ko", ".so", ".dylib",
+    ])
+
+    def _should_index(self, path: str, stat_result: Optional[os.stat_result] = None) -> bool:
+        """检查是否应索引文件：扩展名、排除模式、文件大小、系统文件
+
+        Args:
+            path: 文件路径
+            stat_result: 可选的预获取stat结果，避免重复调用stat
+        """
+        file_path = Path(path)
         file_ext = file_path.suffix.lower()
 
-        # 强制拒绝图片和媒体扩展名
-        if file_ext in [
-            ".jpg",
-            ".jpeg",
-            ".png",
-            ".gif",
-            ".bmp",
-            ".tiff",
-            ".svg",
-            ".webp",
-            ".mp3",
-            ".wav",
-            ".flac",
-            ".ogg",
-            ".m4a",
-            ".mp4",
-            ".avi",
-            ".mov",
-            ".mkv",
-            ".wmv",
-        ]:
-            self.logger.debug(f"强制跳过媒体文件: {os.path.basename(path)}")
+        # 强制拒绝媒体扩展名
+        if file_ext in self._MEDIA_EXTENSIONS:
             return False
 
-        self.logger.debug(f"检查文件扩展名: {path}, 扩展名: {file_ext}")
-        # 使用 set 进行 O(1) 查找
+        # 快速扩展名检查（使用 set 的 O(1) 查找）
         if file_ext not in self.all_extensions:
-            self.logger.debug(f"跳过不支持的文件类型: {path}")
             return False
-        self.logger.debug(f"文件扩展名检查通过: {path}")
+
+        # 获取文件大小（如果未提供stat_result）
+        if stat_result is None:
+            try:
+                stat_result = file_path.stat()
+            except Exception as e:
+                self.logger.debug(f"获取文件大小失败 {path}: {e}")
+                return False
+
+        # 检查文件大小
+        if stat_result.st_size > self.max_file_size:
+            self.logger.debug(
+                f"跳过过大文件: {os.path.basename(path)}, 大小: {stat_result.st_size/1024/1024:.1f}MB"
+            )
+            return False
 
         # 检查排除模式
         if any(self._match_exclude(pattern, path) for pattern in self.exclude_patterns):
-            self.logger.debug(f"跳过匹配排除模式的文件: {path}")
             return False
-        self.logger.debug(f"排除模式检查通过: {path}")
 
-        # 检查是否为系统文件
-        if self._is_system_file(path):
-            self.logger.debug(f"跳过系统文件: {path}")
-            return False
-        self.logger.debug(f"文件应被索引: {path}")
+        # 检查是否为系统文件（只对可能可执行的扩展名进行检查）
+        if file_ext in self._EXECUTABLE_EXTENSIONS:
+            if self._is_system_file(path, stat_result):
+                return False
+
         return True
+
+    # 可能包含可执行文件的扩展名集合（需要检查文件头）
+    _EXECUTABLE_EXTENSIONS = frozenset([
+        ".exe", ".dll", ".sys", ".bat", ".cmd", ".ps1", ".vbs", ".js", ".jar",
+        ".bin", ".sh", ".bash", ".out", ".ko", ".so", ".dylib", ".scr",
+    ])
 
     def _is_system_file(self, path: str) -> bool:
         """检测是否为系统文件"""
         # 首先检查扩展名，对已知的文档文件直接跳过可执行文件检查
         file_ext = Path(path).suffix.lower()
         document_extensions = {
-            ".pdf",
-            ".doc",
-            ".docx",
-            ".xls",
-            ".xlsx",
-            ".ppt",
-            ".pptx",
-            ".txt",
-            ".md",
-            ".csv",
-            ".json",
-            ".xml",
-            ".rtf",
-            ".html",
-            ".htm",
-            ".py",
-            ".js",
-            ".java",
-            ".cpp",
-            ".c",
-            ".h",
-            ".cs",
-            ".go",
-            ".rs",
-            ".php",
-            ".rb",
-            ".swift",
-            ".zip",
-            ".rar",
-            ".7z",
-            ".tar",
-            ".gz",
+            ".pdf", ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx",
+            ".txt", ".md", ".csv", ".json", ".xml", ".rtf", ".html", ".htm",
+            ".py", ".js", ".java", ".cpp", ".c", ".h", ".cs", ".go", ".rs",
+            ".php", ".rb", ".swift", ".zip", ".rar", ".7z", ".tar", ".gz",
         }
 
         if file_ext in document_extensions:
@@ -827,7 +1041,11 @@ class FileScanner:
         if any(part.startswith(".") and part != "." for part in Path(path).parts):
             return True
 
-        # 对非文档文件执行可执行文件头检查
+        # 只有当文件扩展名可能是可执行文件时才检查文件头
+        if file_ext not in self._EXECUTABLE_EXTENSIONS:
+            return False
+
+        # 对可疑文件执行可执行文件头检查
         try:
             with open(path, "rb") as f:
                 header = f.read(4)
@@ -879,6 +1097,54 @@ class FileScanner:
                 "created": created_time,
                 "modified": modified_time,
                 "keywords": "",  # 可以后续扩展关键词提取
+            }
+
+            # 调用索引管理器更新文档
+            self.index_manager.update_document(document)
+            self.logger.debug(f"已索引文件: {file_path}")
+            return True
+        except Exception as e:
+            self.logger.error(f"索引文件失败 {file_path}: {str(e)}")
+            import traceback
+
+            self.logger.error(f"详细错误信息: {traceback.format_exc()}")
+            return False
+
+    def _index_file_with_stat(self, file_path: str, stat_info: os.stat_result) -> bool:
+        """索引单个文件（使用预获取的stat信息避免重复调用stat）"""
+        if not self.index_manager:
+            self.logger.error("索引管理器未初始化")
+            return False
+
+        try:
+            file_path_obj = Path(file_path)
+
+            # 使用已获取的stat信息
+            file_size = stat_info.st_size
+            created_time = datetime.fromtimestamp(stat_info.st_ctime)
+            modified_time = datetime.fromtimestamp(stat_info.st_mtime)
+
+            # 获取文件类型
+            file_ext = file_path_obj.suffix.lower()
+            file_type = "unknown"
+            for type_name, extensions in self.target_extensions.items():
+                if file_ext in extensions:
+                    file_type = type_name
+                    break
+
+            # 读取文件内容
+            content = self._read_file_content(file_path, file_ext)
+
+            # 构建文档字典
+            document = {
+                "path": str(file_path),
+                "filename": file_path_obj.name,
+                "content": content,
+                "file_type": file_type,
+                "size": file_size,
+                "created": created_time,
+                "modified": modified_time,
+                "keywords": "",
             }
 
             # 调用索引管理器更新文档
