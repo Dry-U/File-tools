@@ -15,50 +15,70 @@ default = true
 [project]
 name = "file-tools"
 version = "1.0.0"
-dynamic = []
 requires-python = ">=3.9,<3.13"
 description = "智能文件检索与问答系统 - 基于Python的本地文件智能管理工具"
 authors = [{name = "Darian", email = "Dar1an@126.com"}]
 license = "MIT"
 
+# 核心依赖 - uv tree 验证的实际依赖
 dependencies = [
-    "pywebview>=5.0.0,<6.0.0",
-    "watchdog>=3.0.0,<5.0.0",
-    "pyyaml>=6.0,<7.0",
-    "pypdf>=3.0.0,<6.0.0",
-    "pdfminer.six",
-    "pandas>=2.0.0,<3.0.0",
-    "openpyxl>=3.1.0,<4.0.0",
-    "psutil>=5.9.0,<7.0.0",
-    "python-docx>=1.1.0,<2.0.0",
-    "python-pptx>=0.6.0",
-    "markdown>=3.4.0,<4.0.0",
-    "Pillow>=10.0.0,<12.0.0",
-    "diskcache>=5.6.0,<6.0.0",
-    "exifread>=3.0.0,<4.0.0",
-    "pytesseract>=0.3.10,<0.4.0",
-    "pywin32>=306,<320; sys_platform == 'win32'",
+    # Web 框架
     "fastapi>=0.115.0,<0.120.0",
     "uvicorn[standard]>=0.30.0,<1.0.0",
     "python-multipart>=0.0.6,<1.0.0",
+    "aiofiles>=24.0.0,<25.0.0",
+
+    # 桌面 GUI
+    "pywebview>=5.0.0,<6.0.0",
+
+    # 数据处理
+    "pydantic>=2.12.0,<3.0.0",
+    "pandas>=2.0.0,<3.0.0",
+
+    # 搜索引擎
+    "tantivy>=0.25.0,<0.26.0",
+    "hnswlib>=0.8.0,<1.0.0",
+
+    # 文档解析
+    "pypdf>=3.0.0,<6.0.0",
+    "pdfplumber>=0.11.8,<0.12.0",
+    "pymupdf>=1.26.5,<2.0.0",
+    "python-docx>=1.1.0,<2.0.0",
+    "python-pptx>=0.6.0",
+    "openpyxl>=3.1.0,<4.0.0",
+    "markdown>=3.4.0,<4.0.0",
+
+    # 图片处理
+    "Pillow>=10.0.0,<12.0.0",
+
+    # 中文分词
     "jieba>=0.42.1,<0.50.0",
-    "typing-extensions>=4.0.0,<5.0.0",
+
+    # 系统工具
+    "watchdog>=3.0.0,<5.0.0",
+    "psutil>=5.9.0,<7.0.0",
+    "pywin32>=306,<320; sys_platform == 'win32'",
+
+    # 加密和缓存
+    "pycryptodome>=3.23.0,<4.0.0",
+    "cryptography>=41.0.0,<46.0.0",
+    "diskcache>=5.6.0,<6.0.0",
+    "cachetools>=5.0.0,<6.0.0",
+
+    # 配置和日志
+    "pyyaml>=6.0,<7.0",
+
+    # 其他
+    "requests>=2.31.0,<3.0.0",
     "charset-normalizer>=3.0.0,<5.0.0",
     "click>=8.0.0,<9.0.0",
-    "scikit-learn>=1.0.0,<2.0.0",
-    "hnswlib>=0.8.0,<1.0.0",
-    "tantivy>=0.25.0,<0.26.0",
-    "pycryptodome>=3.23.0,<4.0.0",
-    "pydantic>=2.12.0,<3.0.0",
-    "pdfplumber>=0.11.8,<0.12.0",
+    "typing-extensions>=4.0.0,<5.0.0",
     "six>=1.16.0",
-    "pymupdf>=1.26.5,<2.0.0",
-    "cryptography>=41.0.0,<46.0.0",
-    "prometheus-client>=0.20.0,<1.0.0",
-    "aiofiles>=24.0.0,<25.0.0",
-    "cachetools>=5.0.0,<6.0.0",
+    "numpy>=1.26.0,<2.0.0",  # hnswlib/pandas/sklearn 需要
+    "scikit-learn>=1.0.0,<2.0.0",  # RAG 需要
 ]
 
+# 可选依赖
 [project.optional-dependencies]
 dev = [
     "pytest>=8.0.0",
@@ -72,31 +92,19 @@ dev = [
     "mypy>=1.0.0",
     "bandit>=1.7.0",
 ]
+# 快速扫描（使用 Rust 加速）
 fast-scan = [
     "scandir-rs>=2.9.0,<3.0.0",
 ]
-ai-cpu = [
+# AI 功能（CPU）
+ai = [
     "torch>=2.0.0",
     "transformers>=4.30.0,<4.42.0",
     "fastembed>=0.3.0,<0.8.0",
 ]
-ai-gpu = [
-    "torch>=2.0.0",
-    "transformers>=4.30.0,<4.42.0",
-    "fastembed>=0.3.0,<0.8.0",
-]
+# 模型仓库（可选）
 modelscope = [
-    "modelscope>=1.33.0",
-    "datasets>=2.14.0,<3.0.0",
-    "tensorflow>=2.10.0",
-    "simplejson>=3.0.0",
-    "sortedcontainers>=2.4.0",
-    "addict>=2.4.0",
-    "GPUtil>=1.4.0",
-]
-langchain = [
-    "langchain>=0.3.0,<0.4.0",
-    "langchain-community>=0.3.0,<0.4.0",
+    "modelscope>=1.20.0",
 ]
 
 [dependency-groups]
@@ -152,10 +160,7 @@ testpaths = ["tests"]
 asyncio_mode = "auto"
 
 [tool.ruff]
-# 忽略 E402（模块级导入不在顶部）和 F541（无占位符的f-string）
-# 这些是延迟加载重型依赖的设计选择
-
-[tool.ruff.lint]
-# 同样在lint规则中配置
 ignore = ["E402", "F541"]
 
+[tool.ruff.lint]
+ignore = ["E402", "F541"]

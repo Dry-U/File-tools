@@ -66,9 +66,7 @@ class SearchEngine:
         self.vector_weight: float = get_config_float("vector_weight", 0.4)
         self.max_results: int = get_config_int("max_results", 50)
 
-        # 新增的高级搜索配置参数
-        self.bm25_k1 = get_config_float("bm25_k1", 1.5)
-        self.bm25_b = get_config_float("bm25_b", 0.75)
+        # 高级搜索配置参数
         self.result_boost = get_config_bool("result_boost", True)
         self.filename_boost = get_config_float("filename_boost", 1.5)
         self.keyword_boost = get_config_float("keyword_boost", 1.2)
@@ -340,22 +338,24 @@ class SearchEngine:
                     semantic_hits.append(item)
 
             if primary_hits:
-                # 如果找到了精确匹配的结果，则对语义匹配结果进行严格过滤
-                # 仅保留分数较高的语义结果（使用配置的高质量阈值），过滤掉低相关性的噪音
-                # 这样既保留了高质量的语义补充，又避免了不相关的文档干扰用户
+                # 如果找到了精确匹配的结果，则对语义匹配结果进行宽松过滤
+                # 仅保留分数超过低阈值的语义结果作为补充，过滤掉明显无关的噪音
+                # 有精确匹配作为基础时可以更宽松地补充语义结果
+                supplemental_semantic = [
+                    item
+                    for item in semantic_hits
+                    if item["score"] > self.semantic_score_low_threshold
+                ]
+                limited_results = primary_hits + supplemental_semantic
+            else:
+                # 如果没有精确匹配，则只展示语义匹配结果，但需要更严格地过滤
+                # 仅保留分数较高的语义结果，避免低相关性文档干扰用户
                 high_quality_semantic = [
                     item
                     for item in semantic_hits
                     if item["score"] > self.semantic_score_high_threshold
                 ]
-                limited_results = primary_hits + high_quality_semantic
-            else:
-                # 如果没有精确匹配，则展示语义匹配结果，但也可以设置一个最低门槛（使用配置的低阈值）
-                limited_results = [
-                    item
-                    for item in semantic_hits
-                    if item["score"] > self.semantic_score_low_threshold
-                ]
+                limited_results = high_quality_semantic
 
         # 限制结果数量
         limited_results = limited_results[: self.max_results]
@@ -544,7 +544,8 @@ class SearchEngine:
         k = self.rrf_k  # RRF 常数，默认 60
 
         # 预计算最大可能的 RRF 分数（rank=0 for both sources）
-        max_rrf = (self.text_weight + self.vector_weight) / k  # = 1/k when weights sum to 1
+        # 标准 RRF：每个来源最大贡献 1/k
+        max_rrf = 2.0 / k  # 两个来源，rank=0 时各贡献 1/k
 
         for result in combined.values():
             text_rank = result.get("text_rank", -1)
@@ -552,20 +553,18 @@ class SearchEngine:
 
             rrf_score = 0.0
 
-            # 文本排名贡献
+            # 标准 RRF：不使用权重因子
             if text_rank >= 0:
-                rrf_score += self.text_weight / (k + text_rank)
+                rrf_score += 1.0 / (k + text_rank)
 
-            # 向量排名贡献
             if vector_rank >= 0:
-                rrf_score += self.vector_weight / (k + vector_rank)
+                rrf_score += 1.0 / (k + vector_rank)
 
-            # 归一化到 0-100 范围，使用指数衰减使分数更分散
-            # base_score = rrf_score / max_rrf 得到 0-1 的相对分数
+            # 归一化到 0-100 范围，使用线性插值使分数更分散
             if max_rrf > 0:
                 relative_score = rrf_score / max_rrf
-                # 使用指数映射：rank 0 -> ~95, rank 10 -> ~65, rank 50 -> ~20
-                result["score"] = min(95 * (relative_score ** 0.7), 100.0)
+                # 线性映射：rank 0 -> 95, rank 60 -> ~30, 避免分数过于集中
+                result["score"] = min(95 * relative_score, 100.0)
             else:
                 result["score"] = 50.0
 

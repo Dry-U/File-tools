@@ -1,4 +1,4 @@
-name: CI/CD
+name: CI/CD (Nuitka)
 
 on:
   push:
@@ -21,7 +21,6 @@ on:
 
 env:
   PYTHONUNBUFFERED: 1
-  # Use uv for faster package installation
   UV_SYSTEM_PYTHON: 1
 
 jobs:
@@ -61,8 +60,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
-        python-version: ['3.10', '3.11', '3.12']
+        os: [ubuntu-latest, windows-latest]
+        python-version: ['3.11', '3.12']
 
     steps:
       - uses: actions/checkout@v4
@@ -72,12 +71,28 @@ jobs:
         with:
           enable-cache: true
 
+      - name: Cache pip packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: pip-${{ runner.os }}-${{ hashFiles('**/pyproject.toml') }}
+          restore-keys: |
+            pip-${{ runner.os }}-
+
       - name: Run tests with coverage
         run: |
-          uvx pytest tests/unit/ -v --cov=backend --cov-report=xml --cov-report=term --tb=short
+          uv run pytest tests/unit/ -v --cov=backend --cov-report=xml --cov-report=term --tb=short
+
+      - name: Run integration tests
+        run: |
+          uv run pytest tests/integration/ -v --tb=short
+
+      - name: Run API tests
+        run: |
+          uv run pytest tests/api/ -v --tb=short
 
       - name: Upload coverage to Codecov
-        if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.11'
+        if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.12'
         uses: codecov/codecov-action@v5
         with:
           files: ./coverage.xml
@@ -90,7 +105,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     needs: [lint]
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'pull_request'
     steps:
       - uses: actions/checkout@v4
 
@@ -106,7 +121,7 @@ jobs:
       - name: Start server
         run: |
           # Start server in background with mocked native libs
-          uvx python -c "
+          uv run python -c "
           import sys
           from unittest.mock import MagicMock
           sys.modules['tantivy'] = MagicMock()
@@ -120,7 +135,7 @@ jobs:
 
           echo "Waiting for server to start..."
           for i in $(seq 1 60); do
-            if curl -s http://127.0.0.1:8000/api/health/ > /dev/null 2>&1; then
+            if curl -s http://127.0.0.1:8000/api/health > /dev/null 2>&1; then
               echo "Server is ready after ${i}s"
               break
             fi
@@ -129,7 +144,7 @@ jobs:
 
       - name: Run accessibility tests
         run: |
-          uvx pytest tests/e2e/test_accessibility.py -v --tb=short || true
+          uv run pytest tests/e2e/test_accessibility.py -v --tb=short || true
 
   # ==================== 冒烟测试 ====================
   smoke-test:
@@ -137,7 +152,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     needs: [lint, test]
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'pull_request'
     steps:
       - uses: actions/checkout@v4
 
@@ -149,7 +164,7 @@ jobs:
       - name: Smoke test
         run: |
           # Start server in background with mocked native libs (CI runners lack AVX-512)
-          uvx python -c "
+          uv run python -c "
           import sys
           from unittest.mock import MagicMock
           sys.modules['tantivy'] = MagicMock()
@@ -162,7 +177,7 @@ jobs:
 
           echo "Waiting for server to start..."
           for i in $(seq 1 120); do
-            if curl -s http://127.0.0.1:8000/api/health/ready > /dev/null 2>&1; then
+            if curl -s http://127.0.0.1:8000/api/health > /dev/null 2>&1; then
               echo "Server is ready after ${i}s"
               break
             fi
@@ -211,11 +226,11 @@ jobs:
         run: |
           uvx safety check --json || true
 
-  # ==================== 打包构建 ====================
+  # ==================== Nuitka 打包构建 ====================
   build:
     name: Build ${{ matrix.build_mode }} (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 60
+    timeout-minutes: 180
     needs: [lint, test]
     if: startsWith(github.ref, 'refs/tags/v')
     strategy:
@@ -225,15 +240,14 @@ jobs:
           # Windows: 构建所有版本
           - os: windows-latest
             build_mode: cpu
-            deps: "ai-cpu"
+            deps: "ai"
           - os: windows-latest
             build_mode: gpu
-            deps: "ai-gpu"
+            deps: "ai"
           - os: windows-latest
             build_mode: slim
             deps: ""
           # Linux: 仅构建 slim 版本（AI 版本超过 2GB GitHub 限制）
-          # Linux cpu/gpu 使用 pip install 或 Docker 分发
           - os: ubuntu-latest
             build_mode: slim
             deps: ""
@@ -248,14 +262,24 @@ jobs:
         with:
           enable-cache: true
 
+      - name: Cache Nuitka
+        uses: actions/cache@v4
+        with:
+          path: |
+            build/
+            ~/.cache/nuitka/
+          key: nuitka-${{ runner.os }}-${{ hashFiles('**/pyproject.toml') }}
+          restore-keys: |
+            nuitka-${{ runner.os }}-
+
       - name: Install build dependencies
         shell: bash
         run: |
-          uvx pip install pyinstaller
-          uvx pip install -e "."
+          uv pip install nuitka
+          uv pip install -e "."
           DEPS="${{ matrix.deps }}"
           if [ -n "$DEPS" ]; then
-            uvx pip install -e ".[${DEPS}]"
+            uv pip install -e ".[${DEPS}]"
           fi
 
       - name: Resolve build version
@@ -272,20 +296,32 @@ jobs:
           echo "FILETOOLS_VERSION=${APP_VERSION}" >> "$GITHUB_ENV"
           echo "FILETOOLS_BUILD_MODE=${{ matrix.build_mode }}" >> "$GITHUB_ENV"
 
-      - name: Build executable (Windows)
+      - name: Build executable with Nuitka (Windows)
         if: matrix.os == 'windows-latest'
         shell: bash
         run: |
           export FILETOOLS_VERSION="$FILETOOLS_VERSION"
           export FILETOOLS_BUILD_MODE="$FILETOOLS_BUILD_MODE"
-          pyinstaller file-tools.spec --noconfirm --clean
+          python build_nuitka.py %BUILD_MODE%
 
-      - name: Build executable (Linux)
+      - name: Build executable with Nuitka (Linux)
         if: matrix.os == 'ubuntu-latest'
         run: |
           export FILETOOLS_VERSION=${FILETOOLS_VERSION}
           export FILETOOLS_BUILD_MODE=${FILETOOLS_BUILD_MODE}
-          pyinstaller file-tools.spec --noconfirm --clean
+          python build_nuitka.py $BUILD_MODE
+
+      - name: Analyze build size
+        run: |
+          echo "=== Build artifacts size ==="
+          du -sh dist/*/ 2>/dev/null || echo "No dist directories found"
+          echo ""
+          echo "=== Largest files (top 20) ==="
+          find dist -type f -exec ls -lh {} \; 2>/dev/null | sort -k5 -rh | head -20 || echo "No files found"
+          echo ""
+          echo "=== File count by extension ==="
+          find dist -type f -name "*.dll" 2>/dev/null | wc -l | xargs echo "DLL count:"
+          find dist -type f -name "*.pyd" 2>/dev/null | wc -l | xargs echo "PYD count:"
 
       - name: Clean up build output
         shell: bash
@@ -300,55 +336,47 @@ jobs:
         if: matrix.os == 'windows-latest'
         shell: bash
         run: |
-          ARCHIVE_DIR="filetools_${FILETOOLS_VERSION}_${{ matrix.build_mode }}"
-          if [ -f "dist/${ARCHIVE_DIR}/FileTools.exe" ] || [ -f "dist/${ARCHIVE_DIR}/filetools.exe" ]; then
-            echo "FileTools.exe found"
+          if [ -f "dist/main.dist/main.exe" ]; then
+            echo "main.exe found"
+            ls -la dist/main.dist/
           else
-            echo "ERROR: FileTools.exe not found"
-            ls -la "dist/${ARCHIVE_DIR}/" 2>/dev/null || echo "Directory not found"
-            exit 1
-          fi
-          # Check python311.dll exists
-          if [ -f "dist/${ARCHIVE_DIR}/FileTools.exe" ]; then
-            echo "Build output OK"
-          fi
-
-      - name: Verify build output (Linux)
-        if: matrix.os == 'ubuntu-latest'
-        run: |
-          ARCHIVE_DIR="filetools_${FILETOOLS_VERSION}_${{ matrix.build_mode }}"
-          if [ -f "dist/${ARCHIVE_DIR}/FileTools" ] || [ -f "dist/${ARCHIVE_DIR}/filetools" ]; then
-            echo "FileTools binary found"
-            [ -f "dist/${ARCHIVE_DIR}/FileTools" ] && chmod +x "dist/${ARCHIVE_DIR}/FileTools"
-            [ -f "dist/${ARCHIVE_DIR}/filetools" ] && chmod +x "dist/${ARCHIVE_DIR}/filetools"
-            echo "Build output OK"
-          else
-            echo "ERROR: FileTools binary not found"
-            ls -la "dist/${ARCHIVE_DIR}/" 2>/dev/null || echo "Directory not found"
+            echo "ERROR: main.exe not found"
+            ls -la dist/ 2>/dev/null || echo "dist not found"
             exit 1
           fi
 
-      - name: Install NSIS (Windows)
+      - name: Install Inno Setup (Windows)
         if: matrix.os == 'windows-latest'
         shell: bash
         run: |
-          # Download NSIS directly (more reliable than Chocolatey)
-          NSIS_URL="https://downloads.sourceforge.net/project/nsis/NSIS%203/3.11/nsis-3.11.zip"
-          curl -L -o nsis.zip "$NSIS_URL"
-          unzip -q nsis.zip -d "${{ runner.temp }}/nsis"
-          echo "${{ runner.temp }}/nsis/nsis-3.11" >> $GITHUB_PATH
+          # Download Inno Setup directly
+          INNO_URL="https://jrsoftware.org/download.php/is.exe"
+          curl -L -o is.exe "$INNO_URL"
+          # Install silently
+          ./is.exe /VERYSILENT /SUPPRESSMSGBOXES /NORESTART /SP-
+          # Find Inno Setup installation
+          if [ -f "C:/Program Files (x86)/Inno Setup 6/ISCC.exe" ]; then
+            echo "C:/Program Files (x86)/Inno Setup 6/ISCC.exe" >> $GITHUB_PATH
+          elif [ -f "C:/Program Files/Inno Setup 6/ISCC.exe" ]; then
+            echo "C:/Program Files/Inno Setup 6/ISCC.exe" >> $GITHUB_PATH
+          fi
 
-      - name: Create NSIS installer (Windows)
+      - name: Create Inno Setup installer (Windows)
         if: matrix.os == 'windows-latest'
         shell: bash
         env:
           FILETOOLS_VERSION: ${{ env.FILETOOLS_VERSION }}
           FILETOOLS_BUILD_MODE: ${{ env.FILETOOLS_BUILD_MODE }}
         run: |
-          # Generate NSIS script and build installer
-          python scripts/build_installer.py \
-            --mode "${{ matrix.build_mode }}" \
-            --version "${FILETOOLS_VERSION}"
+          mkdir -p dist/installer
+          iscc scripts/build_inno_setup.iss
+          if [ -f "dist/installer/FileTools-${FILETOOLS_VERSION}-win64-setup.exe" ]; then
+            echo "Installer created successfully"
+          else
+            echo "ERROR: Installer creation failed"
+            ls -la dist/installer/
+            exit 1
+          fi
 
       - name: Create portable zip (Windows)
         if: matrix.os == 'windows-latest'
@@ -357,82 +385,9 @@ jobs:
           FILETOOLS_VERSION: ${{ env.FILETOOLS_VERSION }}
           FILETOOLS_BUILD_MODE: ${{ env.FILETOOLS_BUILD_MODE }}
         run: |
-          ARCHIVE_DIR="filetools_${FILETOOLS_VERSION}_${{ matrix.build_mode }}"
           PACKAGE_NAME="filetools_${FILETOOLS_VERSION}_${{ matrix.build_mode }}_windows_amd64_portable.zip"
-          7z a "dist/${PACKAGE_NAME}" "dist/${ARCHIVE_DIR}"
+          7z a "dist/${PACKAGE_NAME}" "dist/main.dist"
           echo "Created: dist/${PACKAGE_NAME}"
-
-      - name: Create .deb package (Linux)
-        if: matrix.os == 'ubuntu-latest'
-        shell: bash
-        env:
-          FILETOOLS_VERSION: ${{ env.FILETOOLS_VERSION }}
-          FILETOOLS_BUILD_MODE: ${{ env.FILETOOLS_BUILD_MODE }}
-        run: |
-          set -e
-          ARCHIVE_DIR="filetools_${FILETOOLS_VERSION}_${{ matrix.build_mode }}"
-          DEB_PKG="filetools_${FILETOOLS_VERSION}_${{ matrix.build_mode }}_linux_amd64.deb"
-
-          echo "Checking build directory: dist/${ARCHIVE_DIR}"
-          ls -lah "dist/${ARCHIVE_DIR}" 2>/dev/null || { echo "ERROR: Build directory not found"; exit 1; }
-
-          PKG_ROOT="debbuild/${DEB_PKG}"
-          mkdir -p "${PKG_ROOT}/DEBIAN"
-          mkdir -p "${PKG_ROOT}/opt/filetools"
-          mkdir -p "${PKG_ROOT}/usr/share/applications"
-          mkdir -p "${PKG_ROOT}/usr/local/bin"
-
-          # Copy build output
-          cp -r "dist/${ARCHIVE_DIR}/"* "${PKG_ROOT}/opt/filetools/"
-
-          # Control file (no leading spaces - dpkg requires it)
-          printf '%s\n' \
-            "Package: filetools-${{ matrix.build_mode }}" \
-            "Version: ${FILETOOLS_VERSION}" \
-            "Architecture: amd64" \
-            "Maintainer: Darian <dry-u@users.noreply.github.com>" \
-            "Description: FileTools (${{ matrix.build_mode }} edition) - Intelligent file search and RAG system" \
-            " A hybrid file retrieval and RAG system with dual-engine search," \
-            " supporting text (BM25) and vector (HNSW) search." \
-            "Section: utils" \
-            "Priority: optional" \
-            > "${PKG_ROOT}/DEBIAN/control"
-
-          # Post-install script
-          printf '%s\n' \
-            '#!/bin/bash' \
-            'chmod +x /opt/filetools/FileTools' \
-            'ln -sf /opt/filetools/FileTools /usr/local/bin/filetools 2>/dev/null || true' \
-            > "${PKG_ROOT}/DEBIAN/postinst"
-          chmod 755 "${PKG_ROOT}/DEBIAN/postinst"
-
-          # Pre-remove script
-          printf '%s\n' \
-            '#!/bin/bash' \
-            'rm -f /usr/local/bin/filetools 2>/dev/null || true' \
-            > "${PKG_ROOT}/DEBIAN/prerm"
-          chmod 755 "${PKG_ROOT}/DEBIAN/prerm"
-
-          # Desktop entry
-          printf '%s\n' \
-            '[Desktop Entry]' \
-            'Name=FileTools' \
-            'Comment=Intelligent file search and RAG system' \
-            'Exec=/opt/filetools/FileTools' \
-            'Icon=filetools' \
-            'Terminal=false' \
-            'Type=Application' \
-            'Categories=Utility;FileTools;' \
-            > "${PKG_ROOT}/usr/share/applications/filetools.desktop"
-
-          # Build .deb
-          dpkg-deb --build --root-owner-group "${PKG_ROOT}" || { echo "ERROR: dpkg-deb failed"; exit 1; }
-          mv "debbuild/${DEB_PKG}" "dist/${DEB_PKG}" || { echo "ERROR: mv failed"; exit 1; }
-          # Clean up intermediate deb build directory
-          rm -rf debbuild
-          echo "Created: dist/${DEB_PKG}"
-          # Verify deb file exists
-          ls -la dist/*.deb
 
       - name: Create tar.gz archive (Linux)
         if: matrix.os == 'ubuntu-latest'
@@ -441,21 +396,17 @@ jobs:
           FILETOOLS_VERSION: ${{ env.FILETOOLS_VERSION }}
           FILETOOLS_BUILD_MODE: ${{ env.FILETOOLS_BUILD_MODE }}
         run: |
-          ARCHIVE_DIR="filetools_${FILETOOLS_VERSION}_${{ matrix.build_mode }}"
           PACKAGE_NAME="filetools_${FILETOOLS_VERSION}_${{ matrix.build_mode }}_linux_amd64_portable.tar.gz"
-          tar -czf "dist/${PACKAGE_NAME}" -C dist "${ARCHIVE_DIR}"
+          tar -czf "dist/${PACKAGE_NAME}" -C dist main.dist
           echo "Created: dist/${PACKAGE_NAME}"
 
-      - name: Clean up PyInstaller build directories
+      - name: Clean up build directories
         shell: bash
         run: |
-          # Remove PyInstaller build directory
+          # Remove Nuitka build directory
           rm -rf build/
           # Remove unpacked application directory (keep only final packages)
-          rm -rf dist/FileTools-v*/
-          rm -rf dist/filetools_*/
-          # Remove generated NSIS scripts
-          rm -f installer-*.nsi
+          rm -rf dist/main.dist/
           echo "Cleaned up build intermediates"
           ls -la dist/
 
@@ -467,7 +418,6 @@ jobs:
             dist/*_setup.exe
             dist/*_portable.zip
             dist/*_portable.tar.gz
-            dist/*.deb
           if-no-files-found: warn
           retention-days: 30
 
@@ -493,11 +443,9 @@ jobs:
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          # Only match final packages, not intermediate build files
           files: |
             release-artifacts/**/*_setup.exe
             release-artifacts/**/*_portable.zip
-            release-artifacts/**/*.deb
             release-artifacts/**/*_portable.tar.gz
           generate_release_notes: true
           draft: false
@@ -522,11 +470,6 @@ jobs:
             ```
             filetools_{版本号}_{模式}_{平台}_{架构}_{类型}.{扩展名}
             ```
-            - **版本号**: 如 1.1.0
-            - **模式**: slim / cpu / gpu
-            - **平台**: windows / linux
-            - **架构**: amd64 (64位)
-            - **类型**: setup (安装程序) / portable (便携版)
 
             #### 🪟 Windows (x64, 64位)
             | 文件名 | 大小 | 类型 | 说明 |
@@ -536,47 +479,23 @@ jobs:
             | `filetools_1.1.0_gpu_windows_amd64_setup.exe` | ~260 MB | 安装程序 | AI 功能，CUDA 加速 |
             | `filetools_1.1.0_*_windows_amd64_portable.zip` | 同左 | 便携版 | 解压即用，不写注册表 |
 
-            - **安装版**：安装到 `C:\Program Files\FileTools\`，创建快捷方式
-            - **便携版**：解压到任意位置，双击 `FileTools.exe` 运行
-
             #### 🐧 Linux (x64, 64位, Ubuntu/Debian)
-            > **注意**：Linux AI 版本（cpu/gpu）体积超过 GitHub 2GB 限制，请使用以下方式安装：
-
-            **方式 1: pip 安装（推荐）**
-            ```bash
-            pip install filetools[ai-cpu]   # CPU 版本
-            pip install filetools[ai-gpu]   # GPU 版本
-            filetools  # 启动
-            ```
-
-            **方式 2: Docker**
-            ```bash
-            docker run -p 8000:8000 filetools:cpu
-            ```
-
-            **方式 3: 仅文件搜索（Release 下载）**
             | 文件名 | 大小 | 说明 |
             |--------|------|------|
             | `filetools_1.1.0_slim_linux_amd64_portable.tar.gz` | ~128 MB | 便携版，解压即用 |
-            | `filetools_1.1.0_slim_linux_amd64.deb` | ~128 MB | 安装包，`sudo dpkg -i` |
 
             ### 快速开始
 
             **Windows**
             1. 下载对应版本的 `*_setup.exe` 或 `*_portable.zip`
-            2. 运行安装程序或解压后双击 `FileTools.exe`
+            2. 运行安装程序或解压后双击 `main.exe`
             3. 浏览器自动打开 http://127.0.0.1:8000
 
             **Linux**
             ```bash
-            # 方式 1: pip 安装 AI 版本
-            pip install filetools[ai-cpu]
-            filetools
-
-            # 方式 2: 下载 slim 便携版
             tar -xzf filetools_1.1.0_slim_linux_amd64_portable.tar.gz
             cd filetools_1.1.0_slim_linux_amd64/
-            ./FileTools
+            ./main
             ```
 
             ### 系统要求
@@ -608,14 +527,9 @@ jobs:
           PATCH=$(echo $CURRENT_VERSION | cut -d. -f3)
           NEW_PATCH=$((PATCH + 1))
           APP_VERSION="${MAJOR}.${MINOR}.${NEW_PATCH}"
-
-          echo "${APP_VERSION}" > VERSION
-
+          echo $APP_VERSION > VERSION
           git config --local user.email "github-actions[bot]@users.noreply.github.com"
           git config --local user.name "github-actions[bot]"
           git add VERSION
-          git commit -m "chore: bump version to ${APP_VERSION} [skip ci]" || echo "No changes to commit"
-
-      - name: Push changes
-        run: |
-          git push || echo "Push failed - may need manual intervention"
+          git commit -m "chore: bump version to ${APP_VERSION}" || echo "No changes to commit"
+          git push

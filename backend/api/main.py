@@ -13,6 +13,7 @@ from fastapi import FastAPI
 from fastapi.responses import JSONResponse, HTMLResponse, Response
 from fastapi.exceptions import RequestValidationError
 from fastapi import Request
+from fastapi.middleware.cors import CORSMiddleware
 
 from backend.utils.logger import get_logger
 from backend.api.routes.system import get_version
@@ -30,6 +31,7 @@ class RateLimiter:
 
     def __init__(self, max_entries: Optional[int] = None):
         self._requests = OrderedDict()  # 使用 OrderedDict 支持 LRU 清理
+        self._requests_lock = threading.Lock()  # 保护 _requests 的线程安全
         self._max_entries = max_entries or self.DEFAULT_MAX_ENTRIES
         self._cleanup_interval = self.DEFAULT_CLEANUP_INTERVAL
         self._last_cleanup = time.time()
@@ -82,34 +84,35 @@ class RateLimiter:
 
         now = time.time()
 
-        # 定期清理过期记录
-        if now - self._last_cleanup > self._cleanup_interval:
-            self._cleanup_expired(now, window)
+        with self._requests_lock:
+            # 定期清理过期记录
+            if now - self._last_cleanup > self._cleanup_interval:
+                self._cleanup_expired_unlocked(now, window)
 
-        # 限制总条目数，防止内存泄漏
-        if len(self._requests) >= self._max_entries:
-            # 紧急清理：移除最旧的条目
-            self._emergency_cleanup()
+            # 限制总条目数，防止内存泄漏
+            if len(self._requests) >= self._max_entries:
+                # 紧急清理：移除最旧的条目
+                self._emergency_cleanup()
 
-        if key not in self._requests:
-            self._requests[key] = []
+            if key not in self._requests:
+                self._requests[key] = []
 
-        # 移除窗口期外的请求记录
-        self._requests[key] = [t for t in self._requests[key] if now - t < window]
+            # 移除窗口期外的请求记录
+            self._requests[key] = [t for t in self._requests[key] if now - t < window]
 
-        # 检查是否超过限制
-        if len(self._requests[key]) >= max_requests:
-            self._rejected_count += 1
-            return False
+            # 检查是否超过限制
+            if len(self._requests[key]) >= max_requests:
+                self._rejected_count += 1
+                return False
 
-        self._requests[key].append(now)
-        # 移动到末尾（标记为最近访问）
-        self._requests.move_to_end(key)
-        self._allowed_count += 1
-        return True
+            self._requests[key].append(now)
+            # 移动到末尾（标记为最近访问）
+            self._requests.move_to_end(key)
+            self._allowed_count += 1
+            return True
 
-    def _cleanup_expired(self, now: float, window: int):
-        """清理过期的请求记录"""
+    def _cleanup_expired_unlocked(self, now: float, window: int):
+        """清理过期的请求记录（调用方必须持有 _requests_lock）"""
         expired_keys = []
         for key, timestamps in self._requests.items():
             self._requests[key] = [t for t in timestamps if now - t < window]
@@ -118,6 +121,11 @@ class RateLimiter:
         for key in expired_keys:
             del self._requests[key]
         self._last_cleanup = now
+
+    def _cleanup_expired(self, now: float, window: int):
+        """清理过期的请求记录（线程安全版本）"""
+        with self._requests_lock:
+            self._cleanup_expired_unlocked(now, window)
 
     def _emergency_cleanup(self):
         """紧急清理：当条目数超过限制时，移除最旧的 50% 条目"""
@@ -180,6 +188,20 @@ app = FastAPI(
     version=get_version(),
 )
 
+# 配置 CORS 中间件 - 允许跨域请求
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "http://127.0.0.1:8000",
+        "http://localhost:8000",
+        "http://127.0.0.1:8001",
+        "http://localhost:8001",
+    ],
+    allow_credentials=True,
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_headers=["*"],
+)
+
 
 # 安全响应头中间件
 @app.middleware("http")
@@ -238,7 +260,8 @@ async def lifespan(app: FastAPI):
         app.state.config_loader = config_loader
 
         # 初始化限流器
-        get_rate_limiter(config_loader)
+        rate_limiter = get_rate_limiter(config_loader)
+        app.state.rate_limiter = rate_limiter
         logger.info("限流器初始化完成")
 
         # 使用线程池并行初始化独立组件
@@ -337,8 +360,10 @@ async def lifespan(app: FastAPI):
         if config_loader.getboolean("ai_model", "enabled", False):
             import threading
 
-            rag_thread = threading.Thread(target=init_rag_pipeline, daemon=True)
-            rag_thread.start()
+            app.state.rag_init_thread = threading.Thread(
+                target=init_rag_pipeline, daemon=True
+            )
+            app.state.rag_init_thread.start()
             logger.info("RAG 管道后台初始化已启动")
 
         # 如果需要，处理模式更新
@@ -357,8 +382,16 @@ async def lifespan(app: FastAPI):
 
     yield
 
-    """应用停止时清理资源"""
+    # 应用停止时清理资源
     logger.info("正在关闭应用，清理资源...")
+
+    # 等待 RAG 初始化线程完成（避免竞态）
+    if hasattr(app.state, "rag_init_thread") and app.state.rag_init_thread:
+        try:
+            app.state.rag_init_thread.join(timeout=5)
+            logger.info("RAG 初始化线程已结束")
+        except Exception as e:
+            logger.error(f"等待 RAG 初始化线程时出错：{e}")
 
     # 停止文件监控
     if hasattr(app.state, "file_monitor") and app.state.file_monitor:
@@ -367,6 +400,14 @@ async def lifespan(app: FastAPI):
             logger.info("文件监控已停止")
         except Exception as e:
             logger.error(f"停止文件监控时出错：{e}")
+
+    # 关闭文件扫描器
+    if hasattr(app.state, "file_scanner") and app.state.file_scanner:
+        try:
+            app.state.file_scanner.close()
+            logger.info("文件扫描器已关闭")
+        except Exception as e:
+            logger.error(f"关闭文件扫描器时出错：{e}")
 
     # 关闭 RAG Pipeline
     if hasattr(app.state, "rag_pipeline") and app.state.rag_pipeline:
@@ -400,10 +441,10 @@ async def lifespan(app: FastAPI):
         except Exception as e:
             logger.error(f"关闭 ChatHistoryDB 时出错：{e}")
 
-    # 关闭限流器
-    if hasattr(app.state, "rate_limiter") and app.state.rate_limiter:
+    # 关闭限流器（使用模块全局变量）
+    if rate_limiter:
         try:
-            app.state.rate_limiter.shutdown()
+            rate_limiter.shutdown()
             logger.info("限流器已关闭")
         except Exception as e:
             logger.error(f"关闭限流器时出错：{e}")

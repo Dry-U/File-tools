@@ -39,11 +39,23 @@ python scripts/run_tests.py unit --allure  # Unit tests with report
 
 ### Building Executable (Windows)
 ```bash
-pip install pyinstaller
-pyinstaller file-tools.spec
-# or use build script if exists:
-./build_exe.bat
+# 使用 Nuitka 构建 (推荐)
+python build_nuitka.py [mode]
+
+# 模式:
+#   slim - 仅文件搜索（无 AI 功能，体积最小）
+#   cpu  - 完整 AI（CPU 推理）
+#   gpu  - 完整 AI（CUDA 加速）
+
+# 或使用构建脚本
+./build.bat slim         # Slim 版本
+./build.bat cpu         # CPU 版本
+./build.bat cpu installer # CPU 版本 + Inno Setup 安装包
 ```
+
+### 构建产物
+- `dist/main.dist/main.exe` - Nuitka 编译的可执行文件
+- `dist/installer/*.exe` - Inno Setup 安装包（需加 installer 参数）
 
 ## Architecture Overview
 

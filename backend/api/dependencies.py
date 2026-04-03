@@ -4,6 +4,7 @@
 
 import os
 import stat
+import threading
 import urllib.parse
 from pathlib import Path
 from fastapi import Depends
@@ -21,19 +22,22 @@ def get_rate_limiter(config_loader=None):
     return main_get_rate_limiter(config_loader)
 
 
-# 全局状态引用（由 main.py 初始化）
+# 全局状态引用（由 main.py 初始化）- 线程安全访问
 _app = None
+_app_lock = threading.Lock()
 
 
 def set_app(app):
     """设置全局应用实例"""
     global _app
-    _app = app
+    with _app_lock:
+        _app = app
 
 
 def get_app():
     """获取全局应用实例"""
-    return _app
+    with _app_lock:
+        return _app
 
 
 def get_config_loader():

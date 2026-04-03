@@ -580,7 +580,7 @@ const FileToolsSettings = (function() {
         modalBody.innerHTML = `
             <div class="text-center">
                 <div class="spinner-border text-primary mb-3" role="status">
-                    <span class="visually-hidden">Loading...</span>
+                    <span class="visually-hidden">加载中...</span>
                 </div>
                 <div class="progress mb-2" style="height: 20px;">
                     <div id="rebuildProgressBar" class="progress-bar progress-bar-striped progress-bar-animated"
@@ -682,7 +682,7 @@ const FileToolsSettings = (function() {
         modalBody.innerHTML = `
             <div class="text-center">
                 <div class="spinner-border text-primary mb-3" role="status">
-                    <span class="visually-hidden">Loading...</span>
+                    <span class="visually-hidden">加载中...</span>
                 </div>
                 <p class="mb-0 small text-muted">正在重建索引，请稍候...</p>
             </div>

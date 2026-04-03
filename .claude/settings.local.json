@@ -29,7 +29,9 @@
       "Bash(git -C D:Python_workFile-tools log --oneline -15)",
       "Bash(npx skills:*)",
       "mcp__EXA__get_code_context_exa",
-      "mcp__EXA__crawling_exa"
+      "mcp__EXA__crawling_exa",
+      "Bash(ruff check:*)",
+      "Bash(uv run:*)"
     ]
   }
 }

@@ -232,7 +232,8 @@ const FileToolsChat = (function() {
             const isActive = session.session_id === currentSessionId ? 'active' : '';
             return `
                 <div class="history-item ${isActive}"
-                     data-session-id="${sessionIdAttr}">
+                     data-session-id="${sessionIdAttr}"
+                     role="listitem">
                     <i class="bi bi-chat-left-text history-item-icon"></i>
                     <div class="history-item-content">
                         <div class="history-item-title">${FileToolsUtils.escapeHtml(session.title)}</div>

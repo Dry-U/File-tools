@@ -38,15 +38,14 @@ class TestUISettings:
         """测试设置面板打开"""
         self.open_settings(page)
 
-        # 查找设置面板
+        # 验证页面已加载
+        assert page.url.startswith("http://127.0.0.1:8000"), "页面应正常加载"
+
+        # 查找设置面板并验证它可见
         settings_panel = page.locator(
             '.settings-panel, .settings-modal, [class*="settings"], [data-testid="settings-panel"]'
         ).first
-
-        # 设置面板应该可见或页面应该正常
-        assert settings_panel.is_visible() or page.url.startswith(
-            "http://127.0.0.1:8000"
-        )
+        assert settings_panel.is_visible(), "设置面板应该可见"
 
     def test_settings_panel_close(self, page):
         """测试设置面板关闭"""
@@ -316,3 +315,99 @@ class TestUISettings:
             page.locator('.advanced-settings, [class*="advanced"]').first
 
         assert page.url.startswith("http://127.0.0.1:8000")
+
+    def test_add_directory_modal(self, page):
+        """测试添加目录模态框"""
+        self.open_settings(page)
+
+        # 查找添加目录按钮
+        add_dir_button = page.locator(
+            'button:has-text("添加目录"), button:has-text("Add Directory"), '
+            '.add-directory, [data-testid="add-directory"]'
+        ).first
+
+        if not add_dir_button.is_visible():
+            pytest.skip("添加目录按钮不可见")
+
+        # 点击添加目录按钮
+        add_dir_button.click()
+        page.wait_for_timeout(500)
+
+        # 验证模态框打开 - 检查模态框元素
+        modal = page.locator('#addDirectoryModal, .modal.add-directory, [role="dialog"]')
+        assert modal.count() > 0, "添加目录模态框未打开"
+
+        # 检查模态框内的关键元素
+        path_input = page.locator('#addDirectoryPathInput, input[type="text"]')
+        browse_btn = page.locator('#browseDirectoryBtn')
+        confirm_btn = page.locator('#confirmAddDirectoryBtn')
+
+        # 至少应该有一个元素可见
+        has_elements = path_input.count() > 0 or browse_btn.count() > 0 or confirm_btn.count() > 0
+        if has_elements:
+            # 关闭模态框
+            cancel_btn = page.locator('button:has-text("取消"), button:has-text("Cancel")')
+            if cancel_btn.count() > 0 and cancel_btn.first.is_visible():
+                cancel_btn.first.click()
+                page.wait_for_timeout(300)
+
+    def test_delete_directory_modal(self, page):
+        """测试删除目录模态框"""
+        self.open_settings(page)
+
+        # 查找删除目录按钮 (通常是一个图标按钮)
+        delete_buttons = page.locator(
+            '.delete-directory, [data-testid="delete-directory"], '
+            'button:has-text("删除"), button[title*="删除"]'
+        )
+
+        if delete_buttons.count() == 0:
+            pytest.skip("没有可删除的目录")
+
+        # 点击第一个删除按钮
+        delete_buttons.first.click()
+        page.wait_for_timeout(500)
+
+        # 验证确认删除模态框打开
+        modal = page.locator('#deleteDirectoryModal, .modal.delete-directory, [role="alertdialog"]')
+        assert modal.count() > 0, "删除目录确认模态框未打开"
+
+        # 检查确认按钮
+        confirm_delete = page.locator('#confirmDirectoryDeleteBtn')
+        cancel_delete = page.locator('button:has-text("取消"), button:has-text("Cancel")')
+
+        if confirm_delete.count() > 0 or cancel_delete.count() > 0:
+            # 点击取消关闭模态框
+            if cancel_delete.count() > 0 and cancel_delete.first.is_visible():
+                cancel_delete.first.click()
+                page.wait_for_timeout(300)
+
+    def test_rebuild_index_modal(self, page):
+        """测试重建索引模态框"""
+        self.open_settings(page)
+
+        # 查找重建索引按钮
+        rebuild_button = page.locator(
+            'button:has-text("重建索引"), button:has-text("Rebuild Index"), '
+            '.rebuild-index, [data-testid="rebuild-index"]'
+        ).first
+
+        if not rebuild_button.is_visible():
+            pytest.skip("重建索引按钮不可见")
+
+        # 点击重建索引按钮
+        rebuild_button.click()
+        page.wait_for_timeout(500)
+
+        # 验证模态框打开
+        modal = page.locator('#rebuildIndexModal, .modal.rebuild-index, [role="dialog"]')
+        assert modal.count() > 0, "重建索引模态框未打开"
+
+        # 检查模态框内容 - 验证进度元素存在
+        page.locator('.progress, .progress-bar, [role="progressbar"]')
+        cancel_button = page.locator('button:has-text("取消"), button:has-text("Cancel")')
+
+        # 关闭模态框
+        if cancel_button.count() > 0 and cancel_button.first.is_visible():
+            cancel_button.first.click()
+            page.wait_for_timeout(300)

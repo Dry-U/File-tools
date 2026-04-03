@@ -1,5 +1,6 @@
 # backend/core/model_manager.py
 import json
+import threading
 from typing import Optional, Generator, Dict, Any
 from enum import Enum
 import requests
@@ -104,8 +105,8 @@ class ModelManager:
         else:
             self._init_api_config()
 
-        # 创建会话（带连接池和重试）
-        self.session = self._create_session()
+        # 创建线程本地的会话存储（requests.Session 非线程安全）
+        self._session_local = threading.local()
 
     def _init_local_config(self):
         """初始化本地模型配置"""
@@ -195,6 +196,12 @@ class ModelManager:
             "ai_model", "api.max_tokens", 2048
         )
         self.default_temperature = 0.7
+
+    def _get_session(self) -> requests.Session:
+        """获取当前线程的 Session 实例（线程安全）"""
+        if not hasattr(self._session_local, "session"):
+            self._session_local.session = self._create_session()
+        return self._session_local.session
 
     def _create_session(self) -> requests.Session:
         """创建带连接池和重试的会话"""
@@ -525,7 +532,7 @@ class ModelManager:
             else:
                 connect_timeout, read_timeout = 10, self.timeout
 
-            response = self.session.post(
+            response = self._get_session().post(
                 request_url,
                 json=payload,
                 headers=headers,
@@ -607,7 +614,7 @@ class ModelManager:
 
             # 使用标准化后的 URL
             test_url = self._normalize_url(self.api_url)
-            response = self.session.post(
+            response = self._get_session().post(
                 test_url,
                 json=test_payload,
                 headers=headers,
@@ -644,5 +651,6 @@ class ModelManager:
 
     def close(self):
         """关闭会话，释放资源"""
-        if self.session:
-            self.session.close()
+        if hasattr(self._session_local, "session"):
+            self._session_local.session.close()
+            delattr(self._session_local, "session")

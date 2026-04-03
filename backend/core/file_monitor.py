@@ -6,7 +6,7 @@ import os
 import time
 import logging
 import threading
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Dict, List, Optional
 from concurrent.futures import ThreadPoolExecutor
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
@@ -251,24 +251,45 @@ class FileMonitor:
         self.logger.debug(f"接收到文件系统事件: {event_type} - {event_path}")
 
         # 将事件添加到缓冲区（线程安全）
+        events_to_process = []
         with self._buffer_lock:
-            self._event_buffer[event_path] = {
+            # 列表存储，同一路径的所有事件都不丢失
+            event_info = {
                 "type": event_type,
                 "path": event_path,
                 "timestamp": time.time(),
             }
+            self._event_buffer.setdefault(event_path, []).append(event_info)
+
+            # 缓冲区大小限制，防止内存溢出（最多 10000 条事件）
+            total_events = sum(len(events) for events in self._event_buffer.values())
+            if total_events > 10000:
+                # 清空最旧的事件（按时间戳排序，保留最新的 5000 条）
+                all_events = []
+                for path, path_events in self._event_buffer.items():
+                    all_events.extend(path_events)
+                all_events.sort(key=lambda x: x["timestamp"])
+                kept_events = all_events[-5000:]
+                self._event_buffer.clear()
+                for event in kept_events:
+                    self._event_buffer.setdefault(event["path"], []).append(event)
+                self.logger.warning(f"缓冲区超限，已清理至 5000 条事件")
 
             # 定期处理缓冲区中的事件（防抖）
             current_time = time.time()
             if current_time - self._last_process_time >= self._buffer_timeout:
-                # 释放锁后处理缓冲区
-                should_process = True
                 self._last_process_time = current_time
-            else:
-                should_process = False
+                # 复制需要处理的事件（展平列表）
+                for path, path_events in list(self._event_buffer.items()):
+                    for event_info in path_events:
+                        if current_time - event_info["timestamp"] >= self._buffer_timeout:
+                            events_to_process.append(event_info)
+                # 清空缓冲区
+                self._event_buffer.clear()
 
-        if should_process:
-            self._process_buffer()
+        # 处理事件（不在锁内）
+        if events_to_process:
+            self._process_buffered_events(events_to_process)
 
     def _should_ignore(self, event):
         """检查是否应该忽略某个事件"""
@@ -289,26 +310,10 @@ class FileMonitor:
 
         return False
 
-    def _process_buffer(self):
-        """处理事件缓冲区（使用线程池并行处理）"""
-        events_to_process = []
-
-        with self._buffer_lock:
-            if not self._event_buffer:
-                return
-
-            current_time = time.time()
-
-            # 收集需要处理的事件
-            paths_to_remove = []
-            for path, event_info in list(self._event_buffer.items()):
-                if current_time - event_info["timestamp"] >= self._buffer_timeout:
-                    events_to_process.append(event_info)
-                    paths_to_remove.append(path)
-
-            # 从缓冲区中移除已收集的事件
-            for path in paths_to_remove:
-                del self._event_buffer[path]
+    def _process_buffered_events(self, events_to_process: List[Dict]):
+        """处理已缓冲的事件（使用线程池并行处理）"""
+        if not events_to_process:
+            return
 
         # 使用线程池并行处理事件
         if events_to_process:

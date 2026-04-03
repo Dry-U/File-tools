@@ -263,7 +263,7 @@ class TestUIChat:
         if chat_input.is_visible():
             placeholder = chat_input.get_attribute("placeholder")
             # 占位符可能包含"消息"、"message"、"提问"等关键词
-            assert placeholder is not None or placeholder == ""
+            assert placeholder is not None, "placeholder 属性应该存在"
 
     def test_chat_container_scroll(self, page):
         """测试聊天容器滚动"""

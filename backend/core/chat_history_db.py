@@ -112,7 +112,10 @@ class ChatHistoryDB:
 
     def __del__(self):
         """析构时确保连接被关闭"""
-        self.close_all()
+        try:
+            self.close_all()
+        except Exception:
+            pass  # 静默忽略析构时的异常
 
     def _init_db(self):
         """初始化数据库表"""
@@ -398,33 +401,44 @@ class ChatHistoryDB:
         Returns:
             删除的会话数
         """
-        with self.get_cursor() as cursor:
-            deleted_count = 0
-
-            # 1. 删除超过 max_age_days 天的旧会话
-            cutoff_time = time.time() - (max_age_days * 24 * 3600)
-            cursor.execute("DELETE FROM sessions WHERE updated_at < ?", (cutoff_time,))
-            deleted_count += cursor.rowcount
-
-            # 2. 如果会话数仍然超过 max_sessions，删除最旧的
-            cursor.execute("SELECT COUNT(*) FROM sessions")
-            count = cursor.fetchone()[0]
-
-            if count > max_sessions:
-                # 删除最旧的会话，保留 max_sessions 个
-                cursor.execute(
-                    """
-                    DELETE FROM sessions
-                    WHERE session_id IN (
-                        SELECT session_id FROM sessions
-                        ORDER BY updated_at DESC
-                        LIMIT -1 OFFSET ?
-                    )
-                    """,
-                    (max_sessions,),
-                )
+        conn = self._get_connection()
+        cursor = conn.cursor()
+        deleted_count = 0
+        try:
+            # 显式事务确保多步操作的原子性
+            cursor.execute("BEGIN TRANSACTION")
+            try:
+                # 1. 删除超过 max_age_days 天的旧会话
+                cutoff_time = time.time() - (max_age_days * 24 * 3600)
+                cursor.execute("DELETE FROM sessions WHERE updated_at < ?", (cutoff_time,))
                 deleted_count += cursor.rowcount
+
+                # 2. 如果会话数仍然超过 max_sessions，删除最旧的
+                cursor.execute("SELECT COUNT(*) FROM sessions")
+                count = cursor.fetchone()[0]
+
+                if count > max_sessions:
+                    # 删除最旧的会话，保留 max_sessions 个
+                    cursor.execute(
+                        """
+                        DELETE FROM sessions
+                        WHERE session_id IN (
+                            SELECT session_id FROM sessions
+                            ORDER BY updated_at DESC
+                            LIMIT -1 OFFSET ?
+                        )
+                        """,
+                        (max_sessions,),
+                    )
+                    deleted_count += cursor.rowcount
+
+                cursor.execute("COMMIT")
+            except Exception:
+                cursor.execute("ROLLBACK")
+                raise
 
             if deleted_count > 0:
                 logger.info(f"清理了 {deleted_count} 个旧会话")
             return deleted_count
+        finally:
+            cursor.close()

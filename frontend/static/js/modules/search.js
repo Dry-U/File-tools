@@ -169,8 +169,19 @@ const FileToolsSearch = (function() {
         results.forEach((result, index) => {
             const iconClass = FileToolsUtils.getFileIcon(result.file_name);
             const safeFileName = FileToolsUtils.escapeHtml(result.file_name);
-            // snippet 包含高亮HTML标签，不应转义；只处理null/undefined情况
-            const safeSnippet = result.snippet ? result.snippet : '...';
+            // snippet 可能包含恶意脚本，使用 DOMPurify 清理，只允许安全的高亮标签
+            let safeSnippet = result.snippet || '...';
+            if (typeof DOMPurify !== 'undefined') {
+                safeSnippet = DOMPurify.sanitize(safeSnippet, {
+                    ALLOWED_TAGS: ['mark', 'span'],
+                    ALLOWED_ATTR: ['class']
+                });
+            } else {
+                // DOMPurify 不可用时，使用 textContent 转义
+                const div = document.createElement('div');
+                div.textContent = safeSnippet;
+                safeSnippet = div.innerHTML;
+            }
             const safePathDisplay = FileToolsUtils.escapeHtml(result.path);
             const pathAttr = FileToolsUtils.escapeHtml(result.path).replace(/"/g, '&quot;');
 

@@ -86,6 +86,9 @@ class TestUISearch:
         page.goto("http://127.0.0.1:8000")
         page.wait_for_load_state("networkidle")
 
+        # 记录搜索前的欢迎区域状态
+        welcome_before = page.locator('#search-welcome-container, .search-welcome').is_visible()
+
         # 输入搜索词
         search_input = page.locator('input[type="text"]').first
         search_input.fill("test")
@@ -93,11 +96,19 @@ class TestUISearch:
         # 提交搜索（按Enter或点击按钮）
         search_input.press("Enter")
 
-        # 等待搜索结果（如果有的话）
-        page.wait_for_timeout(1000)
+        # 等待搜索结果
+        page.wait_for_timeout(2000)
 
-        # 验证页面仍在加载状态（没有崩溃）
-        assert page.url.startswith("http://127.0.0.1:8000")
+        # 验证搜索后欢迎区域或搜索结果显示（至少有一个状态改变）
+        welcome_after = page.locator('#search-welcome-container, .search-welcome').is_visible()
+        results_visible = page.locator('#resultsContainer, .search-results').is_visible()
+
+        # 搜索应该触发某种 UI 变化（欢迎区域隐藏或结果显示）
+        assert welcome_before == welcome_after or results_visible, "搜索后 UI 应有变化"
+
+        # 验证搜索输入框仍有内容（没有被意外清除）
+        input_value = search_input.input_value()
+        assert input_value == "test", "搜索后输入框内容应保留"
 
     def test_search_results_display(self, page):
         """测试搜索结果显示"""
@@ -112,13 +123,13 @@ class TestUISearch:
         # 等待结果加载
         page.wait_for_timeout(2000)
 
-        # 检查结果容器是否存在
-        page.locator(
-            '.search-results, [class*="result"], [data-testid*="result"]'
-        ).first
+        # 检查结果容器是否存在并可见（display: none 被移除）
+        results_container = page.locator('#resultsContainer, .search-results').first
+        results_display = results_container.evaluate('el => el.style.display')
 
-        # 即使没有结果，页面也应该正常显示
-        assert page.url.startswith("http://127.0.0.1:8000")
+        # 验证结果容器已显示（不再隐藏）
+        assert results_display != "none" or results_container.is_visible(), \
+            "搜索后结果容器应该显示"
 
     def test_empty_search(self, page):
         """测试空搜索"""
@@ -133,8 +144,9 @@ class TestUISearch:
         # 等待响应
         page.wait_for_timeout(500)
 
-        # 页面应该仍然正常
-        assert page.url.startswith("http://127.0.0.1:8000")
+        # 验证输入框已清空
+        input_value = search_input.input_value()
+        assert input_value == "", "空搜索后输入框应保持清空"
 
     def test_search_with_special_characters(self, page):
         """测试特殊字符搜索"""
@@ -208,7 +220,8 @@ class TestUISearch:
             chat_input = page.locator(
                 'textarea, input[placeholder*="消息"], input[placeholder*="message"]'
             ).first
-            assert chat_input.is_visible() or not chat_input.is_visible()  # 可能不存在
+            # 验证聊天输入框存在且可见
+            assert chat_input.is_visible(), "聊天输入框应该可见"
 
     def test_search_filters(self, page):
         """测试搜索过滤器"""

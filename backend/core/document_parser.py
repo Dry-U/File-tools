@@ -42,8 +42,6 @@ def timeout(seconds=10):
 
 
 import pypdf
-import pdfminer.high_level
-import pdfminer.layout
 
 try:
     import pdfplumber
@@ -312,40 +310,58 @@ class DocumentParser:
 
         text = ""
         max_text_length = self.MAX_OUTPUT_SIZE_PDF
+        all_texts = []
 
         # 1. 优先使用PyMuPDF (fitz) - 最快
         if fitz:
             doc = None
             try:
-                doc = fitz.open(file_path)
-                for page in doc:
-                    if len(text) > max_text_length:
-                        text = text[:max_text_length] + "\n... (内容已截断)"
-                        break
-                    # sort=True 尝试按阅读顺序排序文本块，对多栏布局有帮助
-                    text += page.get_text("text", sort=True) + "\n"
-            except Exception as e:
-                self.logger.warning(f"PyMuPDF解析PDF失败 {file_path}: {str(e)}")
-            finally:
-                # 确保文档句柄被关闭
+                # 尝试打开文档
+                try:
+                    doc = fitz.open(file_path)
+                except Exception as e:
+                    self.logger.warning(f"PyMuPDF打开文档失败 {file_path}: {str(e)}")
+                    doc = None
+
                 if doc is not None:
                     try:
+                        for page_num in range(len(doc)):
+                            page = doc[page_num]
+                            try:
+                                page_text = page.get_text("text", sort=True)
+                                if page_text and page_text.strip():
+                                    all_texts.append(page_text)
+                                    # 实时检查长度，避免无限累积
+                                    if sum(len(t) for t in all_texts) > max_text_length:
+                                        text = "\n".join(all_texts)
+                                        if len(text) > max_text_length:
+                                            text = text[:max_text_length] + "\n... (内容已截断)"
+                                        return text
+                            except Exception as e:
+                                self.logger.warning(f"页面 {page_num} 提取失败: {str(e)}")
+                                continue  # 继续处理下一页
+                    finally:
                         doc.close()
-                    except Exception:
-                        pass
+            except Exception as e:
+                self.logger.warning(f"PyMuPDF解析PDF失败 {file_path}: {str(e)}")
+
+            # 合并已提取的页面文本
+            if all_texts:
+                text = "\n".join(all_texts)
 
         # 2. 如果PyMuPDF失败或结果为空，尝试pdfplumber（表格支持）
         if (not text or not text.strip()) and pdfplumber:
             try:
+                all_texts = []
                 with pdfplumber.open(file_path) as pdf:
                     for page in pdf.pages:
-                        if len(text) > max_text_length:
-                            text = text[:max_text_length] + "\n... (内容已截断)"
+                        if sum(len(t) for t in all_texts) > max_text_length:
                             break
                         # extract_text() 自动处理布局
                         page_text = page.extract_text()
                         if page_text:
-                            text += page_text + "\n"
+                            all_texts.append(page_text)
+                text = "\n".join(all_texts)
             except Exception as e:
                 self.logger.warning(f"pdfplumber解析PDF失败 {file_path}: {str(e)}")
 

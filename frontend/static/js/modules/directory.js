@@ -237,8 +237,7 @@ const FileToolsDirectory = (function() {
         pendingDeletePath = path;
         const modalEl = document.getElementById('deleteDirectoryModal');
         if (modalEl) {
-            const modal = new bootstrap.Modal(modalEl);
-            modal.show();
+            FileToolsUtils.showModal(modalEl);
         } else {
             // 降级：使用原生确认框
             if (!confirm('确定要删除这个目录吗？\n该目录将不再被扫描和监控。')) {

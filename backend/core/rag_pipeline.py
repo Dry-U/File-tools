@@ -4,6 +4,7 @@ import re
 import hashlib
 import secrets
 import time
+import threading
 from typing import Dict, List, Any, Optional
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeoutError
 
@@ -106,6 +107,14 @@ class RAGPipeline:
         self._last_cleanup_time = 0
         self._cleanup_interval = 3600  # 每小时检查一次
 
+        # 启动后台会话清理线程
+        self._cleanup_thread = threading.Thread(
+            target=self._background_session_cleanup,
+            daemon=True,
+            name="SessionCleanup"
+        )
+        self._cleanup_thread.start()
+
         # 初始化查询处理器
         try:
             self.query_processor = QueryProcessor(config_loader)
@@ -129,6 +138,15 @@ class RAGPipeline:
             self._last_cleanup_time = current_time
         except Exception as e:
             logger.warning(f"清理旧会话失败: {e}")
+
+    def _background_session_cleanup(self) -> None:
+        """后台线程：定期清理旧会话"""
+        while True:
+            time.sleep(self._cleanup_interval)
+            try:
+                self._cleanup_old_sessions_if_needed()
+            except Exception as e:
+                logger.warning(f"会话清理失败: {e}")
 
     def _load_sampling_params(self) -> Dict[str, Any]:
         """加载采样参数从配置
@@ -787,16 +805,41 @@ class RAGPipeline:
                         content = content[:max_content_len] + "..."
 
                     # 缓存查询嵌入向量，避免同一查询对每个候选文档重复计算
+                    # 使用固定大小的 LRU 缓存防止内存泄漏（线程安全）
                     if not hasattr(self, "_query_embedding_cache"):
-                        self._query_embedding_cache = {}  # {query_str: embedding}
+                        with threading.Lock():
+                            # 双重检查
+                            if not hasattr(self, "_query_embedding_cache"):
+                                self._query_embedding_cache = {}  # {query_str: embedding}
+                                self._query_embedding_cache_order = []  # LRU 顺序
+                                self._embedding_cache_lock = threading.Lock()
 
-                    if query not in self._query_embedding_cache:
-                        self._query_embedding_cache[query] = list(
-                            embedding_model.embed([query])
-                        )[0]
-                    query_embedding = self._query_embedding_cache[query]
+                    MAX_QUERY_CACHE_SIZE = 100  # 最大缓存条目数
 
-                    content_embedding = next(embedding_model.embed([content]))
+                    # 先在锁外计算 embedding（避免长时间持有锁导致其他线程阻塞）
+                    query_embedding = list(embedding_model.embed([query]))[0]
+
+                    with self._embedding_cache_lock:
+                        # 检查缓存中是否有其他线程已经计算好的结果
+                        if query in self._query_embedding_cache:
+                            # 使用缓存（可能已经被其他线程更新）
+                            query_embedding = self._query_embedding_cache[query]
+                        else:
+                            # LRU 淘汰
+                            if len(self._query_embedding_cache) >= MAX_QUERY_CACHE_SIZE:
+                                oldest = self._query_embedding_cache_order.pop(0)
+                                del self._query_embedding_cache[oldest]
+                            # 更新缓存
+                            self._query_embedding_cache[query] = query_embedding
+                            self._query_embedding_cache_order.append(query)
+
+                    # 安全获取 content embedding，防止空迭代器
+                    vector_dim = getattr(self.search_engine.index_manager, "vector_dim", 384)
+                    try:
+                        content_emb_list = list(embedding_model.embed([content]))
+                        content_embedding = content_emb_list[0] if content_emb_list else np.zeros(vector_dim, dtype=np.float32)
+                    except (StopIteration, Exception):
+                        content_embedding = np.zeros(vector_dim, dtype=np.float32)
 
                     # 计算余弦相似度
                     if SKLEARN_AVAILABLE and cosine_similarity is not None:
@@ -1536,4 +1579,10 @@ class RAGPipeline:
 
     def __del__(self):
         """析构时清理资源"""
-        self.cleanup()
+        try:
+            self.cleanup()
+        except Exception as e:
+            try:
+                logger.warning(f"RAGPipeline 析构时清理失败: {e}")
+            except Exception:
+                pass  # 静默忽略日志失败

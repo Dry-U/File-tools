@@ -71,12 +71,16 @@ class IndexManager:
             "index", "commit_interval", 30
         )  # 秒
         self._last_commit_time = time.time()
-        self._batch_lock = threading.Lock()
+        self._batch_lock = threading.RLock()  # 使用可重入锁，允许在同一线程中多次获取
+        self._index_lock = threading.RLock()  # 保护非批量模式的索引操作（可重入）
         self._writer = None
 
         # Vector batch encoding buffer - 跨文档缓冲，批量编码提升 40-60% 速度
         self._vector_buffer = []  # [(text, metadata_dict), ...]
         self._vector_batch_size = config_loader.getint("index", "vector_batch_size", 32)
+
+        # 已删除文件路径集合（用于在搜索时过滤已删除的文档，因为HNSW不支持真正删除）
+        self._deleted_paths = set()  # {file_path, ...}
 
     def _init_config(self) -> None:
         """初始化配置参数"""
@@ -288,7 +292,6 @@ class IndexManager:
         self._init_tantivy_index()
         self._init_hnsw_index()
         self.index_ready = self.is_index_ready()
-        self.schema_updated = False
         try:
             self._ensure_schema_version()
         except Exception as e:
@@ -359,6 +362,13 @@ class IndexManager:
 
                 # 检查向量维度是否匹配
                 if self.embedding_model:
+                    stored_dim = metadata_dict.get("vector_dim", self.vector_dim)
+                    if stored_dim != self.vector_dim:
+                        self.logger.error(
+                            f"向量维度不匹配: 索引={stored_dim}, 模型={self.vector_dim}，重建索引"
+                        )
+                        self._create_new_hnsw_index()
+                        return
                     self.hnsw = self._hnswlib.Index(space="cosine", dim=self.vector_dim)
                     max_elements = max(self.next_id + 1024, 1024)
                     self.hnsw.load_index(index_file, max_elements=max_elements)
@@ -450,7 +460,6 @@ class IndexManager:
                     f'检测到{", ".join(rebuild_reason)}，重建索引以支持新功能'
                 )
                 self.rebuild_index()
-                self.schema_updated = True
 
                 # 更新版本文件
                 version_data = {
@@ -640,64 +649,65 @@ class IndexManager:
                     # 批量模式下向量索引稍后统一处理
                     return self._add_vector_in_batch_mode(document)
 
-            # 非批量模式：原来的逻辑
-            seg_filename = self._segment(document["filename"])
-            seg_content = self._segment(document["content"])
-            seg_keywords = self._segment(document.get("keywords", ""))
-            fname_chars = " ".join([c for c in document["filename"]])
-            try:
-                raw_content = document["content"] or ""
-            except (KeyError, TypeError) as e:
-                self.logger.debug(f"获取文档内容失败: {str(e)}")
-                raw_content = ""
-            raw_text = str(raw_content)
-            content_chars_source = raw_text
-            content_chars = " ".join([c for c in content_chars_source])
-            with self.tantivy_index.writer() as writer:
-                tdoc = self._tantivy.Document(
-                    path=document["path"],
-                    filename=[seg_filename],
-                    filename_chars=[fname_chars],
-                    content=[seg_content],
-                    content_raw=[raw_text],
-                    content_chars=[content_chars],
-                    file_type=[document["file_type"]],
-                    size=int(document["size"]),
-                    created=(
-                        int(time.mktime(document["created"].timetuple()))
-                        if isinstance(document["created"], datetime)
-                        else int(document["created"])
-                    ),
-                    modified=(
-                        int(time.mktime(document["modified"].timetuple()))
-                        if isinstance(document["modified"], datetime)
-                        else int(document["modified"])
-                    ),
-                    keywords=[seg_keywords],
-                )
-                writer.add_document(tdoc)
-                writer.commit()
-
-            # 添加向量索引（如果启用了embedding）
-            if self.embedding_model and self.hnsw is not None:
+            # 非批量模式：线程安全处理
+            with self._index_lock:
+                seg_filename = self._segment(document["filename"])
+                seg_content = self._segment(document["content"])
+                seg_keywords = self._segment(document.get("keywords", ""))
+                fname_chars = " ".join([c for c in document["filename"]])
                 try:
-                    if self.chunk_enabled and self.chunker:
-                        # 分块模式：将文档分块后分别编码存储
-                        self._add_document_chunks(document)
-                    else:
-                        # 传统模式：整个文档作为一个向量
-                        self._add_document_single(document)
-                except Exception as e:
-                    self.logger.error(
-                        f"添加文档到向量索引失败 {document['path']}: {str(e)}"
+                    raw_content = document["content"] or ""
+                except (KeyError, TypeError) as e:
+                    self.logger.debug(f"获取文档内容失败: {str(e)}")
+                    raw_content = ""
+                raw_text = str(raw_content)
+                content_chars_source = raw_text
+                content_chars = " ".join([c for c in content_chars_source])
+                with self.tantivy_index.writer() as writer:
+                    tdoc = self._tantivy.Document(
+                        path=document["path"],
+                        filename=[seg_filename],
+                        filename_chars=[fname_chars],
+                        content=[seg_content],
+                        content_raw=[raw_text],
+                        content_chars=[content_chars],
+                        file_type=[document["file_type"]],
+                        size=int(document["size"]),
+                        created=(
+                            int(time.mktime(document["created"].timetuple()))
+                            if isinstance(document["created"], datetime)
+                            else int(document["created"])
+                        ),
+                        modified=(
+                            int(time.mktime(document["modified"].timetuple()))
+                            if isinstance(document["modified"], datetime)
+                            else int(document["modified"])
+                        ),
+                        keywords=[seg_keywords],
                     )
-            else:
-                if not self.embedding_model:
-                    self.logger.info("Embedding模型未启用，跳过向量索引")
-                elif not self.hnsw:
-                    self.logger.warning("HNSW向量索引未初始化，跳过向量索引")
+                    writer.add_document(tdoc)
+                    writer.commit()
 
-            return True
+                # 添加向量索引（如果启用了embedding）
+                if self.embedding_model and self.hnsw is not None:
+                    try:
+                        if self.chunk_enabled and self.chunker:
+                            # 分块模式：将文档分块后分别编码存储
+                            self._add_document_chunks(document)
+                        else:
+                            # 传统模式：整个文档作为一个向量
+                            self._add_document_single(document)
+                    except Exception as e:
+                        self.logger.error(
+                            f"添加文档到向量索引失败 {document['path']}: {str(e)}"
+                        )
+                else:
+                    if not self.embedding_model:
+                        self.logger.info("Embedding模型未启用，跳过向量索引")
+                    elif not self.hnsw:
+                        self.logger.warning("HNSW向量索引未初始化，跳过向量索引")
+
+                return True
         except Exception as e:
             self.logger.error(
                 f"添加文档到索引失败 {document.get('path', '')}: {str(e)}"
@@ -742,10 +752,12 @@ class IndexManager:
             "chunk_index": 0,
             "total_chunks": 1,
         }
-        self._vector_buffer.append((content_to_encode, metadata))
 
-        if len(self._vector_buffer) >= self._vector_batch_size:
-            self._flush_vector_buffer()
+        with self._batch_lock:
+            self._vector_buffer.append((content_to_encode, metadata))
+            if len(self._vector_buffer) >= self._vector_batch_size:
+                # 释放锁后刷新缓冲区
+                self._flush_vector_buffer_unlocked()
 
         return True
 
@@ -778,31 +790,32 @@ class IndexManager:
             )
             chunks = chunks[:MAX_CHUNKS_PER_DOC]
 
-        for chunk in chunks:
-            chunk_content = chunk.content[:MAX_ENCODE_LENGTH]
-            if not chunk_content.strip():
-                continue
+        with self._batch_lock:
+            for chunk in chunks:
+                chunk_content = chunk.content[:MAX_ENCODE_LENGTH]
+                if not chunk_content.strip():
+                    continue
 
-            metadata = {
-                "path": document["path"],
-                "filename": document["filename"],
-                "file_type": document["file_type"],
-                "modified": (
-                    document["modified"].strftime("%Y-%m-%d %H:%M:%S")
-                    if isinstance(document["modified"], datetime)
-                    else str(document["modified"])
-                ),
-                "is_chunk": True,
-                "chunk_index": chunk.chunk_index,
-                "total_chunks": original_chunk_count,
-                "chunk_start_pos": chunk.start_pos,
-                "chunk_end_pos": chunk.end_pos,
-                "chunk_content_preview": chunk.content[:200],
-            }
-            self._vector_buffer.append((chunk_content, metadata))
+                metadata = {
+                    "path": document["path"],
+                    "filename": document["filename"],
+                    "file_type": document["file_type"],
+                    "modified": (
+                        document["modified"].strftime("%Y-%m-%d %H:%M:%S")
+                        if isinstance(document["modified"], datetime)
+                        else str(document["modified"])
+                    ),
+                    "is_chunk": True,
+                    "chunk_index": chunk.chunk_index,
+                    "total_chunks": original_chunk_count,
+                    "chunk_start_pos": chunk.start_pos,
+                    "chunk_end_pos": chunk.end_pos,
+                    "chunk_content_preview": chunk.content[:200],
+                }
+                self._vector_buffer.append((chunk_content, metadata))
 
-        if len(self._vector_buffer) >= self._vector_batch_size:
-            self._flush_vector_buffer()
+            if len(self._vector_buffer) >= self._vector_batch_size:
+                self._flush_vector_buffer_unlocked()
 
         return True
 
@@ -998,17 +1011,18 @@ class IndexManager:
             return False
 
     def update_document(self, document):
-        """更新文档（先删除旧文档，再添加新文档）"""
+        """更新文档（先删除旧文档，再添加新文档）- 线程安全"""
         if not isinstance(document, dict):
             self.logger.error(f"无效的文档格式，期望字典但得到 {type(document)}")
             return False
-        try:
-            self.delete_document(document.get("path"))
-        except Exception as e:
-            self.logger.debug(
-                f"删除旧文档失败（可能不存在）{document.get('path', '')}: {str(e)}"
-            )
-        return self.add_document(document)
+        with self._index_lock:
+            try:
+                self.delete_document(document.get("path"))
+            except Exception as e:
+                self.logger.debug(
+                    f"删除旧文档失败（可能不存在）{document.get('path', '')}: {str(e)}"
+                )
+            return self.add_document(document)
 
     def delete_document(self, file_path):
         """从索引中删除文档"""
@@ -1057,15 +1071,19 @@ class IndexManager:
                         f"从Tantivy索引删除文档失败 {file_path}: {str(e)}"
                     )
 
-        # 从向量元数据中删除（HNSW不支持删除，只能删除元数据）
-        try:
-            for doc_id, metadata in list(self.vector_metadata.items()):
-                if metadata.get("path") == file_path:
-                    del self.vector_metadata[doc_id]
-                    self.logger.debug(f"已从向量元数据中删除文档 {file_path}")
-                    break
-        except Exception as e:
-            self.logger.warning(f"从向量元数据删除文档失败 {file_path}: {str(e)}")
+        # 标记文件为已删除（因为HNSW不支持真正删除向量，只能在搜索时过滤）
+        with self._index_lock:
+            self._deleted_paths.add(file_path)
+            # 从向量元数据中删除（不影响搜索，只是清理元数据）
+            try:
+                for doc_id, metadata in list(self.vector_metadata.items()):
+                    if metadata.get("path") == file_path:
+                        del self.vector_metadata[doc_id]
+                        self.logger.debug(f"已从向量元数据中删除文档 {file_path}")
+                        break
+            except (KeyError, RuntimeError) as e:
+                # KeyError: doc_id已被删除; RuntimeError: 迭代中字典被修改
+                self.logger.warning(f"从向量元数据删除文档失败 {file_path}: {type(e).__name__}: {e}")
 
         return True
 
@@ -1801,69 +1819,69 @@ class IndexManager:
             seen_docs = set()
 
             for i, idx in enumerate(labels[0]):
-                if str(idx) in self.vector_metadata:
+                # 在锁内读取共享数据，避免与删除操作产生竞态
+                with self._index_lock:
+                    if str(idx) not in self.vector_metadata:
+                        continue
                     metadata = self.vector_metadata[str(idx)]
-                    d = distances[0][i]
-                    sim = 1.0 - float(d)
-                    adjusted = min(sim * 100.0, 100.0)
-
                     path = metadata["path"]
-                    is_chunk = metadata.get("is_chunk", False)
 
-                    # 如果按文档分组且该文档已有结果，跳过
+                    # 过滤已删除的文档
+                    if path in self._deleted_paths:
+                        continue
+
                     if group_by_doc and path.lower() in seen_docs:
                         continue
 
-                    # 获取内容
-                    if is_chunk:
-                        # chunk模式：使用预览内容
-                        content_preview = metadata.get("chunk_content_preview", "")
-                        if len(content_preview) < 300:
-                            # 如果预览太短，尝试获取完整chunk内容
-                            full_content = self.get_document_content(path)
-                            start_pos = metadata.get("chunk_start", 0)
-                            end_pos = metadata.get("chunk_end", start_pos + 500)
-                            if full_content and len(full_content) > start_pos:
-                                content = full_content[start_pos:end_pos]
-                            else:
-                                content = content_preview
-                        else:
-                            content = content_preview + "..."
-                    else:
-                        # 非chunk模式：获取整个文档内容
-                        content = self.get_document_content(path)
+                    # 复制必要数据，释放锁后处理
+                    d = distances[0][i]
+                    sim = 1.0 - float(d)
+                    adjusted = min(sim * 100.0, 100.0)
+                    filename = metadata["filename"]
+                    file_type = metadata["file_type"]
+                    modified = metadata.get("modified")
+                    is_chunk = metadata.get("is_chunk", False)
+                    content_preview = metadata.get("chunk_content_preview", "") if is_chunk else ""
+                    chunk_index = metadata.get("chunk_index", 0)
+                    total_chunks = metadata.get("total_chunks", 1)
+                    chunk_start = metadata.get("chunk_start", 0)
+                    chunk_end = metadata.get("chunk_end", 0)
 
-                    # 构建结果
-                    result = self._format_result(
-                        path,
-                        metadata["filename"],
-                        content,
-                        content,
-                        metadata["file_type"],
-                        0,
-                        metadata.get("modified"),
-                        adjusted,
-                        query_str,
-                    )
-
-                    # 添加chunk相关信息
-                    result["is_chunk"] = is_chunk
-                    if is_chunk:
-                        result["chunk_index"] = metadata.get("chunk_index", 0)
-                        result["total_chunks"] = metadata.get("total_chunks", 1)
-                        result["chunk_start"] = metadata.get("chunk_start", 0)
-                        result["chunk_end"] = metadata.get("chunk_end", 0)
-                        result["snippet"] = (
-                            content[:300] + "..." if len(content) > 300 else content
-                        )
-
-                    results.append(result)
-
+                    # seen_docs.add() 必须在锁内执行，避免竞态窗口
                     if group_by_doc:
                         seen_docs.add(path.lower())
 
-                    if len(results) >= limit:
-                        break
+                # 锁外执行耗时操作（I/O操作不应在锁内）
+                if is_chunk:
+                    if len(content_preview) < 300:
+                        full_content = self.get_document_content(path)
+                        if full_content and len(full_content) > chunk_start:
+                            content = full_content[chunk_start:chunk_end]
+                        else:
+                            content = content_preview
+                    else:
+                        content = content_preview + "..."
+                else:
+                    content = self.get_document_content(path)
+
+                # 构建结果
+                result = self._format_result(
+                    path, filename, content, content, file_type,
+                    0, modified, adjusted, query_str
+                )
+
+                result["is_chunk"] = is_chunk
+                if is_chunk:
+                    result["chunk_index"] = chunk_index
+                    result["total_chunks"] = total_chunks
+                    result["chunk_start"] = chunk_start
+                    result["chunk_end"] = chunk_end
+                    result["snippet"] = content[:300] + "..." if len(content) > 300 else content
+
+                results.append(result)
+
+                if len(results) >= limit:
+                    break
 
             results.sort(key=lambda x: x["score"], reverse=True)
             return results[:limit]
@@ -1876,7 +1894,7 @@ class IndexManager:
             vec = next(iter(self.embedding_model.embed([text])))
             return np.array(vec, dtype=np.float32)
         except (StopIteration, RuntimeError, ValueError) as e:
-            self.logger.debug(f"文本编码失败: {str(e)}")
+            self.logger.warning(f"文本编码失败: {str(e)}，返回零向量")
             return np.zeros(getattr(self, "vector_dim", 384), dtype=np.float32)
 
     def _encode_texts_batch(self, texts: list) -> np.ndarray:
@@ -1901,7 +1919,12 @@ class IndexManager:
             return np.array(result, dtype=np.float32)
 
     def _flush_vector_buffer(self):
-        """将缓冲区中的向量批量编码并写入 HNSW 索引"""
+        """将缓冲区中的向量批量编码并写入 HNSW 索引（线程安全）"""
+        with self._batch_lock:
+            self._flush_vector_buffer_unlocked()
+
+    def _flush_vector_buffer_unlocked(self):
+        """将缓冲区中的向量批量编码并写入 HNSW 索引（调用时必须持有 _batch_lock）"""
         if not self._vector_buffer:
             return
 
@@ -1922,7 +1945,8 @@ class IndexManager:
                 self.hnsw.resize_index(needed + 1024)
 
             ids = np.arange(self.next_id, self.next_id + len(vectors))
-            self.hnsw.add_items(vectors, ids)
+            with self._batch_lock:
+                self.hnsw.add_items(vectors, ids)
 
             for i, metadata in enumerate(metadatas):
                 self.vector_metadata[str(self.next_id + i)] = metadata
@@ -1934,15 +1958,16 @@ class IndexManager:
             for text, metadata in self._vector_buffer:
                 try:
                     v = np.array([self._encode_text(text)], dtype=np.float32)
-                    doc_id = self.next_id
-                    ids = np.array([doc_id])
-                    try:
-                        self.hnsw.add_items(v, ids)
-                    except Exception:
-                        self.hnsw.resize_index(self.hnsw.get_max_elements() + 1024)
-                        self.hnsw.add_items(v, ids)
-                    self.vector_metadata[str(doc_id)] = metadata
-                    self.next_id += 1
+                    with self._batch_lock:
+                        doc_id = self.next_id
+                        ids = np.array([doc_id])
+                        try:
+                            self.hnsw.add_items(v, ids)
+                        except Exception:
+                            self.hnsw.resize_index(self.hnsw.get_max_elements() + 1024)
+                            self.hnsw.add_items(v, ids)
+                        self.vector_metadata[str(doc_id)] = metadata
+                        self.next_id += 1
                 except Exception as e2:
                     self.logger.warning(f"单个向量写入失败: {e2}")
 
@@ -1974,7 +1999,7 @@ class IndexManager:
 
             metadata_file = os.path.join(self.metadata_path, "vector_metadata.json")
             temp_metadata_file = metadata_file + ".tmp"
-            metadata_dict = {"metadata": self.vector_metadata, "next_id": self.next_id}
+            metadata_dict = {"metadata": self.vector_metadata, "next_id": self.next_id, "vector_dim": self.vector_dim}
 
             # 保存元数据到临时文件
             with open(temp_metadata_file, "w", encoding="utf-8") as f:
@@ -2304,5 +2329,9 @@ class IndexManager:
                 self.end_batch_mode(commit=True)
             if hasattr(self, "hnsw") and self.hnsw is not None:
                 self.save_indexes()
-        except Exception:
-            pass  # 析构函数中不抛出异常
+        except Exception as e:
+            # 静默处理以避免在析构时抛出异常，但至少记录日志
+            try:
+                self.logger.debug(f"析构时清理失败（忽略）: {e}")
+            except Exception:
+                pass  # 如果连日志都失败，就静默忽略

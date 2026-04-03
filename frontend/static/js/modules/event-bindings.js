@@ -61,12 +61,42 @@ const FileToolsEventBindings = (function() {
         // 5. 模式切换标签
         const tabSearch = document.getElementById('tab-search');
         const tabChat = document.getElementById('tab-chat');
+
+        function handleTabKeyboard(event) {
+            const tabs = [tabSearch, tabChat].filter(t => t);
+            const currentIndex = tabs.findIndex(t => t === document.activeElement);
+
+            if (event.key === 'ArrowRight' || event.key === 'ArrowLeft') {
+                event.preventDefault();
+                let nextIndex;
+                if (event.key === 'ArrowRight') {
+                    nextIndex = (currentIndex + 1) % tabs.length;
+                } else {
+                    nextIndex = (currentIndex - 1 + tabs.length) % tabs.length;
+                }
+                tabs[nextIndex].focus();
+            } else if (event.key === 'Enter' || event.key === ' ') {
+                event.preventDefault();
+                if (typeof switchMode === 'function') {
+                    const mode = tabs[currentIndex] === tabSearch ? 'search' : 'chat';
+                    switchMode(mode);
+                }
+            } else if (event.key === 'Home') {
+                event.preventDefault();
+                tabs[0].focus();
+            } else if (event.key === 'End') {
+                event.preventDefault();
+                tabs[tabs.length - 1].focus();
+            }
+        }
+
         if (tabSearch) {
             tabSearch.addEventListener('click', function() {
                 if (typeof switchMode === 'function') {
                     switchMode('search');
                 }
             });
+            tabSearch.addEventListener('keydown', handleTabKeyboard);
         }
         if (tabChat) {
             tabChat.addEventListener('click', function() {
@@ -74,6 +104,7 @@ const FileToolsEventBindings = (function() {
                     switchMode('chat');
                 }
             });
+            tabChat.addEventListener('keydown', handleTabKeyboard);
         }
 
         // 6. 设置按钮

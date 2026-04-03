@@ -8,7 +8,6 @@ import re
 import platform
 import time
 import asyncio
-import queue
 from datetime import datetime
 from pathlib import Path
 from typing import List, Dict, Optional, Any, Tuple, Callable, Generator
@@ -445,11 +444,7 @@ class FileScanner:
         file_buffer = []
         processed_count = 0
         total_collected = 0
-        collection_done = False
         last_progress_update = 0
-
-        # 初始化进度报告状态
-        reported_collection_progress = False
 
         with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
             # 流式收集文件并处理
@@ -524,8 +519,6 @@ class FileScanner:
                         processed_count += 1
                     except Exception as e:
                         self.logger.error(f"处理文件失败 {file_path}: {e}")
-
-            collection_done = True
 
         # 结束索引批量模式（提交所有剩余文档）
         if self.index_manager:
@@ -954,12 +947,6 @@ class FileScanner:
         ".mkv", ".wmv",
     ])
 
-    # 可能包含可执行文件的扩展名（需要检查文件头）
-    _EXECUTABLE_EXTENSIONS = frozenset([
-        ".exe", ".dll", ".sys", ".bat", ".cmd", ".ps1", ".vbs", ".js", ".jar",
-        ".bin", ".sh", ".bash", ".out", ".ko", ".so", ".dylib",
-    ])
-
     def _should_index(self, path: str, stat_result: Optional[os.stat_result] = None) -> bool:
         """检查是否应索引文件：扩展名、排除模式、文件大小、系统文件
 
@@ -1202,6 +1189,32 @@ class FileScanner:
         self.logger.info("正在停止扫描...")
         with self._stop_lock:
             self._stop_flag = True
+
+    def close(self):
+        """关闭文件扫描器，释放资源"""
+        self.logger.info("正在关闭文件扫描器...")
+
+        # 停止扫描操作
+        with self._stop_lock:
+            self._stop_flag = True
+
+        # 清空文件哈希缓存
+        with self._cache_lock:
+            cache_size = len(self._file_hash_cache)
+            self._file_hash_cache.clear()
+            self.logger.info(f"已清空文件哈希缓存（{cache_size} 条目）")
+
+        # 关闭文档解析器
+        if self.document_parser is not None:
+            try:
+                if hasattr(self.document_parser, "close"):
+                    self.document_parser.close()
+                    self.logger.info("文档解析器已关闭")
+            except Exception as e:
+                self.logger.warning(f"关闭文档解析器时出错：{e}")
+            self.document_parser = None
+
+        self.logger.info("文件扫描器已关闭")
 
     def get_supported_file_types(self) -> Dict[str, List[str]]:
         """获取支持的文件类型及其扩展名"""
