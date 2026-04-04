@@ -176,12 +176,14 @@ data/metadata/
 .pytest_cache/
 reports/
 test-results/
+coverage.xml
 
 # Test data - 测试数据
 test_data/
 
 # Build artifacts - 构建产物
 *.whl
+nuitka-crash-report.xml
 
 # OS generated - 系统生成
 .DS_Store
@@ -193,6 +195,9 @@ Thumbs.db
 
 # Strange pip command artifacts (e.g., "pip install =2.13.0")
 =*
+
+# Empty log/test files
+data/logs/*.log.2026-03-*.log
 
 # ============================================================
 # Keep directory structure - 保持目录结构

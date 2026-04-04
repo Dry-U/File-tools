@@ -376,6 +376,55 @@ async def version_check():
     }
 
 
+@router.get("/check-update")
+async def check_update():
+    """检查 GitHub Releases 是否有新版本
+
+    返回最新版本信息及当前版本与最新版本的比较结果
+    """
+    import requests
+    from packaging import version as pkg_version
+
+    current = get_version()
+    repo = "Dry-U/File-tools"
+
+    try:
+        # 调用 GitHub API 获取最新 release
+        response = requests.get(
+            f"https://api.github.com/repos/{repo}/releases/latest",
+            headers={"Accept": "application/vnd.github.v3+json"},
+            timeout=10,
+        )
+        response.raise_for_status()
+        data = response.json()
+
+        latest_version = data.get("tag_name", "").lstrip("v")
+        download_url = data.get("html_url", "")
+        release_notes = data.get("body", "")[:500]  # 限制长度
+
+        # 比较版本
+        try:
+            is_update_available = pkg_version.parse(latest_version) > pkg_version.parse(current)
+        except Exception:
+            # 版本解析失败，简单比较字符串
+            is_update_available = latest_version != current
+
+        return {
+            "current_version": current,
+            "latest_version": latest_version,
+            "is_update_available": is_update_available,
+            "download_url": download_url,
+            "release_notes": release_notes,
+            "repo": repo,
+        }
+    except requests.RequestException as e:
+        logger.warning(f"检查更新失败: {e}")
+        raise HTTPException(status_code=503, detail="无法连接到更新服务器")
+    except Exception as e:
+        logger.error(f"检查更新异常: {e}")
+        raise HTTPException(status_code=500, detail="检查更新失败")
+
+
 @router.get("/initialization-status")
 async def initialization_status(request: Request):
     """获取应用初始化状态（前端轮询使用）

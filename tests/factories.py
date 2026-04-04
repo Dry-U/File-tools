@@ -1,8 +1,46 @@
 """测试数据工厂 - 用于生成测试数据"""
 
 from typing import Dict, Any, List, Optional
+from unittest.mock import Mock
 import random
+import sys
+import os
 from datetime import datetime, timedelta
+
+# 添加项目根目录到Python路径
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+
+from backend.utils.config_loader import ConfigLoader
+
+
+# =============================================================================
+# 辅助函数
+# =============================================================================
+
+
+def int_or_default(value: Any, default: int = 0) -> int:
+    """安全转换为 int"""
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def float_or_default(value: Any, default: float = 0.0) -> float:
+    """安全转换为 float"""
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def bool_or_default(value: Any, default: bool = False) -> bool:
+    """安全转换为 bool"""
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        return value.lower() in ("true", "1", "yes", "on")
+    return default
 
 
 class DocumentFactory:
@@ -401,3 +439,214 @@ class ConfigFactory:
             "file_scanner": {"scan_paths": ["./documents"], "batch_size": 100},
             "monitor": {"enabled": True},
         }
+
+
+class MockConfigFactory:
+    """统一的 Mock ConfigLoader 工厂，减少测试中的重复代码"""
+
+    # 默认配置数据模板
+    DEFAULT_CONFIG_DATA = {
+        "system": {
+            "data_dir": "./data",
+            "log_level": "INFO",
+            "log_max_size": "10485760",
+            "log_backup_count": "5",
+        },
+        "index": {
+            "tantivy_path": "./data/tantivy",
+            "hnsw_path": "./data/hnsw",
+            "metadata_path": "./data/metadata",
+            "schema_version": "1.0",
+        },
+        "search": {
+            "text_weight": 0.6,
+            "vector_weight": 0.4,
+            "max_results": 20,
+            "min_score": 0.3,
+            "boost_filename": True,
+            "boost_exact_match": True,
+        },
+        "embedding": {
+            "enabled": False,
+            "provider": "fastembed",
+            "model": "bge-small-zh",
+            "dimension": 384,
+        },
+        "ai_model": {
+            "enabled": True,
+            "interface_type": "api",
+            "api_url": "http://localhost:8080/v1/chat/completions",
+            "api_key": "",
+            "context_size": 4096,
+            "max_tokens": 2048,
+            "request_timeout": 120,
+            "mode": "api",
+            "local": {
+                "api_url": "http://localhost:8000",
+                "max_context": 4096,
+                "max_tokens": 512,
+            },
+            "api": {
+                "provider": "siliconflow",
+                "api_url": "https://api.example.com",
+                "model_name": "test-model",
+            },
+            "sampling": {
+                "temperature": 0.7,
+                "top_p": 0.9,
+                "top_k": 40,
+                "min_p": 0.05,
+                "seed": -1,
+            },
+            "penalties": {
+                "repeat_penalty": 1.1,
+                "frequency_penalty": 0.0,
+                "presence_penalty": 0.0,
+            },
+            "security": {
+                "verify_ssl": True,
+                "timeout": 120,
+                "retry_count": 2,
+            },
+        },
+        "rag": {
+            "max_history_turns": 6,
+            "max_history_chars": 800,
+            "max_context": 4096,
+            "temperature": 0.7,
+            "top_p": 0.9,
+            "top_k": 40,
+            "min_p": 0.05,
+            "repeat_penalty": 1.1,
+            "max_session_age_days": 30,
+            "max_sessions": 1000,
+            "fallback_response": "未找到相关信息",
+            "context_exhausted_response": "上下文过长，请重置",
+            "reset_response": "已清空上下文",
+            "greeting_response": "你好！有什么可以帮你的吗？",
+            "greeting_keywords": ["你好", "hi", "hello", "嗨"],
+            "reset_commands": ["重置", "清空上下文", "reset", "restart"],
+        },
+        "file_scanner": {
+            "scan_paths": ["./documents"],
+            "batch_size": 100,
+            "max_file_size": 104857600,  # 100MB
+            "supported_extensions": [".txt", ".pdf", ".doc", ".docx", ".md"],
+            "exclude_patterns": ["*.tmp", ".*", "__pycache__"],
+        },
+        "monitor": {
+            "enabled": True,
+            "debounce_timeout": 0.5,
+            "directories": [],
+        },
+        "chat_history": {
+            "db_path": "./data/chat_history.db",
+        },
+    }
+
+    @classmethod
+    def _deep_merge(cls, base: Dict, override: Dict) -> Dict:
+        """深度合并两个字典"""
+        result = base.copy()
+        for key, value in override.items():
+            if (
+                key in result
+                and isinstance(result[key], dict)
+                and isinstance(value, dict)
+            ):
+                result[key] = cls._deep_merge(result[key], value)
+            else:
+                result[key] = value
+        return result
+
+    @classmethod
+    def create_config(cls, custom_overrides: Dict[str, Any] = None) -> Mock:
+        """
+        创建统一格式的 Mock ConfigLoader
+
+        Args:
+            custom_overrides: 自定义配置覆盖，深度合并到默认配置
+
+        Returns:
+            Mock 配置对象
+        """
+        config_data = cls.DEFAULT_CONFIG_DATA.copy()
+        if custom_overrides:
+            config_data = cls._deep_merge(config_data, custom_overrides)
+
+        config = Mock(spec=ConfigLoader)
+        config._config_data = config_data  # 保存引用便于调试
+
+        def get_side_effect(section: str, key: str = None, default: Any = None) -> Any:
+            """统一 getter 逻辑"""
+            if key is None:
+                # 返回整个 section
+                return config_data.get(section, default or {})
+            # 支持嵌套 key 如 "api.model_name"
+            if "." in key:
+                parts = key.split(".")
+                value = config_data.get(section, {})
+                for part in parts:
+                    if isinstance(value, dict):
+                        value = value.get(part)
+                    else:
+                        return default
+                return value if value is not None else default
+            return config_data.get(section, {}).get(key, default)
+
+        config.get.side_effect = get_side_effect
+        config.getint.side_effect = lambda section, key, default=0: int_or_default(
+            get_side_effect(section, key, default)
+        )
+        config.getfloat.side_effect = (
+            lambda section, key, default=0.0: float_or_default(
+                get_side_effect(section, key, default)
+            )
+        )
+        config.getboolean.side_effect = (
+            lambda section, key, default=False: bool_or_default(
+                get_side_effect(section, key, default)
+            )
+        )
+        config.save.return_value = True
+
+        return config
+
+    @classmethod
+    def create_minimal_config(cls) -> Mock:
+        """创建最小配置 - 仅包含必需字段"""
+        return cls.create_config(
+            {
+                "system": {"data_dir": "./data"},
+                "search": {"max_results": 10},
+                "embedding": {"enabled": False},
+            }
+        )
+
+    @classmethod
+    def create_search_config(cls, **overrides) -> Mock:
+        """创建搜索相关配置"""
+        config = {
+            "search": {
+                "text_weight": overrides.get("text_weight", 0.6),
+                "vector_weight": overrides.get("vector_weight", 0.4),
+                "max_results": overrides.get("max_results", 20),
+                "min_score": overrides.get("min_score", 0.3),
+                "boost_filename": True,
+                "boost_exact_match": True,
+            }
+        }
+        return cls.create_config(config)
+
+    @classmethod
+    def create_rag_config(cls, **overrides) -> Mock:
+        """创建 RAG 相关配置"""
+        config = {
+            "rag": {
+                "max_history_turns": overrides.get("max_history_turns", 6),
+                "max_history_chars": overrides.get("max_history_chars", 800),
+                "max_context": overrides.get("max_context", 4096),
+                "temperature": overrides.get("temperature", 0.7),
+            }
+        }
+        return cls.create_config(config)

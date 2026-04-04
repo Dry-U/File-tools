@@ -69,8 +69,8 @@ def get_build_args(mode):
     args.extend([
         "--windows-company-name=FileTools",
         "--windows-product-name=FileTools",
-        "--windows-file-version=1.0.0",
-        "--windows-product-version=1.0.0",
+        "--windows-file-version=1.1.0",
+        "--windows-product-version=1.1.0",
         "--windows-file-description=智能文件检索与问答系统",
     ])
 

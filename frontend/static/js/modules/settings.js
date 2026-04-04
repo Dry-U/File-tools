@@ -414,6 +414,7 @@ const FileToolsSettings = (function() {
                     FileToolsDirectory.loadDirectories();
                 }
                 initSettingsTabs();
+                initCheckUpdate();  // 初始化检查更新按钮
                 FileToolsUtils.showModal(modalEl);
             }).catch(function (err) {
                 console.error('Failed to load settings:', err);
@@ -421,6 +422,7 @@ const FileToolsSettings = (function() {
                     FileToolsDirectory.loadDirectories();
                 }
                 initSettingsTabs();
+                initCheckUpdate();  // 初始化检查更新按钮
                 FileToolsUtils.showModal(modalEl);
             });
         } else {
@@ -737,6 +739,74 @@ const FileToolsSettings = (function() {
         }
     }
 
+    /**
+     * 检查更新
+     */
+    async function checkForUpdate() {
+        const btn = document.getElementById('checkUpdateBtn');
+        const resultDiv = document.getElementById('updateResult');
+        const versionSpan = document.getElementById('currentVersion');
+
+        // 先获取当前版本
+        try {
+            const versionRes = await fetch('/api/version');
+            const versionData = await versionRes.json();
+            if (versionSpan) {
+                versionSpan.textContent = 'v' + versionData.version;
+            }
+        } catch (e) {
+            console.warn('获取版本失败:', e);
+        }
+
+        if (btn) {
+            btn.disabled = true;
+            btn.innerHTML = '<i class="bi bi-arrow-repeat me-2 spin"></i>检查中...';
+        }
+
+        try {
+            const response = await fetch('/api/check-update');
+            const data = await response.json();
+
+            if (data.is_update_available) {
+                resultDiv.className = 'small text-start alert alert-success mt-2';
+                resultDiv.innerHTML = `
+                    <div class="fw-bold mb-2"><i class="bi bi-check-circle me-1"></i>发现新版本: v${data.latest_version}</div>
+                    <div class="mb-2">${data.release_notes || ''}</div>
+                    <a href="${data.download_url}" target="_blank" class="btn btn-sm btn-success">
+                        <i class="bi bi-download me-1"></i>前往下载
+                    </a>
+                `;
+            } else {
+                resultDiv.className = 'small text-start alert alert-secondary mt-2';
+                resultDiv.innerHTML = `<i class="bi bi-check-circle me-1"></i>当前已是最新版本 (v${data.latest_version})`;
+            }
+            resultDiv.classList.remove('d-none');
+        } catch (error) {
+            console.error('检查更新失败:', error);
+            resultDiv.className = 'small text-start alert alert-warning mt-2';
+            resultDiv.innerHTML = `<i class="bi bi-exclamation-triangle me-1"></i>检查更新失败，请稍后重试`;
+            resultDiv.classList.remove('d-none');
+        } finally {
+            if (btn) {
+                btn.disabled = false;
+                btn.innerHTML = '<i class="bi bi-arrow-repeat me-2"></i>检查更新';
+            }
+        }
+    }
+
+    /**
+     * 初始化检查更新按钮
+     */
+    function initCheckUpdate() {
+        const btn = document.getElementById('checkUpdateBtn');
+        if (btn && !btn.dataset.initialized) {
+            btn.addEventListener('click', function() {
+                checkForUpdate();
+            });
+            btn.dataset.initialized = 'true';
+        }
+    }
+
     // 公共 API
     return {
         loadSettings,
@@ -751,7 +821,9 @@ const FileToolsSettings = (function() {
         showRebuildModal,
         confirmRebuild,
         updateSliderValue,
-        hasUnsavedChanges
+        hasUnsavedChanges,
+        checkForUpdate,
+        initCheckUpdate
     };
 })();
 
@@ -768,3 +840,5 @@ const confirmReset = FileToolsSettings.confirmReset;
 const showRebuildModal = FileToolsSettings.showRebuildModal;
 const confirmRebuild = FileToolsSettings.confirmRebuild;
 const hasUnsavedChanges = FileToolsSettings.hasUnsavedChanges;
+const checkForUpdate = FileToolsSettings.checkForUpdate;
+const initCheckUpdate = FileToolsSettings.initCheckUpdate;

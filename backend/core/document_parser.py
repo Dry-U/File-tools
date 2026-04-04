@@ -59,8 +59,6 @@ try:
     import textract  # type: ignore
 except ImportError:
     textract = None
-# from PIL import Image
-# import exifread
 import datetime
 
 try:
@@ -450,6 +448,29 @@ class DocumentParser:
             # 如果没有textract或解析失败，返回错误信息
             return f"错误: 无法解析Word内容\n{str(e)}"
 
+    def _cleanup_com_resources(self, doc, word, temp_docx=None):
+        """清理 COM 资源（Word COM 对象 + 临时文件）"""
+        if doc is not None:
+            try:
+                doc.Close(SaveChanges=False)
+            except Exception:
+                pass  # 忽略关闭失败，不影响主流程
+        if word is not None:
+            try:
+                word.Quit()
+            except Exception:
+                pass  # 忽略退出失败，不影响主流程
+        if temp_docx and os.path.exists(temp_docx):
+            try:
+                os.remove(temp_docx)
+            except Exception:
+                pass  # 忽略临时文件删除失败，不影响主流程
+        try:
+            import pythoncom
+            pythoncom.CoUninitialize()
+        except Exception:
+            pass  # 忽略 COM 卸载失败，不影响主流程
+
     def _convert_doc_to_docx(self, file_path):
         """将.doc转换为.docx并解析"""
         if not win32com:
@@ -487,28 +508,7 @@ class DocumentParser:
             self.logger.error(f"Doc转Docx失败 {file_path}: {str(e)}")
             return None
         finally:
-            # Cleanup
-            if doc is not None:
-                try:
-                    doc.Close(SaveChanges=False)
-                except Exception:
-                    pass
-            if word is not None:
-                try:
-                    word.Quit()
-                except Exception:
-                    pass
-            if temp_docx and os.path.exists(temp_docx):
-                try:
-                    os.remove(temp_docx)
-                except Exception:
-                    pass
-            try:
-                import pythoncom
-
-                pythoncom.CoUninitialize()
-            except Exception:
-                pass
+            self._cleanup_com_resources(doc, word, temp_docx)
 
     @timeout(10)
     def _parse_doc_win32(self, file_path):
@@ -574,23 +574,7 @@ class DocumentParser:
 
             return f"错误: 无法解析.doc内容\n{str(e)}"
         finally:
-            # 确保 COM 资源被正确释放
-            if doc is not None:
-                try:
-                    doc.Close(SaveChanges=False)
-                except Exception:
-                    pass
-            if word is not None:
-                try:
-                    word.Quit()
-                except Exception:
-                    pass
-            try:
-                import pythoncom
-
-                pythoncom.CoUninitialize()
-            except Exception:
-                pass
+            self._cleanup_com_resources(doc, word)
 
     def _parse_text(self, file_path):
         """解析文本文件"""

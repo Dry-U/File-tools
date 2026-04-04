@@ -14,7 +14,7 @@ default = true
 
 [project]
 name = "file-tools"
-version = "1.0.0"
+version = "1.1.0"
 requires-python = ">=3.9,<3.13"
 description = "智能文件检索与问答系统 - 基于Python的本地文件智能管理工具"
 authors = [{name = "Darian", email = "Dar1an@126.com"}]
@@ -67,6 +67,7 @@ dependencies = [
 
     # 配置和日志
     "pyyaml>=6.0,<7.0",
+    "packaging>=20.0",
 
     # 其他
     "requests>=2.31.0,<3.0.0",

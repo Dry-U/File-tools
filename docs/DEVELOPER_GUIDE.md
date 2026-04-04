@@ -71,8 +71,8 @@ File-tools/
 │   └── version_manager.py  # 版本管理工具
 ├── config.yaml             # 配置文件
 ├── main.py                 # 应用入口（Pywebview + FastAPI）
-├── build.bat               # Windows EXE 构建脚本
-├── file-tools.spec         # PyInstaller 打包配置
+├── build.bat               # Nuitka 构建脚本
+├── build_nuitka.py         # Nuitka 构建脚本（Python）
 ├── pyproject.toml          # 项目配置与依赖管理
 └── uv.lock                 # 依赖锁定文件（请提交到版本控制）
 ```
@@ -432,8 +432,9 @@ python scripts/allure_report.py clean     # 清理所有报告
 ## 打包与部署
 
 ### 打包方式
-- 使用 PyInstaller 打包为 EXE
-- 支持 Windows、macOS、Linux
+- 使用 Nuitka 打包为 EXE（Python → C → exe）
+- 支持 Windows、Linux（macOS 需在 macOS 上构建）
+& "D:\app\Inno Setup 6\ISCC.exe" "d:\Python_work\File-tools\scripts\build_inno_setup.iss"
 
 ### 部署考虑
 - 依赖管理

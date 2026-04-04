@@ -4,14 +4,15 @@
 ; ============================================================
 
 #define MyAppName "FileTools"
-#define MyAppVersion GetVersionNumbersString("..\dist\main.dist\main.exe")
+#define MyAppVersion "1.1.0"
 #define MyAppPublisher "FileTools"
 #define MyAppURL "https://github.com/Dry-U/File-tools"
 #define MyAppExeName "main.exe"
+#define MyAppId "{{A1B2C3D4-E5F6-7890-ABCD-EF1234567890}}"
 
 [Setup]
 ; 应用基本信息
-AppId={{A1B2C3D4-E5F6-7890-ABCD-EF1234567890}
+AppId={#MyAppId}
 AppName={#MyAppName}
 AppVersion={#MyAppVersion}
 AppVerName={#MyAppName} {#MyAppVersion}
@@ -46,8 +47,8 @@ WizardStyle=modern
 WizardSizePercent=100
 
 ; 64位 Windows
-ArchitecturesAllowed=x64
-ArchitecturesInstallIn64BitMode=x64
+ArchitecturesAllowed=x64compatible
+ArchitecturesInstallIn64BitMode=x64compatible
 
 ; 版本信息
 VersionInfoVersion={#MyAppVersion}
@@ -62,7 +63,6 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 
 [Tasks]
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked
-Name: "quicklaunchicon"; Description: "{cm:CreateQuickLaunchIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked; OnlyBelowVersion: 6.1; Check: not IsAdminInstallMode
 Name: "fileassochk"; Description: "关联常用文件格式 (.txt, .pdf, .docx)"; GroupDescription: "文件关联:"
 
 [Files]
@@ -73,7 +73,6 @@ Source: "..\dist\main.dist\*"; DestDir: "{app}"; Flags: ignoreversion recursesub
 Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"
 Name: "{group}\{cm:UninstallProgram,{#MyAppName}}"; Filename: "{uninstallexe}"
 Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: desktopicon
-Name: "{userappdata}\Microsoft\Internet Explorer\Quick Launch\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: quicklaunchicon
 
 [Registry]
 ; 文件关联 - txt
@@ -100,8 +99,6 @@ Type: filesandordirs; Name: "{app}\data"
 [Code]
 // 安装前检查
 function InitializeSetup(): Boolean;
-var
-  ResultCode: Integer;
 begin
   Result := True;
 
