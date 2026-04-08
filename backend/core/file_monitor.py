@@ -3,6 +3,7 @@
 """文件监控器模块 - 监控文件系统变化（高性能版本）"""
 
 import os
+import sys
 import time
 import logging
 import threading
@@ -58,6 +59,29 @@ class FileMonitor:
         except Exception:
             self._buffer_timeout = self.DEFAULT_BUFFER_TIMEOUT
 
+        # 读取最大递归深度配置
+        try:
+            self._max_depth = int(monitor_config.get("max_depth", 3))
+            self._max_depth = max(1, min(self._max_depth, 10))  # 限制在1-10层
+        except Exception:
+            self._max_depth = 3
+
+        # 读取自动排除阈值配置（文件数超过此值自动排除）
+        try:
+            self._auto_exclude_threshold = int(
+                monitor_config.get("auto_exclude_threshold", 5000)
+            )
+            self._auto_exclude_threshold = max(100, min(self._auto_exclude_threshold, 50000))
+        except Exception:
+            self._auto_exclude_threshold = 5000
+
+        # 读取最大监控文件数
+        try:
+            self._max_files = int(monitor_config.get("max_files", 10000))
+            self._max_files = max(1000, min(self._max_files, 100000))
+        except Exception:
+            self._max_files = 10000
+
         # 初始化监控器
         self.observer = None
         self.handler = None
@@ -77,10 +101,14 @@ class FileMonitor:
         self._processed_count = 0
         self._dropped_count = 0
 
+        # 过滤并验证监控目录
+        self.monitored_dirs = self._filter_monitored_directories(self.monitored_dirs)
+
         if self.monitored_dirs:
             self.logger.info(
                 f"文件监控器初始化完成，监控目录: {', '.join(self.monitored_dirs)}, "
-                f"并行线程: {self.max_workers}, 缓冲超时: {self._buffer_timeout}s"
+                f"并行线程: {self.max_workers}, 缓冲超时: {self._buffer_timeout}s, "
+                f"最大深度: {self._max_depth}, 自动排除阈值: {self._auto_exclude_threshold}文件"
             )
         else:
             self.logger.info("文件监控器初始化完成，未启用监控（无配置目录）")
@@ -122,6 +150,70 @@ class FileMonitor:
 
         return monitored_dirs
 
+    def _filter_monitored_directories(self, monitored_dirs):
+        """过滤监控目录，排除超过深度和文件数限制的目录"""
+        filtered_dirs = []
+
+        for dir_path in monitored_dirs:
+            # 检查目录深度
+            try:
+                depth = self._get_directory_depth(dir_path, self._max_depth)
+                if depth > self._max_depth:
+                    self.logger.warning(
+                        f"目录 {dir_path} 深度({depth})超过最大限制({self._max_depth})，"
+                        f"将限制监控深度"
+                    )
+            except Exception as e:
+                self.logger.debug(f"检查目录深度失败 {dir_path}: {e}")
+
+            # 检查文件数量
+            try:
+                file_count = self._count_files_in_directory(dir_path, max_count=self._auto_exclude_threshold)
+                if file_count >= self._auto_exclude_threshold:
+                    self.logger.warning(
+                        f"目录 {dir_path} 文件数量({file_count})超过阈值({self._auto_exclude_threshold})，"
+                        f"跳过监控此目录以避免性能问题"
+                    )
+                    continue  # 跳过此目录
+            except Exception as e:
+                self.logger.debug(f"统计目录文件数失败 {dir_path}: {e}")
+
+            filtered_dirs.append(dir_path)
+
+        return filtered_dirs
+
+    def _get_directory_depth(self, dir_path, max_check_depth=10):
+        """获取目录的实际深度"""
+        max_depth = 0
+        try:
+            for root, dirs, files in os.walk(dir_path):
+                # 计算当前深度
+                current_depth = root.count(os.sep) - dir_path.count(os.sep)
+                max_depth = max(max_depth, current_depth)
+                if max_depth >= max_check_depth:
+                    return max_depth  # 提前返回，避免遍历太深
+                # 限制遍历的子目录数量
+                if len(dirs) > 100:
+                    dirs[:] = dirs[:100]  # 只遍历前100个子目录
+        except Exception:
+            pass
+        return max_depth
+
+    def _count_files_in_directory(self, dir_path, max_count=5000):
+        """统计目录中的文件数量（带上限，避免长时间遍历）"""
+        count = 0
+        try:
+            for root, dirs, files in os.walk(dir_path):
+                count += len(files)
+                if count >= max_count:
+                    return count  # 提前返回
+                # 限制遍历的子目录数量
+                if len(dirs) > 100:
+                    dirs[:] = dirs[:100]
+        except Exception:
+            pass
+        return count
+
     def _get_ignored_patterns(self):
         """从配置中获取需要忽略的文件模式"""
         ignored_patterns = set()
@@ -156,6 +248,36 @@ class FileMonitor:
             ".temp",
             ".bak",
             "~$",
+            # 用户目录下的常见大文件夹/应用数据
+            "Rainmeter",
+            "Tencent Files",
+            "nt_qq",
+            "WeChat Files",
+            "OneDrive",
+            "Dropbox",
+            ".nuget",
+            ".gradle",
+            ".m2",
+            ".npm",
+            ".yarn",
+            "AppData",
+            "ProgramData",
+            "System Volume Information",
+            "$Recycle.Bin",
+            # 游戏平台
+            "Steam",
+            "Epic Games",
+            "Origin",
+            "Battle.net",
+            # 开发工具缓存
+            ".angular",
+            ".next",
+            "dist",
+            "build",
+            "target",
+            "out",
+            ".nuxt",
+            ".output",
         }
         ignored_patterns.update(default_ignored)
 
@@ -282,7 +404,10 @@ class FileMonitor:
                 # 复制需要处理的事件（展平列表）
                 for path, path_events in list(self._event_buffer.items()):
                     for event_info in path_events:
-                        if current_time - event_info["timestamp"] >= self._buffer_timeout:
+                        if (
+                            current_time - event_info["timestamp"]
+                            >= self._buffer_timeout
+                        ):
                             events_to_process.append(event_info)
                 # 清空缓冲区
                 self._event_buffer.clear()
@@ -295,6 +420,23 @@ class FileMonitor:
         """检查是否应该忽略某个事件"""
         # 获取事件路径
         event_path = event.src_path
+
+        # 检查路径深度
+        try:
+            # 找到对应的监控目录
+            for monitored_dir in self.monitored_dirs:
+                if event_path.startswith(monitored_dir):
+                    # 计算相对深度
+                    rel_path = os.path.relpath(event_path, monitored_dir)
+                    depth = rel_path.count(os.sep) + (1 if event.is_directory else 0)
+                    if depth > self._max_depth:
+                        self.logger.debug(
+                            f"路径深度({depth})超过限制({self._max_depth})，忽略: {event_path}"
+                        )
+                        return True
+                    break
+        except Exception:
+            pass
 
         # 检查是否为目录
         if event.is_directory:
@@ -332,7 +474,9 @@ class FileMonitor:
                             self.logger.debug(f"事件处理失败: {e}")
                 except RuntimeError as e:
                     # 线程池已关闭，忽略此批次的事件
-                    self.logger.debug(f"线程池已关闭，跳过 {len(events_to_process)} 个事件: {e}")
+                    self.logger.debug(
+                        f"线程池已关闭，跳过 {len(events_to_process)} 个事件: {e}"
+                    )
                     self._dropped_count += len(events_to_process)
             else:
                 # 线程池未初始化，串行处理
@@ -371,7 +515,8 @@ class FileMonitor:
                             time.sleep(retry_delay)
                     else:
                         if attempt == max_retries - 1:
-                            self.logger.warning(
+                            # 降低日志级别为debug，减少启动时的警告
+                            self.logger.debug(
                                 f"文件不存在或不是常规文件，跳过处理 {event_path}"
                             )
                             return
@@ -549,15 +694,25 @@ class FileMonitor:
         """移除一个监控目录"""
         dir_path = os.path.abspath(dir_path)
 
-        # 检查目录是否在监控列表中
-        if dir_path not in self.monitored_dirs:
+        # 检查目录是否在监控列表中（Windows 下大小写不敏感）
+        found = False
+        if sys.platform == "win32":
+            dir_path_lower = dir_path.lower()
+            for i, existing in enumerate(self.monitored_dirs):
+                if existing.lower() == dir_path_lower:
+                    self.monitored_dirs.pop(i)
+                    found = True
+                    break
+        else:
+            if dir_path in self.monitored_dirs:
+                self.monitored_dirs.remove(dir_path)
+                found = True
+
+        if not found:
             self.logger.warning(f"目录不在监控列表中: {dir_path}")
             return True
 
         try:
-            # 从监控列表中移除
-            self.monitored_dirs.remove(dir_path)
-
             # 如果监控器正在运行，更新监控器
             if self.is_running and self.observer and self.handler:
                 # 注意：这里简化处理，实际上需要重新安排所有监控目录
@@ -569,9 +724,14 @@ class FileMonitor:
             return True
         except Exception as e:
             self.logger.error(f"移除监控目录失败 {dir_path}: {str(e)}")
-            # 如果移除失败，重新添加到列表
-            if dir_path not in self.monitored_dirs:
-                self.monitored_dirs.append(dir_path)
+            # 如果移除失败，重新添加到列表（使用大小写安全检查）
+            if sys.platform == "win32":
+                dir_path_lower = dir_path.lower()
+                if not any(p.lower() == dir_path_lower for p in self.monitored_dirs):
+                    self.monitored_dirs.append(dir_path)
+            else:
+                if dir_path not in self.monitored_dirs:
+                    self.monitored_dirs.append(dir_path)
             return False
 
 

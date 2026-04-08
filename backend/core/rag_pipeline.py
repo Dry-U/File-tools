@@ -109,9 +109,7 @@ class RAGPipeline:
 
         # 启动后台会话清理线程
         self._cleanup_thread = threading.Thread(
-            target=self._background_session_cleanup,
-            daemon=True,
-            name="SessionCleanup"
+            target=self._background_session_cleanup, daemon=True, name="SessionCleanup"
         )
         self._cleanup_thread.start()
 
@@ -122,6 +120,13 @@ class RAGPipeline:
         except Exception as e:
             logger.warning(f"查询处理器初始化失败: {e}")
             self.query_processor = None
+
+        self._generation_executor = ThreadPoolExecutor(max_workers=1)
+
+        # 初始化查询嵌入缓存（线程安全，无竞态）
+        self._query_embedding_cache: Dict[str, List[float]] = {}
+        self._query_embedding_cache_order: List[str] = []
+        self._embedding_cache_lock = threading.Lock()
 
     def _cleanup_old_sessions_if_needed(self) -> None:
         """定期清理旧会话"""
@@ -381,7 +386,7 @@ class RAGPipeline:
                     question_len = len(q)
                     if question_len >= remaining:
                         # 问题部分就占满了预算，只保留部分问题
-                        block = f"【上文{idx}】用户: {q[:remaining-10]}..."
+                        block = f"【上文{idx}】用户: {q[: remaining - 10]}..."
                     else:
                         # 保留完整问题，部分答案
                         remaining_for_answer = (
@@ -395,7 +400,7 @@ class RAGPipeline:
                             )
                             block = f"【上文{idx}】用户: {q}\n助手: {answer_snippet}"
                         else:
-                            block = f"【上文{idx}】用户: {q[:question_len + remaining_for_answer]}..."
+                            block = f"【上文{idx}】用户: {q[: question_len + remaining_for_answer]}..."
 
                 # 确保最终块不超过预算
                 if len(block) > remaining:
@@ -806,14 +811,7 @@ class RAGPipeline:
 
                     # 缓存查询嵌入向量，避免同一查询对每个候选文档重复计算
                     # 使用固定大小的 LRU 缓存防止内存泄漏（线程安全）
-                    if not hasattr(self, "_query_embedding_cache"):
-                        with threading.Lock():
-                            # 双重检查
-                            if not hasattr(self, "_query_embedding_cache"):
-                                self._query_embedding_cache = {}  # {query_str: embedding}
-                                self._query_embedding_cache_order = []  # LRU 顺序
-                                self._embedding_cache_lock = threading.Lock()
-
+                    # 缓存已在 __init__ 中初始化，这里直接使用
                     MAX_QUERY_CACHE_SIZE = 100  # 最大缓存条目数
 
                     # 先在锁外计算 embedding（避免长时间持有锁导致其他线程阻塞）
@@ -834,15 +832,31 @@ class RAGPipeline:
                             self._query_embedding_cache_order.append(query)
 
                     # 安全获取 content embedding，防止空迭代器
-                    vector_dim = getattr(self.search_engine.index_manager, "vector_dim", 384)
+                    vector_dim = getattr(
+                        self.search_engine.index_manager, "vector_dim", 384
+                    )
                     try:
                         content_emb_list = list(embedding_model.embed([content]))
-                        content_embedding = content_emb_list[0] if content_emb_list else np.zeros(vector_dim, dtype=np.float32)
+                        if content_emb_list:
+                            content_embedding = content_emb_list[0]
+                        elif "np" in dir() and np is not None:
+                            content_embedding = np.zeros(vector_dim, dtype=np.float32)
+                        else:
+                            # numpy 不可用时使用零向量作为最后回退
+                            content_embedding = [0.0] * vector_dim
                     except (StopIteration, Exception):
-                        content_embedding = np.zeros(vector_dim, dtype=np.float32)
+                        if "np" in dir() and np is not None:
+                            content_embedding = np.zeros(vector_dim, dtype=np.float32)
+                        else:
+                            content_embedding = [0.0] * vector_dim
 
                     # 计算余弦相似度
-                    if SKLEARN_AVAILABLE and cosine_similarity is not None:
+                    if (
+                        SKLEARN_AVAILABLE
+                        and cosine_similarity is not None
+                        and "np" in dir()
+                        and np is not None
+                    ):
                         query_vec = np.array(query_embedding).reshape(1, -1)
                         content_vec = np.array(content_embedding).reshape(1, -1)
                         result = cosine_similarity(query_vec, content_vec)
@@ -1421,8 +1435,7 @@ class RAGPipeline:
                     return {"chunks": result_chunks, "completed": False, "error": e}
 
             # 使用 ThreadPoolExecutor 执行生成任务
-            executor = ThreadPoolExecutor(max_workers=1)
-            future = executor.submit(generate_content)
+            future = self._generation_executor.submit(generate_content)
             try:
                 result = future.result(timeout=float(timeout))
             except FutureTimeoutError:
@@ -1432,12 +1445,6 @@ class RAGPipeline:
                     future.cancel()
                 except Exception:
                     pass
-            finally:
-                # 关键：不要 wait=True，否则会把超时"卡回去"
-                try:
-                    executor.shutdown(wait=False, cancel_futures=True)
-                except TypeError:
-                    executor.shutdown(wait=False)
 
             if not result["completed"]:
                 partial_answer = "".join(result["chunks"]).strip()

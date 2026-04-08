@@ -19,11 +19,93 @@ from backend.api.dependencies import (
     get_rate_limiter as rate_limiter_dependency,
     get_index_manager,
     get_resolve_path_if_allowed,
+    get_is_path_allowed,
 )
 from backend.core.constants import ALLOWED_MIME_TYPES, MAX_PREVIEW_LENGTH
 
 logger = get_logger(__name__)
 router = APIRouter()
+
+
+def _format_file_size(size_bytes: int) -> str:
+    """将字节大小格式化为人类可读字符串"""
+    if size_bytes < 1024:
+        return f"{size_bytes} B"
+    elif size_bytes < 1024 * 1024:
+        return f"{size_bytes / 1024:.1f} KB"
+    elif size_bytes < 1024 * 1024 * 1024:
+        return f"{size_bytes / (1024 * 1024):.1f} MB"
+    else:
+        return f"{size_bytes / (1024 * 1024 * 1024):.2f} GB"
+
+
+def _detect_language(file_ext: str, file_path: str) -> str:
+    """根据文件扩展名和路径检测编程语言类型"""
+    ext_to_language = {
+        ".py": "python",
+        ".js": "javascript",
+        ".jsx": "jsx",
+        ".ts": "typescript",
+        ".tsx": "tsx",
+        ".java": "java",
+        ".c": "c",
+        ".cpp": "cpp",
+        ".cc": "cpp",
+        ".h": "c",
+        ".hpp": "cpp",
+        ".cs": "csharp",
+        ".go": "go",
+        ".rs": "rust",
+        ".rb": "ruby",
+        ".php": "php",
+        ".swift": "swift",
+        ".kt": "kotlin",
+        ".scala": "scala",
+        ".r": "r",
+        ".m": "matlab",
+        ".sh": "bash",
+        ".bash": "bash",
+        ".zsh": "bash",
+        ".ps1": "powershell",
+        ".sql": "sql",
+        ".html": "html",
+        ".htm": "html",
+        ".xml": "xml",
+        ".css": "css",
+        ".scss": "scss",
+        ".sass": "sass",
+        ".less": "less",
+        ".json": "json",
+        ".yaml": "yaml",
+        ".yml": "yaml",
+        ".toml": "toml",
+        ".ini": "ini",
+        ".cfg": "ini",
+        ".conf": "ini",
+        ".md": "markdown",
+        ".markdown": "markdown",
+        ".txt": "text",
+        ".log": "text",
+        ".csv": "csv",
+        ".lua": "lua",
+        ".perl": "perl",
+        ".pl": "perl",
+        ".vim": "vim",
+        ".dockerfile": "dockerfile",
+        ".makefile": "makefile",
+        ".cmake": "cmake",
+    }
+
+    # 检查文件名特殊匹配
+    lower_path = file_path.lower()
+    if "dockerfile" in lower_path:
+        return "dockerfile"
+    if "makefile" in lower_path or "cmake" in lower_path:
+        return "makefile"
+    if ".gitignore" in lower_path:
+        return "gitignore"
+
+    return ext_to_language.get(file_ext.lower(), "text")
 
 
 def safe_read_file(path: str, max_length: int = MAX_PREVIEW_LENGTH) -> str:
@@ -71,6 +153,7 @@ async def search(
     search_engine=Depends(get_search_engine),
     config_loader: ConfigLoader = Depends(get_config_loader),
     limiter=Depends(rate_limiter_dependency),
+    is_path_allowed_fn=Depends(get_is_path_allowed),
 ):
     """使用搜索引擎执行搜索
 
@@ -100,6 +183,9 @@ async def search(
 
         if not query:
             raise HTTPException(status_code=400, detail="查询不能为空")
+
+        if len(query) > 500:
+            raise HTTPException(status_code=400, detail="查询长度不能超过500字符")
 
         results = search_engine.search(query, filters)
 
@@ -152,12 +238,15 @@ async def search(
         for result in results:
             converted_result = convert_types(result)
             if isinstance(converted_result, dict):
+                file_path = str(converted_result.get("path", ""))
+                # 过滤掉不在允许路径内的文件
+                if not is_path_allowed_fn(file_path, config_loader):
+                    logger.debug(f"搜索结果过滤（路径不在允许范围内）: {file_path}")
+                    continue
                 formatted_results.append(
                     {
-                        "file_name": os.path.basename(
-                            str(converted_result.get("path", ""))
-                        ),
-                        "path": str(converted_result.get("path", "")),
+                        "file_name": os.path.basename(file_path),
+                        "path": file_path,
                         "score": converted_result.get("score", 0.0),
                         "snippet": converted_result.get("snippet", ""),
                     }
@@ -235,7 +324,7 @@ async def preview_file(
                     detail={
                         "error": {
                             "code": "FILE_TOO_LARGE",
-                            "message": f"文件过大（超过{max_preview_size/1024/1024:.0f}MB），无法预览",
+                            "message": f"文件过大（超过{max_preview_size / 1024 / 1024:.0f}MB），无法预览",
                         }
                     },
                 )
@@ -264,59 +353,91 @@ async def preview_file(
                 },
             )
 
+        # 获取文件信息
+        file_stat = normalized_path.stat()
+        file_size = file_stat.st_size
+        file_ext = normalized_path.suffix.lower()
+
         # 首先尝试从索引管理器获取内容（支持PDF/DOCX等）
+        content = None
+        content_source = "index"
         try:
             content = index_manager.get_document_content(str(normalized_path))
-            if content:
-                return {"content": content}
         except Exception as e:
             logger.debug(f"从索引获取内容失败: {e}")
 
-        # 回退到直接读取文本文件，使用安全读取函数
-        try:
-            content = safe_read_file(str(normalized_path), MAX_PREVIEW_LENGTH)
-            return {"content": content}
-        except UnicodeDecodeError:
+        # 回退到直接读取文本文件
+        if not content:
+            content_source = "file"
+            try:
+                content = safe_read_file(str(normalized_path), MAX_PREVIEW_LENGTH)
+            except Exception:
+                raise
+
+        # 计算内容统计信息
+        if content:
+            content_length = len(content)
+            line_count = content.count('\n') + 1
+            is_truncated = content_length >= MAX_PREVIEW_LENGTH
+
+            # 检测文件类型用于语法高亮
+            language = _detect_language(file_ext, str(normalized_path))
+
+            return {
+                "content": content,
+                "metadata": {
+                    "file_name": safe_name,
+                    "file_size": file_size,
+                    "file_size_formatted": _format_file_size(file_size),
+                    "content_length": content_length,
+                    "line_count": line_count,
+                    "is_truncated": is_truncated,
+                    "max_preview_length": MAX_PREVIEW_LENGTH,
+                    "truncated_at": MAX_PREVIEW_LENGTH if is_truncated else None,
+                    "language": language,
+                    "file_extension": file_ext,
+                    "mime_type": mime_type,
+                }
+            }
+
+        raise HTTPException(
+            status_code=500,
+            detail={"error": {"code": "EMPTY_CONTENT", "message": "无法读取文件内容"}}
+        )
+
+    except UnicodeDecodeError:
+        raise HTTPException(
+            status_code=415,
+            detail={
+                "error": {
+                    "code": "ENCODING_ERROR",
+                    "message": "文件编码不支持或不是文本文件",
+                }
+            },
+        )
+    except PermissionError as e:
+        if "符号链接" in str(e):
+            logger.warning(f"拒绝符号链接访问: {normalized_path.name}")
             raise HTTPException(
-                status_code=415,
+                status_code=403,
                 detail={
                     "error": {
-                        "code": "ENCODING_ERROR",
-                        "message": "文件编码不支持或不是文本文件",
+                        "code": "SYMLINK_DENIED",
+                        "message": "不允许访问符号链接",
                     }
                 },
             )
-        except PermissionError as e:
-            if "符号链接" in str(e):
-                logger.warning(f"拒绝符号链接访问: {normalized_path.name}")
-                raise HTTPException(
-                    status_code=403,
-                    detail={
-                        "error": {
-                            "code": "SYMLINK_DENIED",
-                            "message": "不允许访问符号链接",
-                        }
-                    },
-                )
-            else:
-                logger.warning(f"无权限读取文件: {normalized_path.name}")
-                raise HTTPException(
-                    status_code=403,
-                    detail={
-                        "error": {
-                            "code": "PERMISSION_DENIED",
-                            "message": "无权限读取文件",
-                        }
-                    },
-                )
-        except Exception as e:
-            # 安全日志：不泄露文件路径
-            logger.error(f"读取文件失败: {e}")
+        else:
+            logger.warning(f"无权限读取文件: {normalized_path.name}")
             raise HTTPException(
-                status_code=500,
-                detail={"error": {"code": "READ_ERROR", "message": "读取文件失败"}},
+                status_code=403,
+                detail={
+                    "error": {
+                        "code": "PERMISSION_DENIED",
+                        "message": "无权限读取文件",
+                    }
+                },
             )
-
     except HTTPException:
         raise
     except Exception as e:

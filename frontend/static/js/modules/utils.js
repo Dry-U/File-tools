@@ -136,9 +136,18 @@ const FileToolsUtils = (function() {
         const toastEl = document.createElement('div');
         toastEl.className = `toast align-items-center text-white bg-${type === 'error' ? 'danger' : type} border-0`;
         toastEl.setAttribute('role', 'alert');
-        toastEl.innerHTML = `<div class="toast-body">${escapeHtml(message)}</div>`;
+        toastEl.setAttribute('aria-live', 'assertive');
+        toastEl.setAttribute('aria-atomic', 'true');
 
-        // 确保存在 toast 容器
+        // 添加关闭按钮（使用简单的文本按钮确保可见）
+        const closeBtnId = 'toast-close-' + Date.now();
+        toastEl.innerHTML = `
+            <div class="d-flex align-items-center">
+                <div class="toast-body flex-grow-1">${escapeHtml(message)}</div>
+                <button type="button" id="${closeBtnId}" class="toast-close-btn" aria-label="关闭">✕</button>
+            </div>
+        `;
+
         let container = document.querySelector('.toast-container');
         if (!container) {
             container = document.createElement('div');
@@ -147,14 +156,31 @@ const FileToolsUtils = (function() {
         }
         container.appendChild(toastEl);
 
+        // 绑定关闭按钮点击事件
+        const closeBtn = toastEl.querySelector('.toast-close-btn');
+        if (closeBtn) {
+            closeBtn.addEventListener('click', function() {
+                removeToast();
+            });
+        }
+
+        const removeToast = () => {
+            if (toastEl.parentNode) {
+                toastEl.parentNode.removeChild(toastEl);
+            }
+        };
+
         if (typeof bootstrap !== 'undefined' && bootstrap.Toast) {
             const toast = new bootstrap.Toast(toastEl, { delay: 3000 });
             toast.show();
+            toastEl.addEventListener('hidden.bs.toast', removeToast);
+            setTimeout(removeToast, 3500);
         } else {
-            // Fallback
-            toastEl.style.cssText = 'position:fixed;top:20px;right:20px;z-index:9999;padding:10px 20px;';
+            // 后备方案：手动实现关闭功能
+            toastEl.style.cssText = 'position:fixed;top:20px;right:20px;z-index:9999;padding:10px 15px;border-radius:4px;min-width:250px;max-width:400px;';
             toastEl.style.background = type === 'error' ? '#dc3545' : type === 'success' ? '#198754' : '#0d6efd';
-            setTimeout(() => toastEl.remove(), 3000);
+
+            setTimeout(removeToast, 3000);
         }
     }
 
@@ -229,29 +255,24 @@ const FileToolsUtils = (function() {
      * @param {Event} event - 事件对象
      * @returns {boolean} false
      */
-    function openExternalLink(url, event) {
+    async function openExternalLink(url, event) {
         if (event) {
             event.preventDefault();
             event.stopPropagation();
         }
 
-        if (window.pywebview && window.pywebview.api && window.pywebview.api.open_external_link) {
+        // 使用 Tauri API
+        if (window.TauriAPI) {
             try {
-                window.pywebview.api.open_external_link(url).then(result => {
-                    if (result && result.success) {
-                        showToast('已在浏览器中打开链接', 'info');
-                    } else if (result && result.message) {
-                        showToast(result.message, 'warning');
-                    }
-                }).catch(e => {
-                    console.warn('pywebview API call failed:', e);
-                });
+                await window.TauriAPI.openExternal(url);
+                showToast('已在浏览器中打开链接', 'info');
                 return false;
             } catch (e) {
-                console.warn('pywebview API call failed, falling back to window.open:', e);
+                console.warn('Tauri API call failed:', e);
             }
         }
 
+        // 降级：使用 window.open
         const newWindow = window.open(url, '_blank', 'noopener,noreferrer');
         if (!newWindow) {
             window.location.href = url;
@@ -294,6 +315,32 @@ const FileToolsUtils = (function() {
         return 'session_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
     }
 
+    /**
+     * 带超时的 fetch 请求
+     * @param {string} url - 请求 URL
+     * @param {Object} options - fetch 选项
+     * @param {number} timeout - 超时时间（毫秒）
+     * @returns {Promise<Response>} 响应对象
+     */
+    async function fetchWithTimeout(url, options = {}, timeout = 30000) {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), timeout);
+        try {
+            const response = await fetch(url, {
+                ...options,
+                signal: controller.signal
+            });
+            clearTimeout(timeoutId);
+            return response;
+        } catch (error) {
+            clearTimeout(timeoutId);
+            if (error.name === 'AbortError') {
+                throw new Error(`请求超时 (${timeout}ms): ${url}`);
+            }
+            throw error;
+        }
+    }
+
     // 公共 API
     return {
         escapeHtml,
@@ -307,7 +354,8 @@ const FileToolsUtils = (function() {
         hideModal,
         openExternalLink,
         showTestResultModal,
-        generateSessionId
+        generateSessionId,
+        fetchWithTimeout
     };
 })();
 
@@ -324,3 +372,4 @@ const hideModal = FileToolsUtils.hideModal;
 const openExternalLink = FileToolsUtils.openExternalLink;
 const showTestResultModal = FileToolsUtils.showTestResultModal;
 const generateSessionId = FileToolsUtils.generateSessionId;
+const fetchWithTimeout = FileToolsUtils.fetchWithTimeout;

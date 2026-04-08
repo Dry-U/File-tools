@@ -390,11 +390,20 @@ class QueryProcessor:
         3. 同义词扩展
         4. 文件名变体
         5. 中英文混合查询
+
+        优化：
+        - 短查询（<=2字符）跳过扩展，直接返回原始查询，避免性能开销
         """
         if not query or not query.strip():
             return []
 
         query = query.strip()
+
+        # 优化：短查询跳过所有扩展，避免性能开销
+        if len(query) <= 2:
+            self.logger.debug(f"短查询 '{query}' 跳过扩展")
+            return [query]
+
         queries = [query]  # 原始查询
 
         # 缩写展开

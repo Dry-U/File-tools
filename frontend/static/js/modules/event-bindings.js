@@ -7,10 +7,15 @@
 const FileToolsEventBindings = (function() {
     'use strict';
 
+    let isBound = false;
+    let isInitialized = false;
+
     /**
      * 绑定所有事件监听器
      */
     function bindAllEvents() {
+        if (isBound) return;
+        isBound = true;
         console.log('Binding event listeners...');
 
         // 1. 文件类型切换按钮
@@ -256,28 +261,20 @@ const FileToolsEventBindings = (function() {
         }
 
 
-        // 确认重建按钮（在设置模态框中）
-        const confirmRebuildBtn = document.getElementById('confirmRebuildBtn');
-        if (confirmRebuildBtn) {
-            confirmRebuildBtn.onclick = null;
-            confirmRebuildBtn.addEventListener('click', function() {
-                if (typeof FileToolsSettings !== 'undefined' && FileToolsSettings.confirmRebuild) {
-                    FileToolsSettings.confirmRebuild();
-                } else if (typeof confirmRebuild === 'function') {
-                    confirmRebuild();
-                }
-            });
-        }
+        // 注意：重建索引确认按钮 (rebuildConfirmBtn) 是动态创建的
+        // 它的事件绑定在 FileToolsSettings.showRebuildModal() 函数中完成
+        // 不需要在这里绑定
 
         // 确认重置按钮
         const confirmResetBtn = document.getElementById('confirmResetBtn');
         if (confirmResetBtn) {
             confirmResetBtn.onclick = null;
             confirmResetBtn.addEventListener('click', function() {
-                if (typeof FileToolsSettings !== 'undefined' && FileToolsSettings.confirmReset) {
-                    FileToolsSettings.confirmReset();
-                } else if (typeof confirmReset === 'function') {
+                // 直接调用全局函数，避免 FileToolsSettings 命名空间可能未初始化的问题
+                if (typeof confirmReset === 'function') {
                     confirmReset();
+                } else if (typeof FileToolsSettings !== 'undefined' && FileToolsSettings.confirmReset) {
+                    FileToolsSettings.confirmReset();
                 }
             });
         }
@@ -291,6 +288,74 @@ const FileToolsEventBindings = (function() {
                     FileToolsDirectory.doDeleteDirectory(FileToolsDirectory.pendingDeletePath);
                 } else if (typeof doDeleteDirectory === 'function' && typeof pendingDeletePath !== 'undefined') {
                     doDeleteDirectory(pendingDeletePath);
+                }
+            });
+        }
+
+        // 确认添加目录按钮（在添加目录模态框中）
+        const confirmAddDirectoryBtn = document.getElementById('confirmAddDirectoryBtn');
+        if (confirmAddDirectoryBtn) {
+            confirmAddDirectoryBtn.onclick = null;
+            confirmAddDirectoryBtn.addEventListener('click', async function() {
+                const inputEl = document.getElementById('addDirectoryPathInput');
+                if (inputEl) {
+                    const path = inputEl.value.trim();
+                    if (!path) {
+                        if (typeof FileToolsUtils !== 'undefined' && FileToolsUtils.showToast) {
+                            FileToolsUtils.showToast('请输入目录路径', 'warning');
+                        }
+                        return;
+                    }
+                    // 隐藏模态框并调用添加目录函数
+                    const modalEl = document.getElementById('addDirectoryModal');
+                    if (modalEl && typeof FileToolsUtils !== 'undefined' && FileToolsUtils.hideModal) {
+                        FileToolsUtils.hideModal(modalEl);
+                    }
+                    if (typeof FileToolsDirectory !== 'undefined' && FileToolsDirectory.addDirectoryByPath) {
+                        await FileToolsDirectory.addDirectoryByPath(path);
+                    } else if (typeof addDirectoryByPath === 'function') {
+                        await addDirectoryByPath(path);
+                    }
+                }
+            });
+        }
+
+        // 添加目录后重建确认弹窗的确定按钮
+        const confirmAddDirRebuildBtn = document.getElementById('confirmAddDirRebuildBtn');
+        if (confirmAddDirRebuildBtn) {
+            confirmAddDirRebuildBtn.onclick = null;
+            confirmAddDirRebuildBtn.addEventListener('click', function() {
+                // 隐藏 addDirRebuildModal
+                const modalEl = document.getElementById('addDirRebuildModal');
+                if (modalEl && typeof FileToolsUtils !== 'undefined' && FileToolsUtils.hideModal) {
+                    FileToolsUtils.hideModal(modalEl);
+                }
+                // 显示重建索引弹窗
+                if (typeof FileToolsSettings !== 'undefined' && FileToolsSettings.showRebuildModal) {
+                    FileToolsSettings.showRebuildModal();
+                } else if (typeof showRebuildModal === 'function') {
+                    showRebuildModal();
+                }
+            });
+        }
+
+        // 浏览目录按钮（在添加目录模态框中）
+        const browseDirectoryBtn = document.getElementById('browseDirectoryBtn');
+        if (browseDirectoryBtn) {
+            browseDirectoryBtn.onclick = null;
+            browseDirectoryBtn.addEventListener('click', async function() {
+                if (window.TauriAPI) {
+                    try {
+                        const result = await window.TauriAPI.selectDirectory();
+                        if (!result.canceled && result.success && result.path) {
+                            const inputEl = document.getElementById('addDirectoryPathInput');
+                            if (inputEl) {
+                                inputEl.value = result.path;
+                            }
+                        }
+                    } catch (e) {
+                        console.warn('Tauri browse failed:', e);
+                    }
                 }
             });
         }
@@ -342,7 +407,7 @@ const FileToolsEventBindings = (function() {
         }
 
         // 12. 绑定滑块输入事件
-        const sliderIds = ['tempRange', 'topPRange', 'minPRange', 'repeatPenaltyRange', 'freqPenaltyRange', 'presencePenaltyRange'];
+        const sliderIds = ['tempRange', 'topPRange', 'topKRange', 'minPRange', 'repeatPenaltyRange', 'freqPenaltyRange', 'presencePenaltyRange'];
         sliderIds.forEach(sliderId => {
             const slider = document.getElementById(sliderId);
             if (slider) {
@@ -386,6 +451,8 @@ const FileToolsEventBindings = (function() {
      * 初始化事件绑定模块
      */
     function init() {
+        if (isInitialized) return;
+        isInitialized = true;
         removeInlineEventHandlers();
         bindAllEvents();
     }

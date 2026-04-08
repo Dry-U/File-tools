@@ -21,14 +21,23 @@ def mock_get(section, key=None, default=None):
         ("system", "log_level"): "INFO",
         ("system", "log_max_size"): "10485760",
         ("system", "log_backup_count"): "5",
+        ("file_scanner", "scan_paths"): ["/test"],
+        ("monitor", "directories"): [],
+        ("monitor", "enabled"): False,
     }
-    if key is None or isinstance(key, dict):
-        return {
-            "data_dir": "./data",
-            "log_level": "INFO",
-            "log_max_size": "10485760",
-            "log_backup_count": "5",
+    if key is None:
+        # 返回整个 section
+        sections = {
+            "system": {
+                "data_dir": "./data",
+                "log_level": "INFO",
+                "log_max_size": "10485760",
+                "log_backup_count": "5",
+            },
+            "file_scanner": {"scan_paths": ["/test"]},
+            "monitor": {"enabled": False, "directories": []},
         }
+        return sections.get(section, default or {})
     return defaults.get((section, key), default)
 
 
@@ -66,15 +75,6 @@ def dependency_override():
     app.dependency_overrides.update(original_overrides)
 
 
-@pytest.fixture
-def mock_config_loader():
-    """创建模拟配置加载器"""
-    config = Mock()
-    config.get.side_effect = mock_get
-    config.getboolean.return_value = False
-    config.getint.return_value = 100
-    config.getfloat.return_value = 0.5
-    return config
 
 
 class TestHealthEndpoint:
@@ -161,7 +161,14 @@ class TestSearchEndpoint:
 
     def test_search_success(self, client, mock_search_engine, dependency_override):
         """测试成功搜索"""
+        # 创建专门用于搜索测试的 mock config，包含 /test 路径
+        from tests.factories import MockConfigFactory
+        search_config = MockConfigFactory.create_config({
+            "file_scanner": {"scan_paths": ["/test"]}
+        })
+
         dependency_override[dependencies.get_search_engine] = lambda: mock_search_engine
+        dependency_override[dependencies.get_config_loader] = lambda: search_config
         dependency_override[dependencies.get_rate_limiter] = lambda: RateLimiter()
 
         response = client.post("/api/search", json={"query": "test", "filters": {}})
@@ -591,11 +598,12 @@ class TestDirectoryEndpoints:
 
     @pytest.fixture
     def mock_config_loader(self):
-        """创建模拟配置加载器"""
-        config = Mock()
-        config.get.return_value = ["/test/path1", "/test/path2"]
-        config.getboolean.return_value = True
-        return config
+        """创建模拟配置加载器 - 使用工厂创建以支持 set/add_scan_path/remove_scan_path 方法"""
+        from tests.factories import MockConfigFactory
+        return MockConfigFactory.create_config({
+            "file_scanner": {"scan_paths": ["/test/path1", "/test/path2"]},
+            "monitor": {"directories": ["/test/path1", "/test/path2"]}
+        })
 
     @pytest.fixture
     def mock_file_monitor(self):
@@ -671,13 +679,23 @@ class TestDirectoryEndpoints:
             assert response.status_code == 400, "添加非目录路径应返回 HTTP 400"
 
     def test_remove_directory_success(
-        self, client, mock_config_loader, mock_file_monitor, dependency_override
+        self, client, dependency_override
     ):
         """测试删除目录"""
         mock_file_scanner = Mock()
+        mock_file_scanner.scan_paths = ["/test/path"]  # 设置 scan_paths 属性
         mock_index_manager = Mock()
+        mock_file_monitor = Mock()
+        mock_file_monitor.get_monitored_directories.return_value = ["/test/path"]
 
-        dependency_override[dependencies.get_config_loader] = lambda: mock_config_loader
+        # 创建包含 /test/path 路径的配置
+        from tests.factories import MockConfigFactory
+        test_config = MockConfigFactory.create_config({
+            "file_scanner": {"scan_paths": ["/test/path"]},
+            "monitor": {"directories": ["/test/path"]}
+        })
+
+        dependency_override[dependencies.get_config_loader] = lambda: test_config
         dependency_override[dependencies.get_file_monitor] = lambda: mock_file_monitor
         dependency_override[dependencies.get_file_scanner] = lambda: mock_file_scanner
         dependency_override[dependencies.get_index_manager] = lambda: mock_index_manager

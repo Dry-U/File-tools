@@ -210,11 +210,37 @@ data/logs/*.log.2026-03-*.log
 !data/tantivy_index/.gitkeep
 !data/hnsw_index/.gitkeep
 
-# Claude settings (local overrides)
-.claude/settings.local.json
+# Claude Code - 本地开发环境配置
+.claude/
 
 # Chinese paper/docs
 论文/
 
 # npm packages (for CI only, installed via npx)
 node_modules/
+
+# ============================================================
+# Tauri - Rust 构建产物
+# ============================================================
+# Tauri build artifacts
+src-tauri/bin/
+src-tauri/bin_test/
+src-tauri/target/
+src-tauri/gen/
+src-tauri/Cargo.lock
+
+# Tauri bundle outputs (CI should build these)
+src-tauri/target/release/bundle/
+
+# Tauri runtime data (generated at runtime)
+src-tauri/data/
+
+# ============================================================
+# PyInstaller build artifacts
+# ============================================================
+build/pyinstaller/
+*.spec
+!file-tools.spec
+
+# Temporary/artifact files
+EOF

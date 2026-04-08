@@ -54,14 +54,14 @@ const FileToolsChat = (function() {
         const loadingId = addLoadingMessage();
 
         try {
-            const response = await fetch('/api/chat', {
+            const response = await fetchWithTimeout('/api/chat', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     query: text,
                     session_id: currentSessionId
                 })
-            });
+            }, 120000);
 
             const data = await response.json();
             removeLoadingMessage(loadingId);
@@ -201,7 +201,7 @@ const FileToolsChat = (function() {
      */
     async function loadChatHistory() {
         try {
-            const response = await fetch('/api/sessions');
+            const response = await fetchWithTimeout('/api/sessions', {}, 10000);
             const data = await response.json();
             const sessions = data.sessions || [];
             renderHistoryList(sessions);
@@ -260,7 +260,11 @@ const FileToolsChat = (function() {
         }
 
         currentSessionId = sessionId;
-        localStorage.setItem('chat_session_id', sessionId);
+        try {
+            localStorage.setItem('chat_session_id', sessionId);
+        } catch (e) {
+            console.warn('localStorage not available:', e);
+        }
 
         resetChatUI();
         await loadSessionMessages(sessionId);
@@ -279,7 +283,7 @@ const FileToolsChat = (function() {
                 return false;
             }
 
-            const response = await fetch(`/api/sessions/${sessionId}/messages`);
+            const response = await fetchWithTimeout(`/api/sessions/${sessionId}/messages`, {}, 10000);
             if (!response.ok) {
                 console.error(`加载会话消息失败: HTTP ${response.status}`);
                 return false;
@@ -343,9 +347,9 @@ const FileToolsChat = (function() {
         if (!sessionId) return;
 
         try {
-            const response = await fetch(`/api/sessions/${sessionId}`, {
+            const response = await fetchWithTimeout(`/api/sessions/${sessionId}`, {
                 method: 'DELETE'
-            });
+            }, 10000);
 
             if (response.ok) {
                 if (sessionId === currentSessionId) {

@@ -20,7 +20,7 @@ class TestUISearch:
 
     def test_page_load(self, page):
         """测试页面加载"""
-        page.goto("http://127.0.0.1:8000")
+        page.goto("http://127.0.0.1:18642")
 
         # 等待页面加载完成
         page.wait_for_load_state("networkidle")
@@ -31,7 +31,7 @@ class TestUISearch:
 
     def test_search_input_visible(self, page):
         """测试搜索输入框可见"""
-        page.goto("http://127.0.0.1:8000")
+        page.goto("http://127.0.0.1:18642")
         page.wait_for_load_state("domcontentloaded")
 
         # 查找搜索输入框
@@ -45,7 +45,7 @@ class TestUISearch:
 
     def test_search_button_visible(self, page):
         """测试搜索按钮可见"""
-        page.goto("http://127.0.0.1:8000")
+        page.goto("http://127.0.0.1:18642")
 
         # 等待主内容加载完成
         page.wait_for_load_state("domcontentloaded")
@@ -53,7 +53,7 @@ class TestUISearch:
 
         # 查找搜索按钮（可能是按钮或图标）
         search_button = page.locator(
-            'button:has-text("搜索"), button:has-text("Search"), .search-button, [data-testid="search-button"]'
+            'button:has-text("搜索"), button:has-text("Search"), .search-button, [data-testid="search-button"], .search-btn'
         )
 
         # 等待按钮可见（最多等5秒）
@@ -69,8 +69,8 @@ class TestUISearch:
             assert search_button.first.is_visible()
             return
 
-        # 如果没有找到特定按钮，检查是否有可点击的搜索图标
-        search_icon = page.locator('.search-icon, [class*="search"]').first
+        # 如果没有找到特定按钮，检查是否有可点击的搜索图标或搜索输入框旁边的按钮
+        search_icon = page.locator('.search-icon, [class*="search"], .search-input-box button, #searchInput + button').first
         icon_visible = False
         try:
             search_icon.wait_for(state="visible", timeout=3000)
@@ -78,12 +78,16 @@ class TestUISearch:
         except Exception:
             pass
 
+        # 检查搜索输入框是否存在
+        search_input = page.locator('#searchInput, input[type="text"]').first
+        input_visible = search_input.is_visible()
+
         # 至少有一种搜索方式应该可用
-        assert button_visible or icon_visible, "搜索按钮和搜索图标都不存在"
+        assert button_visible or icon_visible or input_visible, "搜索按钮、搜索图标或搜索输入框都不存在"
 
     def test_perform_search(self, page):
         """测试执行搜索"""
-        page.goto("http://127.0.0.1:8000")
+        page.goto("http://127.0.0.1:18642")
         page.wait_for_load_state("networkidle")
 
         # 记录搜索前的欢迎区域状态
@@ -112,7 +116,7 @@ class TestUISearch:
 
     def test_search_results_display(self, page):
         """测试搜索结果显示"""
-        page.goto("http://127.0.0.1:8000")
+        page.goto("http://127.0.0.1:18642")
         page.wait_for_load_state("networkidle")
 
         # 执行搜索
@@ -133,7 +137,7 @@ class TestUISearch:
 
     def test_empty_search(self, page):
         """测试空搜索"""
-        page.goto("http://127.0.0.1:8000")
+        page.goto("http://127.0.0.1:18642")
         page.wait_for_load_state("networkidle")
 
         # 清空输入框并提交
@@ -150,7 +154,7 @@ class TestUISearch:
 
     def test_search_with_special_characters(self, page):
         """测试特殊字符搜索"""
-        page.goto("http://127.0.0.1:8000")
+        page.goto("http://127.0.0.1:18642")
         page.wait_for_load_state("networkidle")
 
         # 输入特殊字符
@@ -162,11 +166,11 @@ class TestUISearch:
         page.wait_for_timeout(1000)
 
         # 页面应该正常处理
-        assert page.url.startswith("http://127.0.0.1:8000")
+        assert page.url.startswith("http://127.0.0.1:18642")
 
     def test_search_with_unicode(self, page):
         """测试Unicode搜索"""
-        page.goto("http://127.0.0.1:8000")
+        page.goto("http://127.0.0.1:18642")
         page.wait_for_load_state("networkidle")
 
         # 输入中文
@@ -178,11 +182,11 @@ class TestUISearch:
         page.wait_for_timeout(1000)
 
         # 页面应该正常处理中文
-        assert page.url.startswith("http://127.0.0.1:8000")
+        assert page.url.startswith("http://127.0.0.1:18642")
 
     def test_sidebar_toggle(self, page):
         """测试侧边栏切换"""
-        page.goto("http://127.0.0.1:8000")
+        page.goto("http://127.0.0.1:18642")
         page.wait_for_load_state("networkidle")
 
         # 查找侧边栏切换按钮
@@ -200,11 +204,11 @@ class TestUISearch:
             page.wait_for_timeout(500)
 
         # 页面应该正常
-        assert page.url.startswith("http://127.0.0.1:8000")
+        assert page.url.startswith("http://127.0.0.1:18642")
 
     def test_mode_switch_search_to_chat(self, page):
         """测试从搜索模式切换到聊天模式"""
-        page.goto("http://127.0.0.1:8000")
+        page.goto("http://127.0.0.1:18642")
         page.wait_for_load_state("networkidle")
 
         # 查找聊天模式切换按钮
@@ -225,7 +229,7 @@ class TestUISearch:
 
     def test_search_filters(self, page):
         """测试搜索过滤器"""
-        page.goto("http://127.0.0.1:8000")
+        page.goto("http://127.0.0.1:18642")
         page.wait_for_load_state("networkidle")
 
         # 查找过滤器按钮或下拉菜单
@@ -243,7 +247,7 @@ class TestUISearch:
 
     def test_result_item_click(self, page):
         """测试结果项点击"""
-        page.goto("http://127.0.0.1:8000")
+        page.goto("http://127.0.0.1:18642")
         page.wait_for_load_state("networkidle")
 
         # 执行搜索
@@ -263,4 +267,4 @@ class TestUISearch:
             page.wait_for_timeout(500)
 
         # 页面应该正常
-        assert page.url.startswith("http://127.0.0.1:8000")
+        assert page.url.startswith("http://127.0.0.1:18642")

@@ -16,7 +16,7 @@ try:
     gpu_available = True
 except ImportError:
     gpu_available = False
-    logging.warning("未找到GPUtil库，GPU监控已禁用。安装命令: pip install gputil")
+    logging.info("GPUtil 未安装，GPU 监控功能已跳过。如需 GPU 显存监控，请安装: pip install gputil")
 
 logger = logging.getLogger(__name__)
 

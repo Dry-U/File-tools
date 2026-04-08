@@ -965,16 +965,70 @@ input[type="date"]::-webkit-calendar-picker-indicator {
 }
 
 /* Settings Modal - Wider */
+/* Fix modal-backdrop blocking clicks */
+.modal-backdrop {
+    z-index: 1040 !important;
+}
+
+.modal {
+    z-index: 1050 !important;
+}
+
+#settingsModal {
+    z-index: 1055 !important;
+}
+
 #settingsModal .modal-dialog {
     max-width: 800px;
     display: flex !important;
     align-items: center !important;
+    z-index: 1056 !important;
 }
 
-/* Settings Modal Content - Ensure proper sizing */
-#settingsModal .modal-content {
+/* All secondary modals - higher z-index to show above settings modal */
+#deleteDirectoryModal,
+#addDirectoryModal,
+#addDirRebuildModal,
+#noChangesModal,
+#resetConfirmModal,
+#rebuildIndexModal,
+#deleteSessionModal,
+#previewModal,
+#testResultModal {
+    z-index: 1060 !important;
+}
+
+#deleteDirectoryModal .modal-dialog,
+#addDirectoryModal .modal-dialog,
+#addDirRebuildModal .modal-dialog,
+#noChangesModal .modal-dialog,
+#resetConfirmModal .modal-dialog,
+#rebuildIndexModal .modal-dialog,
+#deleteSessionModal .modal-dialog,
+#previewModal .modal-dialog,
+#testResultModal .modal-dialog {
+    z-index: 1061 !important;
+}
+
+/* Settings Modal Content - Fixed height with internal scrolling */
+#settingsModal .modal-dialog {
+    height: auto !important;
+    max-height: calc(100vh - 100px) !important;
+    margin: 1.75rem auto !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+}
+
+#settingsModal .modal-content,
+#settingsModal .settings-modal-content {
     width: 100% !important;
+    height: auto !important;
+    max-height: calc(100vh - 120px) !important;
     position: relative !important;
+    overflow: hidden !important;
+    display: flex !important;
+    flex-direction: column !important;
 }
 
 /* Settings Modal Header - Fixed layout */
@@ -985,6 +1039,7 @@ input[type="date"]::-webkit-calendar-picker-indicator {
     align-items: center !important;
     padding: 16px 20px !important;
     border-bottom: 1px solid var(--llama-border) !important;
+    flex-shrink: 0 !important;
 }
 
 #settingsModal .modal-header .modal-title {
@@ -1035,6 +1090,7 @@ input[type="date"]::-webkit-calendar-picker-indicator {
     display: flex !important;
     flex-direction: row !important;
     justify-content: space-between !important;
+    flex-shrink: 0 !important;
     align-items: center !important;
     background-color: transparent !important;
     border-top: 1px solid var(--llama-border) !important;
@@ -1158,27 +1214,92 @@ input[type="date"]::-webkit-calendar-picker-indicator {
     box-shadow: none !important;
 }
 
-/* Settings Modal Layout - Clean for WebView2 */
+/* Settings Modal Layout - Clean for WebView2 with fixed height */
 #settingsModal .modal-body {
     padding: 16px !important;
+    height: 400px !important;
+    min-height: 400px !important;
+    max-height: 400px !important;
+    overflow: hidden !important;
+    display: flex !important;
+    flex-direction: row !important;
+    flex-shrink: 0 !important;
+}
+
+/* Tab panes need to be scrollable - forced to equal height */
+#v-pills-tabContent {
+    height: 100% !important;
+    min-height: 0 !important;
+    flex: 1 !important;
+}
+
+#v-pills-tabContent .tab-pane {
+    display: none !important;
+    flex: 1 1 0 !important;
+    min-height: 0 !important;
+    max-height: 100% !important;
+    overflow-y: auto !important;
+    overflow-x: hidden !important;
+    width: 100% !important;
+}
+
+#v-pills-tabContent .tab-pane.active {
+    display: block !important;
+    flex-direction: column !important;
+    overflow-y: auto !important;
+}
+
+/* Mode settings card - let parent tab-pane handle scrolling */
+.mode-cards {
+    overflow: visible !important;
+}
+
+.config-card {
+    overflow: visible !important;
+}
+
+#localSettings {
+    overflow-x: hidden !important;
 }
 
 #settingsModal .modal-body>.d-flex {
     display: flex !important;
     flex-direction: row !important;
-    align-items: flex-start !important;
+    align-items: stretch !important;
+    width: 100% !important;
+    height: 100% !important;
+    max-height: none !important;
+    overflow: hidden !important;
 }
 
 #settingsModal .nav-pills {
     width: 130px !important;
     min-width: 130px !important;
     margin-right: 20px !important;
+    flex-shrink: 0 !important;
 }
 
-#settingsModal .tab-content {
+/* About tab updateResult centering fix - mx-auto doesn't work in flex column context */
+#settingsModal #v-pills-about #updateResult {
+    margin-left: auto !important;
+    margin-right: auto !important;
+    max-width: 200px !important;
+    padding-top: 6px !important;
+    padding-bottom: 6px !important;
+    margin-top: 8px !important;
+}
+
+#settingsModal .tab-content,
+#settingsModal #v-pills-tabContent {
     flex: 1 !important;
+    min-height: 0 !important;
     padding-left: 20px !important;
     border-left: 1px solid var(--llama-border) !important;
+    overflow: visible !important;
+    height: 100% !important;
+    max-height: none !important;
+    display: flex !important;
+    flex-direction: column !important;
 }
 
 #settingsModal .tab-content h6 {
@@ -1235,6 +1356,12 @@ input[type="date"]::-webkit-calendar-picker-indicator {
     margin-bottom: 8px !important;
     display: block !important;
     width: 100% !important;
+    min-width: 0 !important;
+}
+
+/* Ensure flex-fill containers properly size range inputs */
+#settingsModal .flex-fill {
+    min-width: 0 !important;
 }
 
 #settingsModal .form-control {
@@ -1381,29 +1508,6 @@ input[type="date"]::-webkit-calendar-picker-indicator {
     background-color: var(--llama-input-bg) !important;
     background: var(--llama-input-bg) !important;
     color: var(--llama-text-main) !important;
-}
-
-/* Ensure tab content is properly hidden/shown */
-#v-pills-tabContent .tab-pane {
-    display: none !important;
-}
-
-#v-pills-tabContent .tab-pane.active {
-    display: block !important;
-}
-
-/* Settings Modal Tab Panes - Responsive Height with Scroll */
-#v-pills-tabContent {
-    max-height: 50vh !important;
-    min-height: 200px;
-    height: auto !important;
-    overflow-x: hidden !important;
-    overflow-y: auto !important;
-    padding-right: 10px !important;
-    margin-right: 0 !important;
-    display: block !important;
-    width: auto !important;
-    box-sizing: border-box !important;
 }
 
 /* Settings Modal Custom Scrollbar - Positioned at far right */
@@ -1813,6 +1917,45 @@ input[type="date"]::-webkit-calendar-picker-indicator {
     overflow-y: auto;
 }
 
+/* Rebuild index modal should be above settings modal */
+#rebuildIndexModal {
+    z-index: 1060 !important;
+}
+
+#rebuildIndexModal .modal-dialog {
+    z-index: 1061 !important;
+}
+
+#rebuildIndexModal .modal-content {
+    z-index: 1062 !important;
+}
+
+/* Add directory modal should also be above settings */
+#addDirectoryModal {
+    z-index: 1060 !important;
+}
+
+#addDirectoryModal .modal-dialog {
+    z-index: 1061 !important;
+}
+
+#addDirectoryModal .modal-content {
+    z-index: 1062 !important;
+}
+
+/* Add dir rebuild modal (secondary confirmation) */
+#addDirRebuildModal {
+    z-index: 1070 !important;
+}
+
+#addDirRebuildModal .modal-dialog {
+    z-index: 1071 !important;
+}
+
+#addDirRebuildModal .modal-content {
+    z-index: 1072 !important;
+}
+
 .modal.show {
     display: block;
 }
@@ -2161,8 +2304,8 @@ input[type="date"]::-webkit-calendar-picker-indicator {
     display: flex !important;
     align-items: center !important;
     justify-content: center !important;
-    background: transparent !important;
-    border: none !important;
+    background: var(--llama-bg-secondary) !important;
+    border: 1px solid var(--llama-border) !important;
     border-radius: 6px !important;
     color: var(--llama-text-sub) !important;
     cursor: pointer !important;
@@ -2170,8 +2313,9 @@ input[type="date"]::-webkit-calendar-picker-indicator {
 }
 
 .directory-delete:hover {
-    background-color: rgba(220, 53, 69, 0.2) !important;
+    background-color: rgba(220, 53, 69, 0.15) !important;
     color: #dc3545 !important;
+    border-color: rgba(220, 53, 69, 0.3) !important;
 }
 
 /* 空状态 */
@@ -2247,6 +2391,72 @@ input[type="date"]::-webkit-calendar-picker-indicator {
     background-color: var(--llama-bg) !important;
 }
 
+/* 添加目录弹窗深色主题 */
+#addDirectoryModal .modal-content {
+    background-color: var(--llama-bg) !important;
+    border: 1px solid var(--llama-border) !important;
+    color: var(--llama-text);
+}
+
+#addDirectoryModal .modal-header {
+    background-color: var(--llama-bg-secondary) !important;
+    border-bottom: 1px solid var(--llama-border) !important;
+    color: var(--llama-text);
+}
+
+#addDirectoryModal .modal-footer {
+    border-top: 1px solid var(--llama-border) !important;
+}
+
+#addDirectoryModal .modal-body {
+    color: var(--llama-text);
+}
+
+#addDirectoryModal .btn-outline-secondary {
+    background-color: var(--llama-bg-secondary) !important;
+    border-color: var(--llama-border) !important;
+    color: var(--llama-text) !important;
+}
+
+#addDirectoryModal .btn-outline-secondary:hover {
+    background-color: var(--llama-bg-hover) !important;
+}
+
+#addDirectoryModal .form-control {
+    background-color: var(--llama-input-bg) !important;
+    border-color: var(--llama-border) !important;
+    color: var(--llama-text-main) !important;
+}
+
+#addDirectoryModal .form-text {
+    color: var(--llama-text-sub) !important;
+}
+
+#addDirectoryModal .text-muted {
+    color: var(--llama-text-sub) !important;
+}
+
+/* 添加目录后重建确认弹窗 */
+#addDirRebuildModal .modal-content {
+    background-color: var(--llama-bg) !important;
+    border: 1px solid var(--llama-border) !important;
+    color: var(--llama-text);
+}
+
+#addDirRebuildModal .modal-header {
+    background-color: var(--llama-bg-secondary) !important;
+    border-bottom: 1px solid var(--llama-border) !important;
+    color: var(--llama-text);
+}
+
+#addDirRebuildModal .modal-footer {
+    border-top: 1px solid var(--llama-border) !important;
+}
+
+#addDirRebuildModal .modal-body {
+    color: var(--llama-text);
+}
+
 /* 搜索结果高亮样式 - 浅绿色 */
 .text-success {
     color: #4ade80 !important;
@@ -2292,9 +2502,17 @@ input[type="date"]::-webkit-calendar-picker-indicator {
     font-weight: 600 !important;
 }
 
-#previewModalContent h1 { font-size: 1.5em !important; }
-#previewModalContent h2 { font-size: 1.3em !important; }
-#previewModalContent h3 { font-size: 1.1em !important; }
+#previewModalContent h1 {
+    font-size: 1.5em !important;
+}
+
+#previewModalContent h2 {
+    font-size: 1.3em !important;
+}
+
+#previewModalContent h3 {
+    font-size: 1.1em !important;
+}
 
 #previewModalContent p {
     margin-bottom: 0.8em !important;
@@ -2504,4 +2722,142 @@ input[type="date"]::-webkit-calendar-picker-indicator {
     color: var(--llama-text-sub) !important;
     cursor: pointer !important;
     z-index: 10 !important;
+}
+
+/* Toast close button styles */
+.toast-close-btn {
+    width: 20px !important;
+    height: 20px !important;
+    line-height: 20px !important;
+    text-align: center !important;
+    background: transparent !important;
+    border: none !important;
+    color: #fff !important;
+    font-size: 16px !important;
+    font-weight: bold !important;
+    cursor: pointer !important;
+    margin-left: auto !important;
+    margin-right: 5px !important;
+    padding: 0 !important;
+    flex-shrink: 0 !important;
+    opacity: 0.8 !important;
+}
+
+.toast-close-btn:hover {
+    opacity: 1 !important;
+}
+/* Code Preview Styles */
+.code-preview-container {
+    font-family: 'Consolas', 'Monaco', 'Courier New', 'DejaVu Sans Mono', monospace;
+    background-color: var(--llama-bg-main);
+    border-radius: 8px;
+    overflow: hidden;
+}
+
+.preview-header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 16px;
+    background-color: var(--llama-input-bg);
+    border-bottom: 1px solid var(--llama-border);
+    font-size: 0.85em;
+    color: var(--llama-text-sub);
+}
+
+.preview-meta-item {
+    display: inline-flex;
+    align-items: center;
+}
+
+.preview-lang-badge {
+    background-color: var(--llama-accent);
+    color: white;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 0.75em;
+    text-transform: uppercase;
+    font-weight: 600;
+}
+
+.preview-truncated-badge {
+    background-color: #f59e0b;
+    color: white;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 0.75em;
+    font-weight: 600;
+}
+
+.code-preview-wrapper {
+    max-height: 70vh;
+    overflow: auto;
+    background-color: var(--llama-bg-main);
+}
+
+.code-preview-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.9em;
+    line-height: 1.5;
+}
+
+.code-preview-table tbody {
+    display: table;
+    width: 100%;
+}
+
+.code-line {
+    display: table-row;
+}
+
+.code-line:hover {
+    background-color: var(--llama-input-bg);
+}
+
+.line-number {
+    display: table-cell;
+    text-align: right;
+    padding: 2px 12px 2px 16px;
+    color: var(--llama-text-sub);
+    background-color: var(--llama-input-bg);
+    border-right: 1px solid var(--llama-border);
+    user-select: none;
+    font-size: 0.85em;
+    line-height: 1.5;
+    vertical-align: top;
+}
+
+.line-content {
+    display: table-cell;
+    padding: 2px 16px;
+    white-space: pre;
+    word-wrap: normal;
+    overflow: visible;
+    font-family: inherit;
+    vertical-align: top;
+}
+
+.line-content pre {
+    margin: 0;
+    padding: 0;
+    background: transparent;
+    border: none;
+    font-family: inherit;
+    white-space: pre;
+    word-wrap: normal;
+    overflow: visible;
+    display: inline;
+    font-size: inherit;
+    line-height: inherit;
+    color: var(--llama-text-main);
+}
+
+.preview-truncated-notice {
+    padding: 12px 16px;
+    background-color: var(--llama-input-bg);
+    border-top: 1px solid var(--llama-border);
+    color: var(--llama-text-sub);
+    font-size: 0.85em;
+    text-align: center;
 }

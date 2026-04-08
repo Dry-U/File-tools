@@ -7,6 +7,7 @@ import yaml
 from typing import Dict, Any, Optional, List, Tuple
 from pathlib import Path
 import os
+import sys
 import datetime
 import logging
 import threading
@@ -302,7 +303,13 @@ class ConfigLoader:
                 return f"enc:{encrypted.decode('utf-8')}"
             else:
                 # 降级方案：简单的 base64 混淆
-                # 注意：这不是真正的加密，只是防止明文存储
+                # 警告：这不是真正的加密，只是防止明文存储。
+                # 敏感信息（如 API key）将使用可逆的 base64 编码存储，
+                # 在 cryptography 库安装后将自动升级为真正加密
+                logger.warning(
+                    "SECURITY WARNING: cryptography 库未安装，API密钥将使用 Base64 编码存储（非加密）。"
+                    "建议安装 cryptography 库以获得真正的加密保护：pip install cryptography"
+                )
                 obfuscated = base64.b64encode(value.encode("utf-8")).decode("utf-8")
                 return f"enc:b64:{obfuscated}"
         except Exception as e:
@@ -337,6 +344,10 @@ class ConfigLoader:
                 return value
         except Exception as e:
             logger.warning(f"解密失败: {e}")
+            if encrypted_data.startswith("b64:") and not _ensure_crypto_check():
+                logger.warning(
+                    "SECURITY WARNING: 使用 Base64 解码。请安装 cryptography 库以获得真正的加密保护。"
+                )
             return value  # 返回原值，避免丢失配置
 
     def _encrypt_sensitive_fields(self) -> None:
@@ -534,6 +545,8 @@ class ConfigLoader:
 
     def _validate_config(self) -> None:
         """验证配置的有效性"""
+        from backend.utils.app_paths import get_app_paths
+
         # 确保必要的配置部分存在
         required_sections = [
             "system",
@@ -552,25 +565,42 @@ class ConfigLoader:
             if section not in self.config:
                 self.config[section] = {}
 
-        # 确保数据目录存在
-        data_dir = Path(self.get("system", "data_dir", "./data"))
+        # 获取 AppPaths 用于绝对路径
+        app_paths = get_app_paths()
+
+        # 确保数据目录存在（使用绝对路径）
+        data_dir_str = self.get("system", "data_dir", "./data")
+        if data_dir_str.startswith("./") or data_dir_str.startswith("."):
+            data_dir = app_paths.user_data_dir / "data"
+        else:
+            data_dir = Path(data_dir_str)
         data_dir.mkdir(parents=True, exist_ok=True)
+        # 更新配置为绝对路径
+        self.set("system", "data_dir", str(data_dir))
 
         # 确保缓存目录存在
-        cache_dir = Path(self.get("system", "cache_dir", "./data/cache"))
+        cache_dir_str = self.get("system", "cache_dir", "./data/cache")
+        if cache_dir_str.startswith("./") or cache_dir_str.startswith("."):
+            cache_dir = app_paths.user_data_dir / "cache"
+        else:
+            cache_dir = Path(cache_dir_str)
         cache_dir.mkdir(parents=True, exist_ok=True)
+        self.set("system", "cache_dir", str(cache_dir))
 
         # 确保临时目录存在
-        temp_dir = Path(self.get("system", "temp_dir", "./data/temp"))
+        temp_dir = app_paths.user_data_dir / "temp"
         temp_dir.mkdir(parents=True, exist_ok=True)
+        self.set("system", "temp_dir", str(temp_dir))
 
         # 确保索引目录存在
-        index_dir = Path(self.get("system", "index_dir", "./data/index"))
+        index_dir = app_paths.user_data_dir / "index"
         index_dir.mkdir(parents=True, exist_ok=True)
+        self.set("system", "index_dir", str(index_dir))
 
         # 确保日志目录存在
-        log_dir = Path(self.get("system", "data_dir", "./data") + "/logs")
+        log_dir = app_paths.user_data_dir / "logs"
         log_dir.mkdir(parents=True, exist_ok=True)
+        self.set("system", "log_dir", str(log_dir))
 
         # 验证并修正扫描路径
         scan_paths = self.get(
@@ -761,14 +791,26 @@ class ConfigLoader:
             ("system", "temp_dir"),
         ]
 
-        invalid_chars = '<>:"|?*'
+        # Windows 非法字符排除驱动器字母格式 (如 C:\, D:/)
+        # 允许：反斜杠、斜杠、冒号（在驱动器字母后）、普通字母数字
+        invalid_chars = '<>"|?*'
+
+        import re
+
+        # Windows 驱动器路径正则: C:\, D:/ 等
+        windows_drive_pattern = re.compile(r"^[A-Za-z]:[\\/]")
 
         for section, key in path_configs:
             try:
                 val = self.get(section, key, "")
                 if val and isinstance(val, str):
-                    # 检查是否包含非法字符
-                    if any(c in val for c in invalid_chars):
+                    # 如果是 Windows 绝对路径（包含驱动器字母和冒号），直接跳过验证
+                    # 这是合法的 Windows 路径格式
+                    if ":" in val and windows_drive_pattern.match(val):
+                        # Windows 绝对路径，如 C:\Users\... 或 D:/Documents/...
+                        # 这是合法路径，跳过所有非法字符检查
+                        pass
+                    elif any(c in val for c in invalid_chars):
                         logger.warning(
                             f"配置项 {section}.{key} 包含非法字符: {val}，使用默认值"
                         )
@@ -897,6 +939,17 @@ class ConfigLoader:
         if key is None:
             return self.config[section]
 
+        # 支持点分隔符访问嵌套配置 (如 "local.api_url" → config[section]["local"]["api_url"])
+        if "." in key:
+            keys = key.split(".")
+            value = self.config[section]
+            for k in keys:
+                if isinstance(value, dict) and k in value:
+                    value = value[k]
+                else:
+                    return default
+            return value
+
         return self.config[section].get(key, default)
 
     def getint(self, section: str, key: str, default: int = 0) -> int:
@@ -946,11 +999,23 @@ class ConfigLoader:
         return default
 
     def set(self, section: str, key: str, value: Any) -> None:
-        """设置配置值"""
+        """设置配置值，支持点分隔符访问嵌套配置 (如 "local.api_url")"""
         if section not in self.config:
             self.config[section] = {}
 
-        self.config[section][key] = value
+        # 支持点分隔符访问嵌套配置 (如 "local.api_url" → config[section]["local"]["api_url"])
+        if "." in key:
+            keys = key.split(".")
+            current = self.config[section]
+            for k in keys[:-1]:
+                if k not in current:
+                    current[k] = {}
+                elif not isinstance(current[k], dict):
+                    current[k] = {}
+                current = current[k]
+            current[keys[-1]] = value
+        else:
+            self.config[section][key] = value
 
     def _backup_config(self) -> None:
         """备份当前配置文件 (线程安全)"""
@@ -1162,11 +1227,20 @@ class ConfigLoader:
             if isinstance(scan_paths, str):
                 scan_paths = [p.strip() for p in scan_paths.split(";") if p.strip()]
 
-            expanded_path = str(Path(path).expanduser())
-            if expanded_path in scan_paths:
-                scan_paths.remove(expanded_path)
-                self.set("file_scanner", "scan_paths", scan_paths)
+            expanded_path = os.path.abspath(os.path.expanduser(path))
 
+            # Windows 下使用大小写不敏感比较
+            if sys.platform == "win32":
+                scan_paths_lower = [p.lower() for p in scan_paths]
+                expanded_path_lower = expanded_path.lower()
+                if expanded_path_lower in scan_paths_lower:
+                    idx = scan_paths_lower.index(expanded_path_lower)
+                    scan_paths.pop(idx)
+            else:
+                if expanded_path in scan_paths:
+                    scan_paths.remove(expanded_path)
+
+            self.set("file_scanner", "scan_paths", scan_paths)
             return True
         except Exception as e:
             logger.error(f"移除扫描路径失败: {str(e)}")

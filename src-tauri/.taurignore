@@ -1,0 +1,33 @@
+# Tauri 开发模式文件监控排除配置
+# 使用 gitignore 语法
+# 防止 Python 后端写入日志时触发重建
+
+# 数据目录
+data/
+data/logs/
+data/logs/**
+
+# 缓存目录
+cache/
+
+# 索引目录
+tantivy_index/
+hnsw_index/
+
+# 元数据
+metadata/
+
+# Python 相关
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# 日志文件
+*.log
+logs/
+
+# 临时文件
+*.tmp
+*.temp

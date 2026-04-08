@@ -87,6 +87,11 @@ class LoggerConfig:
 
     def __init__(self, config):
         from backend.utils.config_loader import ConfigLoader
+        from backend.utils.app_paths import get_app_paths
+
+        # 获取应用路径（避免相对路径问题）
+        app_paths = get_app_paths()
+        default_log_dir = str(app_paths.log_dir)
 
         # 检查 ConfigLoader 是否成功导入（避免循环导入问题）
         is_config_loader = False
@@ -99,7 +104,8 @@ class LoggerConfig:
 
         if is_config_loader:
             self.log_level = config.get("system", "log_level", "INFO")
-            self.log_dir = config.get("system", "data_dir", "./data") + "/logs"
+            # 使用 AppPaths 获取绝对路径，避免工作目录问题
+            self.log_dir = default_log_dir
             self.log_max_size = config.get("system", "log_max_size", 10)
             self.log_backup_count = config.get("system", "log_backup_count", 5)
             self.log_rotation = config.get("system", "log_rotation", "midnight")
@@ -110,7 +116,7 @@ class LoggerConfig:
             # 处理字典类型的配置
             if isinstance(config, dict):
                 system_config = config.get("system", {})
-            elif hasattr(config, "get"):
+            elif hasattr(config, "Get"):
                 # 尝试作为 ConfigLoader 处理，但更安全的做法是检查返回类型
                 try:
                     # ConfigLoader.get(section, key, default) 格式
@@ -125,7 +131,8 @@ class LoggerConfig:
             else:
                 system_config = {}
             self.log_level = system_config.get("log_level", "INFO")
-            self.log_dir = system_config.get("data_dir", "./data") + "/logs"
+            # 使用 AppPaths 获取绝对路径，避免工作目录问题
+            self.log_dir = default_log_dir
             self.log_max_size = system_config.get("log_max_size", 10)
             self.log_backup_count = system_config.get("log_backup_count", 5)
             self.log_rotation = system_config.get("log_rotation", "midnight")

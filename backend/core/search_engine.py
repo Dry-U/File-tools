@@ -46,6 +46,9 @@ class SearchEngine:
         self.config_loader: Any = config_loader
         self.logger: logging.Logger = logging.getLogger(__name__)
 
+        # 初始化查询处理器（复用实例）
+        self.query_processor = QueryProcessor(config_loader)
+
         # 搜索配置 - 使用ConfigLoader获取配置（只读取一次）
         search_config: Dict[str, Any] = config_loader.get("search") or {}
 
@@ -135,6 +138,24 @@ class SearchEngine:
             self.logger.info(
                 f"搜索引擎初始化完成，文本权重: {self.text_weight}, 向量权重: {self.vector_weight}, 缓存已禁用"
             )
+
+        # 初始化 EmbeddingModelManager（用于 ColBERT reranker）
+        self._init_reranker()
+
+    def _init_reranker(self) -> None:
+        """初始化 ColBERT Reranker"""
+        try:
+            from backend.core.embedding_manager import EmbeddingModelManager
+
+            self.reranker_manager = EmbeddingModelManager(self.config_loader)
+            reranker_enabled = self.config_loader.getboolean("reranker", "enabled", True)
+            if reranker_enabled:
+                self.logger.info(f"[SearchEngine] Reranker 已启用: {self.reranker_manager.reranker_model_name}")
+            else:
+                self.logger.info("[SearchEngine] Reranker 未启用")
+        except Exception as e:
+            self.logger.warning(f"[SearchEngine] Reranker 初始化失败: {e}")
+            self.reranker_manager = None
 
     def _get_cache_key(self, query, filters=None) -> str:
         """生成缓存键
@@ -228,7 +249,7 @@ class SearchEngine:
         """
         # 使用QueryProcessor扩展查询
         try:
-            expanded_queries = QueryProcessor(self.config_loader).process(query)
+            expanded_queries = self.query_processor.process(query)
             self.logger.info(f"查询扩展: {expanded_queries}")
         except Exception as e:
             self.logger.warning(f"查询扩展失败: {e}")
@@ -263,8 +284,20 @@ class SearchEngine:
         seen_text_paths = set()
         seen_vector_paths = set()
 
-        # 对每个扩展查询执行搜索
-        for search_query in expanded_queries[:3]:  # 限制最多3个查询以避免性能问题
+        # 优化：检测短查询，减少召回路数
+        original_query = expanded_queries[0] if expanded_queries else ""
+        is_short_query = len(original_query.strip()) <= 2
+
+        # 短查询：只使用原始查询，避免扩展查询带来的性能开销
+        if is_short_query:
+            queries_to_search = [original_query]
+            self.logger.info(f"短查询优化：只使用原始查询 '{original_query}'")
+        else:
+            # 正常查询：限制最多3个扩展查询
+            queries_to_search = expanded_queries[:3]
+
+        # 对每个查询执行搜索
+        for search_query in queries_to_search:
             # 执行文本搜索
             text_results = self._search_text(search_query, filters)
             for rank, result in enumerate(text_results):
@@ -276,16 +309,18 @@ class SearchEngine:
                     result["vector_rank"] = -1  # 初始化向量排名
                     all_text_results.append(result)
 
-            # 执行向量搜索
-            vector_results = self._search_vector(search_query, filters)
-            for rank, result in enumerate(vector_results):
-                path = result.get("path", "")
-                if path and path not in seen_vector_paths:
-                    seen_vector_paths.add(path)
-                    result["search_query"] = search_query
-                    result["vector_rank"] = rank  # 记录在该查询中的排名
-                    result["text_rank"] = -1  # 初始化文本排名
-                    all_vector_results.append(result)
+            # 短查询跳过向量搜索以提升性能（文本搜索已足够）
+            if not is_short_query:
+                # 执行向量搜索
+                vector_results = self._search_vector(search_query, filters)
+                for rank, result in enumerate(vector_results):
+                    path = result.get("path", "")
+                    if path and path not in seen_vector_paths:
+                        seen_vector_paths.add(path)
+                        result["search_query"] = search_query
+                        result["vector_rank"] = rank  # 记录在该查询中的排名
+                        result["text_rank"] = -1  # 初始化文本排名
+                        all_vector_results.append(result)
 
         self.logger.info(
             f"多路召回: 文本搜索 {len(all_text_results)} 条, 向量搜索 {len(all_vector_results)} 条"
@@ -485,7 +520,9 @@ class SearchEngine:
                         combined[path]["text_score"], result["score"]
                     )
                     # 保留最佳排名
-                    if result.get("text_rank", 0) < combined[path].get("text_rank", 9999):
+                    if result.get("text_rank", 0) < combined[path].get(
+                        "text_rank", 9999
+                    ):
                         combined[path]["text_rank"] = result.get("text_rank", 0)
 
                 if result["score"] > max_text_score:
@@ -493,9 +530,7 @@ class SearchEngine:
 
         return combined, max_text_score
 
-    def _merge_vector_results(
-        self, vector_results: List[Dict], combined: Dict
-    ) -> Dict:
+    def _merge_vector_results(self, vector_results: List[Dict], combined: Dict) -> Dict:
         """
         合并向量搜索结果（RRF模式）
 
@@ -848,14 +883,41 @@ class SearchEngine:
         对搜索结果进行重排序
 
         评分因素（可配置）：
-        1. 基础搜索得分 (rerank_weights['base'])
-        2. 文件名匹配度 (rerank_weights['filename'])
-        3. 关键词密度 (rerank_weights['keyword'])
-        4. 时效性 - 文档新旧 (rerank_weights['recency'])
-        5. 文档长度惩罚（避免过长文档）(rerank_weights['length'])
+        1. ColBERT Reranker（如果启用，短查询跳过）
+        2. 基础搜索得分 (rerank_weights['base'])
+        3. 文件名匹配度 (rerank_weights['filename'])
+        4. 关键词密度 (rerank_weights['keyword'])
+        5. 时效性 - 文档新旧 (rerank_weights['recency'])
+        6. 文档长度惩罚（避免过长文档）(rerank_weights['length'])
         """
         if not results:
             return results
+
+        # 检测短查询
+        query_stripped = query.strip()
+        is_short_query = len(query_stripped) <= 2
+
+        # 尝试使用 ColBERT Reranker（短查询跳过以提升性能）
+        if not is_short_query and hasattr(self, 'reranker_manager') and self.reranker_manager:
+            try:
+                reranker_enabled = self.config_loader.getboolean("reranker", "enabled", True)
+                if reranker_enabled:
+                    top_k = self.config_loader.getint("reranker", "top_k", 5)
+                    # 调用 reranker（只对 top 50 进行精排）
+                    results_to_rerank = results[:50]
+                    reranked = self.reranker_manager.rerank(query, results_to_rerank, top_k=top_k)
+                    if reranked:
+                        # 合并 rerank 分数到原结果
+                        rerank_map = {r.get("path"): r.get("rerank_score", 0) for r in reranked}
+                        for result in results:
+                            path = result.get("path", "")
+                            if path in rerank_map:
+                                result["colbert_score"] = rerank_map[path]
+                        self.logger.info(f"[SearchEngine] ColBERT rerank 完成, top_k={top_k}")
+            except Exception as e:
+                self.logger.warning(f"[SearchEngine] ColBERT rerank 失败: {e}")
+        elif is_short_query:
+            self.logger.info(f"[SearchEngine] 短查询 '{query}' 跳过 ColBERT rerank 以提升性能")
 
         query_lower = query.lower()
         query_words = set(re.findall(r"\w+", query_lower))

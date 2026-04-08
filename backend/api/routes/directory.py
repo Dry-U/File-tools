@@ -40,7 +40,22 @@ def _normalize_path_list(paths: list) -> list:
     """
     if isinstance(paths, str):
         paths = [p.strip() for p in paths.split(";") if p.strip()]
-    return [os.path.abspath(str(p)) for p in paths]
+    normalized = [os.path.abspath(str(p)) for p in paths]
+    # Windows 路径比较时不区分大小写，但不要随意转换为小写以避免破坏路径格式
+    # 使用 os.path.normcase 进行大小写正规化（Windows 下转为小写但保持驱动器号大写）
+    if sys.platform == "win32":
+        normalized = [os.path.normcase(p) for p in normalized]
+    return normalized
+
+
+def _paths_equal(path1: str, path2: str) -> bool:
+    """比较两个路径是否相等（Windows 下不区分大小写）"""
+    p1 = os.path.abspath(path1)
+    p2 = os.path.abspath(path2)
+    if sys.platform == "win32":
+        p1 = p1.lower()
+        p2 = p2.lower()
+    return p1 == p2
 
 
 def _validate_directory_path(path: str) -> tuple[bool, str]:
@@ -119,8 +134,8 @@ async def get_directories(
         directories = []
         for path in sorted(all_paths):
             exists = os.path.exists(path) and os.path.isdir(path)
-            is_scanning = path in scan_paths
-            is_monitoring = path in monitored_dirs
+            is_scanning = any(_paths_equal(path, sp) for sp in scan_paths)
+            is_monitoring = any(_paths_equal(path, md) for md in monitored_dirs)
             file_count = _estimate_file_count(path) if exists else 0
 
             directories.append(
@@ -173,7 +188,7 @@ async def add_directory(
             config_loader.get("file_scanner", "scan_paths", [])
         )
         existing_paths = scan_paths
-        if expanded_path in existing_paths:
+        if any(_paths_equal(expanded_path, ep) for ep in existing_paths):
             return DirectoryResponse(
                 status="success",
                 message="目录已在列表中",
@@ -187,7 +202,9 @@ async def add_directory(
         # 更新 file_scanner 的扫描路径
         if file_scanner:
             if hasattr(file_scanner, "scan_paths"):
-                if expanded_path not in file_scanner.scan_paths:
+                if not any(
+                    _paths_equal(expanded_path, sp) for sp in file_scanner.scan_paths
+                ):
                     file_scanner.scan_paths.append(expanded_path)
 
         # 添加到监控目录
@@ -225,6 +242,7 @@ async def remove_directory(
     config_loader: ConfigLoader = Depends(get_config_loader),
     file_monitor=Depends(get_file_monitor),
     index_manager=Depends(get_index_manager),
+    file_scanner=Depends(get_file_scanner),
 ) -> DirectoryResponse:
     """删除目录（同时从扫描路径和监控目录中移除，并清理索引）"""
     try:
@@ -239,6 +257,15 @@ async def remove_directory(
         # 从扫描路径中移除
         config_loader.remove_scan_path(expanded_path)
 
+        # 更新 file_scanner 的扫描路径（与 add_directory 保持一致）
+        if file_scanner:
+            if hasattr(file_scanner, "scan_paths"):
+                file_scanner.scan_paths = [
+                    sp
+                    for sp in file_scanner.scan_paths
+                    if not _paths_equal(sp, expanded_path)
+                ]
+
         # 从监控目录中移除
         if file_monitor:
             file_monitor.remove_monitored_directory(expanded_path)
@@ -247,7 +274,8 @@ async def remove_directory(
         monitor_dirs = _normalize_path_list(
             config_loader.get("monitor", "directories", [])
         )
-        monitor_dirs = [d for d in monitor_dirs if d != expanded_path]
+        # 使用 _paths_equal 进行大小写安全的比较
+        monitor_dirs = [d for d in monitor_dirs if not _paths_equal(d, expanded_path)]
         config_loader.set("monitor", "directories", monitor_dirs)
 
         # 保存配置

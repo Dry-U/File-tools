@@ -11,6 +11,7 @@
 
     // 模块加载顺序：utils -> [其他模块] -> event-bindings
     const modules = [
+        'modules/tauri-api.js',
         'modules/utils.js',
         'modules/ui.js',
         'modules/search.js',
@@ -109,6 +110,9 @@
             FileToolsChat.init();
         }
 
+        // 初始化后端事件监听
+        initBackendEventListeners();
+
         // 初始化事件绑定（必须在其他模块初始化后）
         if (typeof FileToolsEventBindings !== 'undefined') {
             FileToolsEventBindings.init();
@@ -128,9 +132,90 @@
         }
 
         // 从 localStorage 恢复会话 ID
-        const savedSessionId = localStorage.getItem('chat_session_id');
+        let savedSessionId = null;
+        try {
+            savedSessionId = localStorage.getItem('chat_session_id');
+        } catch (e) {
+            console.warn('localStorage not available:', e);
+        }
         if (savedSessionId && typeof FileToolsChat !== 'undefined') {
             FileToolsChat.setCurrentSessionId(savedSessionId);
+        }
+    }
+
+    /**
+     * 初始化后端事件监听
+     */
+    function initBackendEventListeners() {
+        if (typeof TauriAPI !== 'undefined' && TauriAPI.backendEvents) {
+            TauriAPI.backendEvents.init({
+                onStarted: function() {
+                    console.log('[App] 后端已启动');
+                    // 隐藏后端启动中的加载提示
+                    const loadingEl = document.getElementById('backend-loading');
+                    if (loadingEl) {
+                        loadingEl.style.display = 'none';
+                    }
+                    // 显示主界面
+                    const mainContent = document.getElementById('main-content');
+                    if (mainContent) {
+                        mainContent.style.display = '';
+                    }
+                },
+                onError: function(errorMsg) {
+                    console.error('[App] 后端启动失败:', errorMsg);
+                    // 显示错误提示
+                    if (typeof FileToolsUtils !== 'undefined' && FileToolsUtils.showToast) {
+                        FileToolsUtils.showToast('后端启动失败: ' + errorMsg, 'error');
+                    } else {
+                        alert('后端启动失败: ' + errorMsg);
+                    }
+                },
+                onStatusChanged: function(status) {
+                    console.log('[App] 后端状态:', status);
+                    // 可选：更新UI状态指示器
+                    const statusEl = document.getElementById('backend-status');
+                    if (statusEl) {
+                        statusEl.textContent = status;
+                        statusEl.className = 'backend-status-' + status;
+                    }
+                }
+            });
+
+            // 查询当前后端状态，避免错过初始状态事件
+            queryBackendStatus();
+        }
+    }
+
+    /**
+     * 查询后端当前状态
+     */
+    async function queryBackendStatus() {
+        if (typeof TauriAPI !== 'undefined' && TauriAPI.getBackendStatus) {
+            try {
+                const statusResult = await TauriAPI.getBackendStatus();
+                console.log('[App] 后端状态查询结果:', statusResult);
+                
+                // 根据状态更新UI
+                const statusEl = document.getElementById('backend-status');
+                if (statusEl) {
+                    statusEl.textContent = statusResult.status || 'unknown';
+                    statusEl.className = 'backend-status-' + (statusResult.status || 'unknown');
+                }
+
+                // 如果后端未运行，显示提示
+                if (statusResult.status === 'stopped' || statusResult.status === 'error') {
+                    const loadingEl = document.getElementById('backend-loading');
+                    if (loadingEl) {
+                        loadingEl.style.display = 'none';
+                    }
+                    if (typeof FileToolsUtils !== 'undefined' && FileToolsUtils.showToast) {
+                        FileToolsUtils.showToast('后端未运行，请检查配置', 'warning');
+                    }
+                }
+            } catch (error) {
+                console.error('[App] 查询后端状态失败:', error);
+            }
         }
     }
 

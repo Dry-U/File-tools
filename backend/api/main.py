@@ -2,6 +2,9 @@
 FastAPI 应用主文件 - 初始化和生命周期管理
 """
 
+from fastapi.staticfiles import StaticFiles
+from backend.api.routes import search, chat, config, directory, system
+import os
 import time
 import threading
 from pathlib import Path
@@ -188,15 +191,27 @@ app = FastAPI(
     version=get_version(),
 )
 
+# 动态获取实际端口
+_actual_port = os.environ.get("FILETOOLS_ACTUAL_PORT", "18642")
+
 # 配置 CORS 中间件 - 允许跨域请求
+# 支持动态端口和环境变量指定的端口
+# 注意：CORS 不支持真正的通配符模式如 "http://localhost:*"
+# 仅允许明确列出的来源以确保安全
+_allow_origins = [
+    "http://127.0.0.1:18642",
+    "http://localhost:18642",
+    "tauri://localhost",
+]
+
+# 如果环境变量指定了端口，添加对应的 origin
+if _actual_port != "18642":
+    _allow_origins.append(f"http://127.0.0.1:{_actual_port}")
+    _allow_origins.append(f"http://localhost:{_actual_port}")
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://127.0.0.1:8000",
-        "http://localhost:8000",
-        "http://127.0.0.1:8001",
-        "http://localhost:8001",
-    ],
+    allow_origins=_allow_origins,
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["*"],
@@ -216,13 +231,14 @@ async def add_security_headers(request, call_next):
     response.headers["X-Frame-Options"] = "DENY"
 
     # 内容安全策略
+    # 注意：Tauri IPC 使用 ipc: 和 http://ipc.localhost，需要在此添加
     response.headers["Content-Security-Policy"] = (
         "default-src 'self'; "
         "script-src 'self' https://cdn.jsdelivr.net; "
         "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; "
         "font-src 'self' https://cdn.jsdelivr.net; "
         "img-src 'self' data:; "
-        "connect-src 'self' https://cdn.jsdelivr.net; "
+        "connect-src 'self' ipc: http://ipc.localhost https://cdn.jsdelivr.net; "
         "frame-ancestors 'none'; "
         "form-action 'self'"
     )
@@ -234,6 +250,108 @@ async def add_security_headers(request, call_next):
     response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
 
     return response
+
+
+async def _cleanup_invalid_index_documents(index_manager, config_loader):
+    """清理不在允许路径范围内的索引文档
+
+    在应用启动时执行，删除那些已从扫描路径中移除的文件对应的索引条目，
+    避免搜索时产生大量无效结果和警告日志。
+
+    Returns:
+        删除的文档数量
+    """
+    import asyncio
+    from pathlib import Path
+    from backend.api.dependencies import is_path_allowed
+
+    # 获取所有扫描路径
+    scan_paths = config_loader.get("file_scanner", "scan_paths", "")
+    if not scan_paths:
+        return 0
+
+    # 解析允许的路径列表
+    if isinstance(scan_paths, str):
+        allowed_paths = [p.strip() for p in scan_paths.split(";") if p.strip()]
+    elif isinstance(scan_paths, list):
+        allowed_paths = scan_paths
+    else:
+        allowed_paths = []
+
+    if not allowed_paths:
+        return 0
+
+    # 解析为标准化的绝对路径
+    allowed_paths_resolved = set()
+    for path in allowed_paths:
+        try:
+            resolved = Path(path).resolve()
+            if resolved.exists() and resolved.is_dir():
+                allowed_paths_resolved.add(resolved)
+        except (OSError, ValueError):
+            continue
+
+    if not allowed_paths_resolved:
+        return 0
+
+    # 获取索引中的所有文档路径
+    try:
+        searcher = index_manager.tantivy_index.searcher()
+        num_docs = getattr(searcher, "num_docs", 0)
+        if callable(num_docs):
+            num_docs = num_docs()
+    except Exception as e:
+        logger.warning(f"无法获取索引文档数量: {e}")
+        return 0
+
+    # 收集需要删除的路径
+    paths_to_delete = []
+
+    try:
+        # 遍历索引中的所有文档
+        for doc_id in range(int(num_docs)):
+            try:
+                doc = searcher.doc(doc_id)
+                path_val = doc.get_first("path")
+                if not path_val:
+                    continue
+
+                # 检查路径是否在允许范围内
+                path_obj = Path(path_val)
+
+                # 检查是否在任一允许路径下
+                is_allowed = False
+                for allowed_path in allowed_paths_resolved:
+                    try:
+                        path_obj.relative_to(allowed_path)
+                        is_allowed = True
+                        break
+                    except ValueError:
+                        continue
+
+                if not is_allowed:
+                    paths_to_delete.append(path_val)
+
+            except Exception:
+                continue
+
+        # 删除无效文档
+        deleted_count = 0
+        for path in paths_to_delete:
+            try:
+                index_manager.delete_document(path)
+                deleted_count += 1
+                if deleted_count % 100 == 0:
+                    # 每100个文档让出事件循环，避免阻塞
+                    await asyncio.sleep(0)
+            except Exception as e:
+                logger.debug(f"删除索引文档失败 {path}: {e}")
+
+        return deleted_count
+
+    except Exception as e:
+        logger.warning(f"清理无效索引文档时出错: {e}")
+        return 0
 
 
 @asynccontextmanager
@@ -360,17 +478,34 @@ async def lifespan(app: FastAPI):
         if config_loader.getboolean("ai_model", "enabled", False):
             import threading
 
-            app.state.rag_init_thread = threading.Thread(
-                target=init_rag_pipeline, daemon=True
-            )
-            app.state.rag_init_thread.start()
-            logger.info("RAG 管道后台初始化已启动")
+            # 使用锁防止重复启动初始化线程
+            if not getattr(app.state, "rag_initializing", False) and not getattr(
+                app.state, "rag_init_thread", None
+            ):
+                app.state.rag_init_thread = threading.Thread(
+                    target=init_rag_pipeline, daemon=True
+                )
+                app.state.rag_init_thread.start()
+                logger.info("RAG 管道后台初始化已启动")
+            else:
+                logger.debug("RAG 初始化已在进行中或已完成，跳过重复启动")
 
         # 如果需要，处理模式更新
         if getattr(index_manager, "schema_updated", False):
             logger.info("检测到索引模式更新，自动重建并扫描索引...")
             stats = file_scanner.scan_and_index()
             logger.info(f"自动重建索引完成：{stats}")
+
+        # 清理不在允许路径范围内的索引文档
+        try:
+            logger.info("检查并清理无效索引文档...")
+            deleted_count = await _cleanup_invalid_index_documents(
+                index_manager, config_loader
+            )
+            if deleted_count > 0:
+                logger.info(f"已清理 {deleted_count} 个无效索引文档")
+        except Exception as e:
+            logger.warning(f"清理无效索引文档失败: {e}")
 
         init_time = time.time() - start_time
         logger.info(f"Web 应用初始化成功，耗时 {init_time:.2f}秒")
@@ -508,7 +643,6 @@ async def read_root():
 
 
 # 导入并注册 API 路由
-from backend.api.routes import search, chat, config, directory, system
 
 app.include_router(search.router, prefix="/api")
 app.include_router(chat.router, prefix="/api")
@@ -517,7 +651,6 @@ app.include_router(directory.router, prefix="/api")
 app.include_router(system.router, prefix="/api")
 
 # 挂载静态文件目录
-from fastapi.staticfiles import StaticFiles
 
 _static_dir = _get_frontend_dir() / "static"
 if _static_dir.exists():

@@ -1,0 +1,29 @@
+{
+  "$schema": "https://v2.tauri.app/v2/schemas/capability.schema.json",
+  "identifier": "main-capability",
+  "description": "主窗口权限",
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+    {
+      "identifier": "shell:allow-execute",
+      "allow": [
+        {
+          "name": "bin/filetools_backend",
+          "sidecar": true
+        }
+      ]
+    },
+    "core:window:allow-close",
+    "core:window:allow-minimize",
+    "core:window:allow-toggle-maximize",
+    "core:window:allow-maximize",
+    "core:window:allow-unmaximize",
+    "core:window:allow-is-maximized",
+    "core:window:allow-start-dragging",
+    "shell:allow-open",
+    "dialog:allow-open",
+    "core:event:default",
+    "core:app:default"
+  ]
+}

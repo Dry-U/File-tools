@@ -31,7 +31,18 @@
       "mcp__EXA__get_code_context_exa",
       "mcp__EXA__crawling_exa",
       "Bash(ruff check:*)",
-      "Bash(uv run:*)"
+      "Bash(uv run:*)",
+      "mcp__playwright__browser_click",
+      "mcp__playwright__browser_take_screenshot",
+      "mcp__playwright__browser_snapshot",
+      "Bash(cargo clippy:*)",
+      "mcp__Chrome_DevTools_MCP__wait_for",
+      "mcp__Chrome_DevTools_MCP__take_screenshot",
+      "mcp__Chrome_DevTools_MCP__take_snapshot",
+      "mcp__Chrome_DevTools_MCP__fill",
+      "mcp__Chrome_DevTools_MCP__click",
+      "mcp__Chrome_DevTools_MCP__navigate_page",
+      "mcp__Chrome_DevTools_MCP__list_console_messages"
     ]
   }
 }

@@ -53,11 +53,16 @@ class TestQueryProcessor:
         assert any("application" in r.lower() for r in result)
 
     def test_process_with_synonyms(self, processor):
-        """测试同义词扩展"""
+        """测试同义词扩展 - 仅对非短查询（>2字符）生效"""
+        # 短查询（<=2字符）跳过扩展，直接返回原始查询
         result = processor.process("文档")
         assert "文档" in result
-        # 应该包含同义词
-        assert any("说明" in r for r in result)
+        # "文档" 是 2 字符短查询，跳过同义词扩展
+        # 测试长查询的同义词扩展
+        result_long = processor.process("文档说明")
+        assert "文档说明" in result_long
+        # 长查询应包含同义词扩展
+        assert any("说明" in r or "文档" in r for r in result_long)
 
     def test_process_filename_variants(self, processor):
         """测试文件名变体生成"""

@@ -85,6 +85,9 @@ async def chat(
         if not query:
             raise HTTPException(status_code=400, detail="查询不能为空")
 
+        if len(query) > 2000:
+            raise HTTPException(status_code=400, detail="查询长度不能超过2000字符")
+
         result = rag_pipeline.query(query, session_id=session_id)
         return ChatResponse(**result)
     except HTTPException:

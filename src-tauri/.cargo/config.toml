@@ -1,0 +1,17 @@
+[build]
+# 禁用增量编译以避免文件锁定问题
+incremental = false
+# 设置构建脚本超时（秒）
+target-dir = "target"
+
+[target.x86_64-pc-windows-msvc]
+# 使用链接器优化大文件处理
+linker = "rust-lld.exe"
+rustflags = [
+    "-C", "link-arg=/LARGEADDRESSAWARE",
+    "-C", "link-arg=/STACK:8388608",
+]
+
+[env]
+# 禁用 Tauri 的文件监控（通过环境变量）
+TAURI_SKIP_SIDECAR_CHECK = "1"

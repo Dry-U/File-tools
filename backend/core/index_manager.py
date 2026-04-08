@@ -57,14 +57,20 @@ class IndexManager:
         # 初始化配置
         self._init_config()
 
-        # 初始化嵌入模型
+        # 初始化嵌入模型（同步初始化，避免索引加载时模型未就绪）
+        self.embedding_model = None
+        self.vector_dim = 384
+        self._embedding_lazy_loading_attempted = False
+
+        # 先初始化嵌入模型，确保 _init_indexes() 时模型已就绪
         self._init_embedding_model()
 
-        # 初始化索引
+        # 初始化索引（此时 embedding_model 已就绪）
         self._init_indexes()
 
         # 批量添加模式支持
         self._batch_mode = False
+        self._batch_mode_start_time = None  # 追踪批量模式开始时间，用于超时检测
         self._batch_buffer = []
         self._batch_size = config_loader.getint("index", "batch_size", 100)
         self._batch_commit_interval = config_loader.getint(
@@ -74,10 +80,13 @@ class IndexManager:
         self._batch_lock = threading.RLock()  # 使用可重入锁，允许在同一线程中多次获取
         self._index_lock = threading.RLock()  # 保护非批量模式的索引操作（可重入）
         self._writer = None
+        self._BATCH_MODE_TIMEOUT = 120  # 批量模式超时时间（秒），超过此时间强制结束
 
         # Vector batch encoding buffer - 跨文档缓冲，批量编码提升 40-60% 速度
         self._vector_buffer = []  # [(text, metadata_dict), ...]
-        self._vector_batch_size = config_loader.getint("index", "vector_batch_size", 32)
+        self._vector_batch_size = config_loader.getint(
+            "index", "vector_batch_size", 128
+        )  # 从32提升到128，减少编码调用次数
 
         # 已删除文件路径集合（用于在搜索时过滤已删除的文档，因为HNSW不支持真正删除）
         self._deleted_paths = set()  # {file_path, ...}
@@ -121,7 +130,7 @@ class IndexManager:
 
         self.embedding_provider = self.config_loader.get(
             "embedding", "provider", "fastembed"
-        )
+        ).strip()  # 去除可能的前后空格，避免 YAML 解析问题
 
         # 分块配置
         self.chunk_enabled = self.config_loader.getboolean(
@@ -149,7 +158,14 @@ class IndexManager:
 
     def _init_embedding_model(self) -> None:
         """初始化嵌入模型"""
+        import sys
+
         model_enabled = self.config_loader.get("embedding", "enabled", False)
+        self.logger.info(
+            f"[INIT] _init_embedding_model called: enabled={model_enabled}, provider='{self.embedding_provider}'"
+        )
+        sys.stdout.flush()
+
         if not model_enabled:
             self.logger.info("Embedding功能未启用")
             self.embedding_model = None
@@ -162,11 +178,32 @@ class IndexManager:
             else:
                 self._init_fastembed_embedding()
         except ImportError as ie:
-            self.logger.error(f"依赖库未安装 ({str(ie)})，禁用向量索引")
+            import sys
+
+            provider = self.embedding_provider
+            if "modelscope" in str(ie).lower():
+                self.logger.warning(
+                    f"ModelScope 未安装 (pip install modelscope)，语义搜索功能已禁用。"
+                    f"如需语义搜索，可安装轻量级 fastembed: pip install fastembed"
+                )
+            elif "fastembed" in str(ie).lower():
+                self.logger.warning(
+                    f"FastEmbed 未安装 (pip install fastembed)，语义搜索功能已禁用。"
+                    f"当前仅使用文本搜索 (BM25)。如需语义搜索，请安装: pip install fastembed"
+                )
+            else:
+                self.logger.warning(
+                    f"嵌入模型依赖未安装 ({str(ie)})，语义搜索已禁用。"
+                    f"如需启用，请安装: pip install fastembed"
+                )
+            sys.stdout.flush()
             self.embedding_model = None
             self.vector_dim = 384
         except Exception as e:
+            import sys
+
             self.logger.error(f"加载Embedding模型时发生未知错误: {str(e)}")
+            sys.stdout.flush()
             self.embedding_model = None
             self.vector_dim = 384
 
@@ -177,8 +214,13 @@ class IndexManager:
 
         model_name = self.config_loader.get(
             "embedding", "model_name", "iic/nlp_gte_sentence-embedding_chinese-base"
-        )
-        cache_dir = self.config_loader.get("embedding", "cache_dir", None)
+        ).strip()
+        _cache_dir = self.config_loader.get("embedding", "cache_dir", None)
+        cache_dir = _cache_dir.strip() if _cache_dir else None
+
+        # 解析为绝对路径，确保无论 CWD 如何都能正确找到缓存
+        if cache_dir:
+            cache_dir = os.path.abspath(cache_dir)
 
         # 如果指定了本地路径，使用本地路径
         if cache_dir and os.path.exists(
@@ -252,40 +294,101 @@ class IndexManager:
         self.logger.info(f"ModelScope Embedding模型加载成功，维度: {self.vector_dim}")
 
     def _init_fastembed_embedding(self) -> None:
-        """初始化FastEmbed嵌入模型"""
+        """初始化 FastEmbed 嵌入模型（轻量化方案）"""
+        import os
+        import sys
+
+        # 设置 Hugging Face 国内镜像
+        os.environ["HF_ENDPOINT"] = "https://hf-mirror.com"
+
+        self.logger.info("正在导入 FastEmbed 库...")
+        sys.stdout.flush()
+
         from fastembed import TextEmbedding
+
+        self.logger.info(f"FastEmbed 导入成功，开始加载模型...")
+        sys.stdout.flush()
 
         model_name = self.config_loader.get(
             "embedding", "model_name", "BAAI/bge-small-zh-v1.5"
-        )
+        ).strip()
         if not model_name:
             model_name = "BAAI/bge-small-zh-v1.5"
 
-        cache_dir = self.config_loader.get("embedding", "cache_dir", None)
+        _cache_dir = self.config_loader.get("embedding", "cache_dir", None)
+        cache_dir = _cache_dir.strip() if _cache_dir else None
+
+        # FastEmbed 包装类，适配现有接口
+        class FastEmbedWrapper:
+            def __init__(self, model):
+                self.model = model
+
+            def embed(self, texts):
+                """返回嵌入向量生成器"""
+                for embedding in self.model.embed(texts):
+                    yield (
+                        embedding.tolist()
+                        if hasattr(embedding, "tolist")
+                        else list(embedding)
+                    )
 
         # 尝试创建模型实例
         try:
+            self.logger.info(f"使用FastEmbed加载Embedding模型: {model_name}")
+
+            # 检查模型是否存在
             if cache_dir:
-                self.embedding_model = TextEmbedding(
-                    model_name=model_name, cache_dir=cache_dir
-                )
-            else:
-                self.embedding_model = TextEmbedding(model_name=model_name)
+                model_path = os.path.join(cache_dir, model_name.replace("/", "_"))
+                if not os.path.exists(os.path.join(model_path, "config.json")):
+                    self.logger.info(f"模型不存在，FastEmbed 将自动下载到: {cache_dir}")
+
+            self.embedding_model = FastEmbedWrapper(
+                TextEmbedding(model_name=model_name, cache_dir=cache_dir)
+            )
 
             # 测试模型是否可以正常工作
             try:
                 vec = next(iter(self.embedding_model.embed(["test"])))
                 self.vector_dim = len(vec)
-                self.logger.info(f"Embedding模型加载成功，维度: {self.vector_dim}")
+                self.logger.info(f"FastEmbed模型加载成功，维度: {self.vector_dim}")
+                self._embedding_lazy_loaded = True
             except Exception as e:
                 self.vector_dim = 384
                 self.logger.warning(
                     f"Embedding模型测试失败，使用默认维度: {self.vector_dim}, 错误: {str(e)}"
                 )
+                self.embedding_model = None
+                self._embedding_lazy_loaded = False
+        except ImportError as e:
+            self.logger.error(
+                f"FastEmbed未安装，请运行: uv add fastembed, 错误: {str(e)}"
+            )
+            self.embedding_model = None
+            self.vector_dim = 384
+            self._embedding_lazy_loaded = False
         except Exception as e:
             self.logger.error(f"Embedding模型创建失败，将禁用向量索引: {str(e)}")
             self.embedding_model = None
             self.vector_dim = 384
+            self._embedding_lazy_loaded = False
+
+    def _ensure_embedding_loaded(self) -> bool:
+        """延迟加载Embedding模型（在首次使用时调用）"""
+        if self.embedding_model is not None or getattr(
+            self, "_embedding_lazy_loaded", False
+        ):
+            return True
+
+        if not getattr(self, "_embedding_lazy_loading_attempted", False):
+            self._embedding_lazy_loading_attempted = True
+            self.logger.info("尝试延迟加载Embedding模型...")
+            try:
+                self._init_fastembed_embedding()
+                return self.embedding_model is not None
+            except Exception as e:
+                self.logger.error(f"延迟加载Embedding模型失败: {e}")
+                return False
+        return False
 
     def _init_indexes(self) -> None:
         """初始化所有索引"""
@@ -370,7 +473,8 @@ class IndexManager:
                         self._create_new_hnsw_index()
                         return
                     self.hnsw = self._hnswlib.Index(space="cosine", dim=self.vector_dim)
-                    max_elements = max(self.next_id + 1024, 1024)
+                    # 预分配 50000 容量，减少 resize 次数
+                    max_elements = max(self.next_id + 50000, 50000)
                     self.hnsw.load_index(index_file, max_elements=max_elements)
                     self.logger.info(
                         f"成功加载向量索引，维度: {self.vector_dim}, 元素数: {self.next_id}"
@@ -388,7 +492,8 @@ class IndexManager:
     def _create_new_hnsw_index(self):
         try:
             self.hnsw = self._hnswlib.Index(space="cosine", dim=self.vector_dim)
-            self.hnsw.init_index(max_elements=1024, ef_construction=200, M=16)
+            # 从1024提升到50000，减少resize次数，提升性能
+            self.hnsw.init_index(max_elements=50000, ef_construction=200, M=16)
             self.hnsw.set_ef(200)
             self.vector_metadata = {}
             self.next_id = 0
@@ -457,7 +562,7 @@ class IndexManager:
         if needs_rebuild:
             try:
                 self.logger.info(
-                    f'检测到{", ".join(rebuild_reason)}，重建索引以支持新功能'
+                    f"检测到{', '.join(rebuild_reason)}，重建索引以支持新功能"
                 )
                 self.rebuild_index()
 
@@ -521,9 +626,104 @@ class IndexManager:
             if self._batch_mode:
                 return
             self._batch_mode = True
+            self._batch_mode_start_time = time.time()
             self._batch_buffer = []
             self._writer = self.tantivy_index.writer()
+            self._last_commit_time = time.time()
+            # 启动后台定期commit线程
+            self._start_commit_thread()
             self.logger.info("启动批量添加模式")
+
+    def _start_commit_thread(self):
+        """启动后台定期commit线程，防止锁被长期持有"""
+        if getattr(self, "_commit_thread_running", False):
+            return
+
+        self._commit_thread_running = True
+        self._commit_thread_stop = threading.Event()
+
+        def commit_worker():
+            """后台线程：定期commit以释放writer锁"""
+            self.logger.info("[COMMIT_THREAD] 后台commit线程已启动")
+            commit_count = 0
+            while not self._commit_thread_stop.is_set():
+                # 等待10秒或直到被唤醒
+                result = self._commit_thread_stop.wait(timeout=10)
+                if result:  # stop event被设置
+                    self.logger.info("[COMMIT_THREAD] 收到停止信号，退出线程")
+                    break
+
+                # 检查是否应该commit
+                try:
+                    with self._batch_lock:
+                        if not self._batch_mode:
+                            self.logger.info("[COMMIT_THREAD] 批量模式已关闭，退出线程")
+                            break
+                        if self._writer is None:
+                            self.logger.warning(
+                                "[COMMIT_THREAD] Writer为None，跳过commit"
+                            )
+                            continue
+
+                        elapsed = time.time() - self._last_commit_time
+                        buffer_size = len(self._batch_buffer)
+                        self.logger.info(
+                            f"[COMMIT_THREAD] 检查commit: elapsed={elapsed:.1f}s, buffer={buffer_size}"
+                        )
+
+                        # 行业最佳实践：基于文档数量 + 时间双重触发
+                        # 每5秒 或 缓冲区超过500文档 触发commit
+                        memory_pressure = buffer_size > 1000
+                        should_commit = (
+                            elapsed >= 5 or buffer_size >= 500 or memory_pressure
+                        )
+
+                        if should_commit:
+                            try:
+                                # 处理缓冲区中的文档
+                                docs_to_process = list(self._batch_buffer)
+                                if docs_to_process:
+                                    self.logger.info(
+                                        f"[COMMIT_THREAD] 开始提交 {len(docs_to_process)} 个文档"
+                                    )
+                                    t_commit_start = time.time()
+                                    for doc in docs_to_process:
+                                        self._add_doc_to_writer(doc)
+                                    self.logger.info(
+                                        f"[COMMIT_THREAD] 添加文档到writer完成，耗时 {time.time() - t_commit_start:.3f}s"
+                                    )
+                                    self._batch_buffer = []
+
+                                t_writer_commit = time.time()
+                                self.logger.info(
+                                    f"[COMMIT_THREAD] 开始writer.commit() (累计 {t_writer_commit - elapsed:.3f}s from last commit)"
+                                )
+                                self._writer.commit()
+                                t_commit_done = time.time()
+                                self._last_commit_time = t_commit_done
+                                commit_count += 1
+                                self.logger.info(
+                                    f"[COMMIT_THREAD] Commit #{commit_count} 完成，writer.commit()耗时 {t_commit_done - t_writer_commit:.3f}s"
+                                )
+                            except Exception as e:
+                                self.logger.error(
+                                    f"[COMMIT_THREAD] 后台commit失败: {e}"
+                                )
+                        else:
+                            self.logger.info(
+                                f"[COMMIT_THREAD] 跳过commit: elapsed={elapsed:.1f}s < 10s, buffer={buffer_size} < 50"
+                            )
+                except Exception as e:
+                    self.logger.error(f"[COMMIT_THREAD] Commit循环异常: {e}")
+
+            self.logger.info(f"[COMMIT_THREAD] 线程退出，完成 {commit_count} 次commit")
+            self._commit_thread_running = False
+
+        self._commit_thread = threading.Thread(
+            target=commit_worker, daemon=True, name="TantivyCommitThread"
+        )
+        self._commit_thread.start()
+        self.logger.info("[COMMIT_THREAD] 后台commit线程已启动")
 
     def commit_batch(self):
         """提交批量添加的文档"""
@@ -543,31 +743,108 @@ class IndexManager:
 
     def end_batch_mode(self, commit=True):
         """结束批量添加模式"""
+        self.logger.info(f"[BATCH] end_batch_mode 开始，commit={commit}")
+
+        # 先停止后台commit线程
+        self._stop_commit_thread()
+
         with self._batch_lock:
             if not self._batch_mode:
+                self.logger.info("[BATCH] 批量模式未激活，直接返回")
                 return
+
+            # 检查是否超时
+            elapsed = time.time() - (self._batch_mode_start_time or time.time())
+            self.logger.info(f"[BATCH] 批量模式已运行 {elapsed:.1f} 秒")
+            if elapsed > self._BATCH_MODE_TIMEOUT:
+                self.logger.warning(
+                    f"[BATCH] 批量模式超时（已运行 {elapsed:.1f} 秒），强制结束"
+                )
 
             try:
                 # 先处理缓冲区中剩余的文档
+                buffer_size = len(self._batch_buffer)
+                self.logger.info(f"[BATCH] 处理剩余 {buffer_size} 个文档")
                 if self._batch_buffer:
                     for doc in self._batch_buffer:
                         self._add_doc_to_writer(doc)
                     self._batch_buffer = []
 
-                # 刷新向量缓冲区
+                # 在锁内快速检查向量缓冲区
+                vector_buffer_size = len(getattr(self, "_vector_buffer", []))
+                self.logger.info(f"[BATCH] 向量缓冲区大小: {vector_buffer_size}")
+
+            except Exception as e:
+                self.logger.error(f"[BATCH] 处理缓冲区时出错: {e}")
+
+        # 在锁外刷新向量缓冲区（避免持有锁期间进行耗时操作）
+        if vector_buffer_size > 0:
+            self.logger.info("[BATCH] 在锁外刷新向量缓冲区...")
+            try:
                 self._flush_vector_buffer()
+                self.logger.info("[BATCH] 向量缓冲区刷新完成")
+            except Exception as e:
+                self.logger.error(f"[BATCH] 刷新向量缓冲区失败: {e}")
 
-                if commit and self._writer:
-                    self._writer.commit()
-                    self.save_indexes()
+        with self._batch_lock:
+            if not self._batch_mode:
+                self.logger.info("[BATCH] 批量模式已被其他线程结束")
+                return
 
-                if self._writer:
-                    self._writer = None
+            try:
+                # 确保 writer 被正确释放
+                if self._writer is not None:
+                    try:
+                        if commit:
+                            self.logger.info("[BATCH] 执行最终commit")
+                            self._writer.commit()
+                            self.logger.info("[BATCH] 执行save_indexes")
+                            self.save_indexes()
+                        # 释放 writer
+                        self._writer = None
+                        self.logger.info("[BATCH] Writer已释放")
+                    except Exception as e:
+                        self.logger.warning(f"[BATCH] 释放 writer 时出错: {e}")
+                        self._writer = None
 
                 self._batch_mode = False
-                self.logger.info("结束批量添加模式")
+                self._batch_mode_start_time = None
+                self.logger.info("[BATCH] 批量添加模式已结束")
             except Exception as e:
-                self.logger.error(f"结束批量模式时出错: {e}")
+                self.logger.error(f"[BATCH] 结束批量模式时出错: {e}")
+                # 即使出错，也要强制重置状态
+                self._writer = None
+                self._batch_mode = False
+                self._batch_mode_start_time = None
+
+    def _force_reset_batch_mode(self):
+        """强制重置批量模式状态（用于打破死锁）
+
+        注意：这是紧急修复手段，只在批量模式卡住且无法正常结束 时使用。
+        调用此方法会立即终止批量模式，不保证之前缓冲的数据被提交。
+        """
+        self.logger.warning("[BATCH_FORCE] 强制重置批量模式状态")
+        # 停止 commit 线程
+        self._stop_commit_thread()
+        # 强制重置状态
+        self._writer = None
+        self._batch_mode = False
+        self._batch_mode_start_time = None
+        self._batch_buffer = []
+        self.logger.warning("[BATCH_FORCE] 批量模式已强制重置")
+
+    def _stop_commit_thread(self):
+        """停止后台commit线程"""
+        if getattr(self, "_commit_thread_running", False):
+            self.logger.info("[COMMIT_THREAD] 正在停止后台commit线程...")
+            self._commit_thread_stop.set()
+            self._commit_thread_running = False
+            # 等待线程真正退出
+            if hasattr(self, "_commit_thread") and self._commit_thread.is_alive():
+                self._commit_thread.join(timeout=2)
+            self.logger.info("[COMMIT_THREAD] 后台commit线程已停止")
+        else:
+            self.logger.info("[COMMIT_THREAD] 后台commit线程未运行")
 
     def batch_mode(self, commit=True):
         """
@@ -588,6 +865,13 @@ class IndexManager:
 
     def _add_doc_to_writer(self, document):
         """将文档添加到 writer"""
+        # 确保 writer 有效
+        if self._writer is None:
+            self._writer = self.tantivy_index.writer()
+            self.logger.info(
+                f"[_ADD_DOC_WRITER] 创建新Writer，缓冲区大小={len(self._batch_buffer) if hasattr(self, '_batch_buffer') else 0}"
+            )
+
         seg_filename = self._segment(document["filename"])
         seg_content = self._segment(document["content"])
         seg_keywords = self._segment(document.get("keywords", ""))
@@ -626,93 +910,90 @@ class IndexManager:
             return False
 
         try:
-            # 批量模式处理
+            # 批量模式处理：只追加到缓冲区，由后台线程统一提交
             with self._batch_lock:
                 if self._batch_mode:
                     self._batch_buffer.append(document)
+                    # 批量处理向量索引
+                    self._add_vector_in_batch_mode(document)
+                    return True
 
-                    # 检查是否需要提交（缓冲区满或时间间隔）
-                    should_commit = (
-                        len(self._batch_buffer) >= self._batch_size
-                        or (time.time() - self._last_commit_time)
-                        >= self._batch_commit_interval
-                    )
-
-                    if should_commit:
-                        # 处理缓冲区中的所有文档
-                        for doc in self._batch_buffer:
-                            self._add_doc_to_writer(doc)
-                        self._batch_buffer = []
-                        self._writer.commit()
-                        self._last_commit_time = time.time()
-
-                    # 批量模式下向量索引稍后统一处理
-                    return self._add_vector_in_batch_mode(document)
-
-            # 非批量模式：线程安全处理
+            # 非批量模式：直接提交
             with self._index_lock:
-                seg_filename = self._segment(document["filename"])
-                seg_content = self._segment(document["content"])
-                seg_keywords = self._segment(document.get("keywords", ""))
-                fname_chars = " ".join([c for c in document["filename"]])
-                try:
-                    raw_content = document["content"] or ""
-                except (KeyError, TypeError) as e:
-                    self.logger.debug(f"获取文档内容失败: {str(e)}")
-                    raw_content = ""
-                raw_text = str(raw_content)
-                content_chars_source = raw_text
-                content_chars = " ".join([c for c in content_chars_source])
-                with self.tantivy_index.writer() as writer:
-                    tdoc = self._tantivy.Document(
-                        path=document["path"],
-                        filename=[seg_filename],
-                        filename_chars=[fname_chars],
-                        content=[seg_content],
-                        content_raw=[raw_text],
-                        content_chars=[content_chars],
-                        file_type=[document["file_type"]],
-                        size=int(document["size"]),
-                        created=(
-                            int(time.mktime(document["created"].timetuple()))
-                            if isinstance(document["created"], datetime)
-                            else int(document["created"])
-                        ),
-                        modified=(
-                            int(time.mktime(document["modified"].timetuple()))
-                            if isinstance(document["modified"], datetime)
-                            else int(document["modified"])
-                        ),
-                        keywords=[seg_keywords],
-                    )
-                    writer.add_document(tdoc)
-                    writer.commit()
+                self._add_doc_to_writer(document)
 
-                # 添加向量索引（如果启用了embedding）
+                # 非批量模式下的向量索引处理
                 if self.embedding_model and self.hnsw is not None:
-                    try:
-                        if self.chunk_enabled and self.chunker:
-                            # 分块模式：将文档分块后分别编码存储
-                            self._add_document_chunks(document)
-                        else:
-                            # 传统模式：整个文档作为一个向量
-                            self._add_document_single(document)
-                    except Exception as e:
-                        self.logger.error(
-                            f"添加文档到向量索引失败 {document['path']}: {str(e)}"
-                        )
-                else:
-                    if not self.embedding_model:
-                        self.logger.info("Embedding模型未启用，跳过向量索引")
-                    elif not self.hnsw:
-                        self.logger.warning("HNSW向量索引未初始化，跳过向量索引")
+                    if self.chunk_enabled and self.chunker:
+                        self._add_document_chunks(document)
+                    else:
+                        self._add_document_single(document)
 
                 return True
+
         except Exception as e:
-            self.logger.error(
-                f"添加文档到索引失败 {document.get('path', '')}: {str(e)}"
-            )
+            self.logger.error(f"添加文档失败 {document.get('path', '')}: {e}")
             return False
+
+    def batch_add_documents(self, documents: list) -> int:
+        """批量添加文档（行业最佳实践：批量API + 内存预算）
+
+        Args:
+            documents: 文档列表，每个文档为字典
+
+        Returns:
+            成功添加的文档数量
+        """
+        if not documents:
+            return 0
+
+        if not getattr(self, "tantivy_index", None):
+            self.logger.warning("Tantivy索引未初始化，跳过批量添加")
+            return 0
+
+        success_count = 0
+
+        try:
+            # 批量模式处理
+            with self._batch_lock:
+                if self._batch_mode:
+                    # 批量模式：直接追加到缓冲区
+                    self._batch_buffer.extend(documents)
+                    buffer_size = len(self._batch_buffer)
+
+                    # 检查是否需要触发commit（基于文档数量）
+                    if buffer_size >= 1000:
+                        self.logger.info(
+                            f"[BATCH_ADD] 缓冲区达到 {buffer_size} 文档，触发后台commit"
+                        )
+
+                    # 批量处理向量索引
+                    for doc in documents:
+                        self._add_vector_in_batch_mode(doc)
+
+                    return len(documents)
+
+            # 非批量模式：使用批量API
+            with self._index_lock:
+                for document in documents:
+                    try:
+                        self._add_doc_to_writer(document)
+                        success_count += 1
+                    except Exception as e:
+                        self.logger.error(
+                            f"批量添加文档失败 {document.get('path', '')}: {e}"
+                        )
+
+                if success_count > 0 and len(documents) > 100:
+                    self.logger.info(
+                        f"[BATCH_ADD] 批量添加 {success_count}/{len(documents)} 个文档"
+                    )
+
+                return success_count
+
+        except Exception as e:
+            self.logger.error(f"批量添加文档失败: {e}")
+            return success_count
 
     def _add_vector_in_batch_mode(self, document):
         """批量模式下延迟添加向量索引"""
@@ -1041,10 +1322,58 @@ class IndexManager:
         except Exception:
             pass
 
+        # 辅助函数：检查并等待批量模式结束（避免死锁）
+        def wait_for_batch_mode(timeout=90, force_if_timeout=True):
+            """等待批量模式结束
+
+            Args:
+                timeout: 等待超时时间（秒）
+                force_if_timeout: 超时后是否强制结束批量模式
+
+            Returns:
+                True: 批量模式已结束或被强制结束
+                False: 批量模式仍在运行但未强制结束
+            """
+            if not self._batch_mode:
+                return True
+
+            batch_start = self._batch_mode_start_time or time.time()
+            wait_start = time.time()
+
+            while self._batch_mode and time.time() - wait_start < timeout:
+                elapsed = time.time() - batch_start
+                if elapsed > self._BATCH_MODE_TIMEOUT:
+                    self.logger.warning(
+                        f"批量模式已运行 {elapsed:.1f} 秒，超过上限 {self._BATCH_MODE_TIMEOUT} 秒"
+                    )
+                    if force_if_timeout:
+                        self.logger.warning("强制结束卡住的批量模式（避免死锁）...")
+                        # 使用强制重置避免死锁
+                        self._force_reset_batch_mode()
+                        return True
+                time.sleep(0.2)
+
+            if self._batch_mode:
+                if force_if_timeout:
+                    self.logger.warning("等待批量模式超时，强制结束（避免死锁）...")
+                    self._force_reset_batch_mode()
+                    return True
+                return False
+            return True
+
+        # 等待批量模式结束（如果正在进行）
+        if not wait_for_batch_mode(timeout=90, force_if_timeout=True):
+            self.logger.warning("批量模式仍在运行，删除操作可能失败")
+
         # 添加重试机制处理锁冲突
-        max_retries = 3
+        max_retries = 8
         for retry in range(max_retries):
             try:
+                # 再次检查批量模式状态
+                if self._batch_mode:
+                    if not wait_for_batch_mode(timeout=15, force_if_timeout=True):
+                        self.logger.warning("批量模式仍在运行，继续尝试删除...")
+
                 query = self.tantivy_index.parse_query(f'"{file_path}"', ["path"])
                 with self.tantivy_index.writer() as writer:
                     if hasattr(writer, "delete_query"):
@@ -1060,16 +1389,27 @@ class IndexManager:
                 break  # 成功则退出重试循环
             except Exception as e:
                 if "LockBusy" in str(e) and retry < max_retries - 1:
-                    import time
-
                     self.logger.warning(
                         f"索引锁冲突，重试删除 {file_path} ({retry + 1}/{max_retries})"
                     )
                     time.sleep(0.5 * (retry + 1))  # 递增等待时间
+                    # 如果批量模式超时太久了，强制结束它
+                    if self._batch_mode:
+                        batch_elapsed = time.time() - (
+                            self._batch_mode_start_time or time.time()
+                        )
+                        if (
+                            batch_elapsed > self._BATCH_MODE_TIMEOUT * 2
+                        ):  # 超过超时2倍，强制结束
+                            self.logger.warning(
+                                f"批量模式运行太久({batch_elapsed:.1f}秒)，强制结束"
+                            )
+                            self.end_batch_mode(commit=True)
                 else:
                     self.logger.warning(
                         f"从Tantivy索引删除文档失败 {file_path}: {str(e)}"
                     )
+                    break
 
         # 标记文件为已删除（因为HNSW不支持真正删除向量，只能在搜索时过滤）
         with self._index_lock:
@@ -1083,7 +1423,9 @@ class IndexManager:
                         break
             except (KeyError, RuntimeError) as e:
                 # KeyError: doc_id已被删除; RuntimeError: 迭代中字典被修改
-                self.logger.warning(f"从向量元数据删除文档失败 {file_path}: {type(e).__name__}: {e}")
+                self.logger.warning(
+                    f"从向量元数据删除文档失败 {file_path}: {type(e).__name__}: {e}"
+                )
 
         return True
 
@@ -1103,39 +1445,170 @@ class IndexManager:
         deleted_count = 0
         directory_path_lower = directory_path.lower()
 
-        # 1. 从Tantivy索引中删除（使用通配符查询）
+        # 辅助函数：检查并等待批量模式结束（避免死锁）
+        def wait_for_batch_mode(timeout=90, force_if_timeout=True):
+            """等待批量模式结束
+
+            Args:
+                timeout: 等待超时时间（秒）
+                force_if_timeout: 超时后是否强制结束批量模式
+
+            Returns:
+                True: 批量模式已结束或被强制结束
+                False: 批量模式仍在运行但未强制结束
+            """
+            if not self._batch_mode:
+                return True
+
+            batch_start = self._batch_mode_start_time or time.time()
+            wait_start = time.time()
+
+            while self._batch_mode and time.time() - wait_start < timeout:
+                elapsed = time.time() - batch_start
+                if elapsed > self._BATCH_MODE_TIMEOUT:
+                    self.logger.warning(
+                        f"批量模式已运行 {elapsed:.1f} 秒，超过上限 {self._BATCH_MODE_TIMEOUT} 秒"
+                    )
+                    if force_if_timeout:
+                        self.logger.warning("强制结束卡住的批量模式（避免死锁）...")
+                        # 使用强制重置避免死锁
+                        self._force_reset_batch_mode()
+                        return True
+                time.sleep(0.2)
+
+            if self._batch_mode:
+                if force_if_timeout:
+                    self.logger.warning("等待批量模式超时，强制结束（避免死锁）...")
+                    self._force_reset_batch_mode()
+                    return True
+                return False
+            return True
+
+        # 1. 从Tantivy索引中删除（扫描并删除匹配目录的文档）
         try:
-            # 先清理锁文件
+            # 先清理可能存在的锁文件
             lock_file = os.path.join(self.tantivy_index_path, "meta.json.lock")
             if os.path.exists(lock_file):
                 try:
                     os.remove(lock_file)
+                    self.logger.debug("已清理 Tantivy 索引锁文件")
                 except Exception:
                     pass
 
-            # 使用前缀查询删除所有匹配该目录的文档
-            # Tantivy支持使用 path:directory_path* 格式进行前缀查询
-            prefix_query = f'path:"{directory_path_lower}"*'
+            # 如果批量模式正在进行，等待批量模式结束
+            # 因为批量模式持有 writer 锁，直接获取会 LockBusy
+            if not wait_for_batch_mode(timeout=90, force_if_timeout=True):
+                self.logger.warning("批量模式仍在运行，删除操作可能失败")
 
-            max_retries = 3
+            # 由于 path 字段使用 raw tokenizer，前缀查询不工作
+            # 因此需要遍历所有文档找到匹配的并删除
+            max_retries = 10  # 增加重试次数
             for retry in range(max_retries):
                 try:
-                    with self.tantivy_index.writer() as writer:
-                        # 使用前缀查询
-                        query = self.tantivy_index.parse_query(prefix_query, ["path"])
-                        delete_method = getattr(writer, "delete_query", None)
-                        if delete_method:
-                            delete_method(query)
-                            writer.commit()
-                            deleted_count = -1  # 表示成功但未精确计数
-                        else:
-                            self.logger.warning("Tantivy writer不支持前缀删除")
+                    # 再次检查并等待批量模式结束
+                    if not wait_for_batch_mode(timeout=20, force_if_timeout=True):
+                        self.logger.warning("批量模式仍在运行，继续尝试删除...")
+
+                    # 刷新索引读取器以获取最新数据
+                    if not self._batch_mode:
+                        self.tantivy_index.reload()
+
+                    # 使用新版 Tantivy API 遍历文档
+                    docs_to_delete = []
+                    searcher = None
+                    try:
+                        searcher = self.tantivy_index.searcher()
+                        # 使用搜索方式查找匹配的文档
+                        try:
+                            from tantivy.query import RegexQuery
+
+                            # 使用正则匹配路径前缀
+                            regex_query = RegexQuery(
+                                rf"{re.escape(directory_path_lower)}.*", "path"
+                            )
+                            result = searcher.search(regex_query, 1000)
+                            for hit in result.hits:
+                                try:
+                                    doc = searcher.doc(hit.doc)
+                                    path_value = doc.get_first("path", "")
+                                    if path_value:
+                                        docs_to_delete.append((hit.doc, hit.doc))
+                                except Exception:
+                                    continue
+                        except ImportError:
+                            # 如果 RegexQuery 不可用，使用暴力遍历
+                            for doc_id in range(int(searcher.num_docs)):
+                                try:
+                                    doc = searcher.doc(doc_id)
+                                    path_value = doc.get_first("path", "")
+                                    if path_value and path_value.lower().startswith(
+                                        directory_path_lower
+                                    ):
+                                        docs_to_delete.append((doc_id, doc_id))
+                                except Exception:
+                                    continue
+                        except Exception as e:
+                            # 降级：遍历所有文档
+                            self.logger.debug(f"使用降级遍历方式: {e}")
+                            for doc_id in range(int(searcher.num_docs)):
+                                try:
+                                    doc = searcher.doc(doc_id)
+                                    path_value = doc.get_first("path", "")
+                                    if path_value and path_value.lower().startswith(
+                                        directory_path_lower
+                                    ):
+                                        docs_to_delete.append((doc_id, doc_id))
+                                except Exception:
+                                    continue
+                    finally:
+                        # 确保 searcher 被关闭（Tantivy searcher 是轻量对象，不需要显式 release）
+                        if searcher is not None:
+                            try:
+                                searcher.release()
+                            except Exception:
+                                pass
+
+                    if docs_to_delete:
+                        # 分批删除，每批处理后释放锁，避免长时间持有索引锁
+                        BATCH_SIZE = 50
+                        for i in range(0, len(docs_to_delete), BATCH_SIZE):
+                            batch = docs_to_delete[i : i + BATCH_SIZE]
+                            try:
+                                with self.tantivy_index.writer() as writer:
+                                    seen_docs = set()
+                                    for doc_id, _ in batch:
+                                        if doc_id not in seen_docs:
+                                            seen_docs.add(doc_id)
+                                            try:
+                                                writer.delete_document(doc_id)
+                                                deleted_count += 1
+                                            except Exception:
+                                                pass
+                                    writer.commit()
+                            except Exception as e:
+                                if "LockBusy" in str(e):
+                                    time.sleep(0.5 * (retry + 1))
+                                    # 不再强制结束批量模式！让 scan_and_index 继续运行
+                                    continue
+                                else:
+                                    raise
+                        self.logger.info(
+                            f"已从Tantivy索引中删除 {deleted_count} 个文档"
+                        )
                     break
                 except Exception as e:
                     if "LockBusy" in str(e) and retry < max_retries - 1:
-                        import time
-
                         time.sleep(0.5 * (retry + 1))
+                        # 如果批量模式超时太久了，强制结束它
+                        if self._batch_mode:
+                            batch_elapsed = time.time() - (
+                                self._batch_mode_start_time or time.time()
+                            )
+                            if batch_elapsed > self._BATCH_MODE_TIMEOUT * 2:
+                                self.logger.warning(
+                                    f"批量模式运行太久({batch_elapsed:.1f}秒)，强制结束"
+                                )
+                                self.end_batch_mode(commit=True)
                     else:
                         self.logger.warning(
                             f"从Tantivy索引删除目录失败 {directory_path}: {str(e)}"
@@ -1179,7 +1652,6 @@ class IndexManager:
             )
 
         try:
-
             # 构建关键词集合
             keywords = self._extract_keywords(query)
 
@@ -1247,7 +1719,7 @@ class IndexManager:
         """构建高亮正则表达式模式（带缓存）"""
         # 使用 frozenset 作为缓存键
         cache_key = frozenset(keywords)
-        if hasattr(self, '_highlight_regex_cache'):
+        if hasattr(self, "_highlight_regex_cache"):
             cached = self._highlight_regex_cache.get(cache_key)
             if cached is not None:
                 return cached
@@ -1266,7 +1738,7 @@ class IndexManager:
         result = [_build_pattern(token) for token in keywords if token]
 
         # 初始化缓存（如果需要）
-        if not hasattr(self, '_highlight_regex_cache'):
+        if not hasattr(self, "_highlight_regex_cache"):
             self._highlight_regex_cache = {}
         # 限制缓存大小
         if len(self._highlight_regex_cache) < 100:
@@ -1638,9 +2110,19 @@ class IndexManager:
             results = []
 
             # 统一转小写进行搜索（索引已小写存储）
-            query_str_processed = query_str.lower()
+            query_str_processed = query_str.lower().strip()
+            if not query_str_processed:
+                return []
+
+            # 分词
             seg_query = self._segment(query_str_processed)
-            self.tantivy_index.reload()
+
+            # 批量模式下不调用 reload，避免与 writer 竞争
+            with self._batch_lock:
+                is_batch_mode = self._batch_mode
+
+            if not is_batch_mode:
+                self.tantivy_index.reload()
             searcher = self.tantivy_index.searcher()
             queries_to_try = []
 
@@ -1663,56 +2145,101 @@ class IndexManager:
                 exact_fields = ["filename"]
                 fields = ["filename", "filename_chars"]
 
-            # 0. 优先尝试精确短语匹配，确保完全命中的文档排在前面
-            try:
-                trimmed = query_str_processed.strip()
-                if trimmed:
-                    queries_to_try.append(
-                        self.tantivy_index.parse_query(f'"{trimmed}"', exact_fields)
-                    )
-            except Exception as e:
-                self.logger.debug(f"精确短语查询构建失败: {str(e)}")
+            # 优化：短查询（单字符或双字符）简化搜索策略
+            query_len = len(query_str_processed)
+            is_short_query = query_len <= 2
 
-            # 正常模糊搜索逻辑
-            # 简化查询构建逻辑
-            try:
-                queries_to_try.append(self.tantivy_index.parse_query(seg_query, fields))
-            except Exception as e:
-                self.logger.debug(f"分词查询构建失败: {str(e)}")
-
-            if query_str != seg_query:
+            if is_short_query:
+                # 短查询：只执行必要的查询，避免过多组合
+                # 1. 精确匹配文件名
                 try:
                     queries_to_try.append(
-                        self.tantivy_index.parse_query(query_str, fields)
+                        self.tantivy_index.parse_query(
+                            query_str_processed, ["filename"]
+                        )
                     )
                 except Exception as e:
-                    self.logger.debug(f"原始查询构建失败: {str(e)}")
+                    self.logger.debug(f"短查询文件名匹配失败: {str(e)}")
 
-            # 尝试单词查询
-            try:
-                for word in seg_query.split():
-                    if word.strip():
-                        queries_to_try.append(
-                            self.tantivy_index.parse_query(word, fields)
+                # 2. 字符级匹配（对中文单字搜索很重要）
+                try:
+                    queries_to_try.append(
+                        self.tantivy_index.parse_query(
+                            query_str_processed, ["filename_chars", "content_chars"]
                         )
-            except Exception as e:
-                self.logger.debug(f"单词查询构建失败: {str(e)}")
+                    )
+                except Exception as e:
+                    self.logger.debug(f"短查询字符匹配失败: {str(e)}")
 
-            # 尝试字符查询
-            try:
-                for ch in re.findall(r"\w", query_str_processed or ""):
-                    if search_content:
+                # 3. 内容原始文本匹配
+                if search_content:
+                    try:
                         queries_to_try.append(
                             self.tantivy_index.parse_query(
-                                ch, ["filename_chars", "content_chars"]
+                                query_str_processed, ["content_raw"]
                             )
                         )
-                    else:
-                        queries_to_try.append(
-                            self.tantivy_index.parse_query(ch, ["filename_chars"])
+                    except Exception as e:
+                        self.logger.debug(f"短查询内容匹配失败: {str(e)}")
+            else:
+                # 正常查询：完整搜索策略
+                # 0. 优先尝试精确短语匹配
+                try:
+                    queries_to_try.append(
+                        self.tantivy_index.parse_query(
+                            f'"{query_str_processed}"', exact_fields
                         )
-            except Exception as e:
-                self.logger.debug(f"字符查询构建失败: {str(e)}")
+                    )
+                except Exception as e:
+                    self.logger.debug(f"精确短语查询构建失败: {str(e)}")
+
+                # 1. 分词查询
+                try:
+                    queries_to_try.append(
+                        self.tantivy_index.parse_query(seg_query, fields)
+                    )
+                except Exception as e:
+                    self.logger.debug(f"分词查询构建失败: {str(e)}")
+
+                # 2. 原始查询
+                if query_str != seg_query:
+                    try:
+                        queries_to_try.append(
+                            self.tantivy_index.parse_query(query_str, fields)
+                        )
+                    except Exception as e:
+                        self.logger.debug(f"原始查询构建失败: {str(e)}")
+
+                # 3. 单词查询（只对较长的分词结果）
+                words = [w for w in seg_query.split() if len(w.strip()) > 1]
+                if words:
+                    try:
+                        for word in words[:3]:  # 限制最多3个单词查询
+                            queries_to_try.append(
+                                self.tantivy_index.parse_query(word, fields)
+                            )
+                    except Exception as e:
+                        self.logger.debug(f"单词查询构建失败: {str(e)}")
+
+                # 4. 字符查询（只对非中文短查询）
+                if query_len <= 10:
+                    try:
+                        chars = re.findall(r"\w", query_str_processed)[:5]  # 限制字符数
+                        for ch in chars:
+                            if search_content:
+                                queries_to_try.append(
+                                    self.tantivy_index.parse_query(
+                                        ch, ["filename_chars", "content_chars"]
+                                    )
+                                )
+                            else:
+                                queries_to_try.append(
+                                    self.tantivy_index.parse_query(
+                                        ch, ["filename_chars"]
+                                    )
+                                )
+                    except Exception as e:
+                        self.logger.debug(f"字符查询构建失败: {str(e)}")
 
             all_hits = []
             for query in queries_to_try:
@@ -1841,7 +2368,9 @@ class IndexManager:
                     file_type = metadata["file_type"]
                     modified = metadata.get("modified")
                     is_chunk = metadata.get("is_chunk", False)
-                    content_preview = metadata.get("chunk_content_preview", "") if is_chunk else ""
+                    content_preview = (
+                        metadata.get("chunk_content_preview", "") if is_chunk else ""
+                    )
                     chunk_index = metadata.get("chunk_index", 0)
                     total_chunks = metadata.get("total_chunks", 1)
                     chunk_start = metadata.get("chunk_start", 0)
@@ -1866,8 +2395,15 @@ class IndexManager:
 
                 # 构建结果
                 result = self._format_result(
-                    path, filename, content, content, file_type,
-                    0, modified, adjusted, query_str
+                    path,
+                    filename,
+                    content,
+                    content,
+                    file_type,
+                    0,
+                    modified,
+                    adjusted,
+                    query_str,
                 )
 
                 result["is_chunk"] = is_chunk
@@ -1876,7 +2412,9 @@ class IndexManager:
                     result["total_chunks"] = total_chunks
                     result["chunk_start"] = chunk_start
                     result["chunk_end"] = chunk_end
-                    result["snippet"] = content[:300] + "..." if len(content) > 300 else content
+                    result["snippet"] = (
+                        content[:300] + "..." if len(content) > 300 else content
+                    )
 
                 results.append(result)
 
@@ -1890,11 +2428,23 @@ class IndexManager:
             return []
 
     def _encode_text(self, text: str):
+        t0 = time.time()  # 调试计时
+        # 触发延迟加载（如有必要）
+        self._ensure_embedding_loaded()
+        if not self.embedding_model:
+            self.logger.warning(
+                f"[ENCODE_SINGLE] 模型未就绪，返回零向量，耗时 {time.time() - t0:.3f}s"
+            )
+            return np.zeros(getattr(self, "vector_dim", 384), dtype=np.float32)
         try:
             vec = next(iter(self.embedding_model.embed([text])))
-            return np.array(vec, dtype=np.float32)
+            result = np.array(vec, dtype=np.float32)
+            self.logger.debug(f"[ENCODE_SINGLE] 完成，耗时 {time.time() - t0:.3f}s")
+            return result
         except (StopIteration, RuntimeError, ValueError) as e:
-            self.logger.warning(f"文本编码失败: {str(e)}，返回零向量")
+            self.logger.warning(
+                f"[ENCODE_SINGLE] 文本编码失败: {str(e)}，耗时 {time.time() - t0:.3f}s，返回零向量"
+            )
             return np.zeros(getattr(self, "vector_dim", 384), dtype=np.float32)
 
     def _encode_texts_batch(self, texts: list) -> np.ndarray:
@@ -1906,15 +2456,36 @@ class IndexManager:
         Returns:
             shape 为 (len(texts), vector_dim) 的 numpy 数组
         """
+        t0 = time.time()  # 调试计时
+        # 触发延迟加载（如有必要）
+        self._ensure_embedding_loaded()
         if not texts or not self.embedding_model:
             dim = getattr(self, "vector_dim", 384)
+            self.logger.warning(
+                f"[ENCODE] Embedding模型未就绪，返回零向量，耗时 {time.time() - t0:.3f}s"
+            )
             return np.zeros((len(texts) if texts else 0, dim), dtype=np.float32)
 
         try:
+            self.logger.info(
+                f"[ENCODE] 开始编码 {len(texts)} 个文本，模型={getattr(self.embedding_model, 'model_name', 'unknown')}"
+            )
+            t1 = time.time()
             vectors = list(self.embedding_model.embed(texts))
-            return np.array(vectors, dtype=np.float32)
+            t2 = time.time()
+            self.logger.info(
+                f"[ENCODE] embed() 调用完成，{len(texts)} 个文本，耗时 {t2 - t1:.3f}s"
+            )
+            result = np.array(vectors, dtype=np.float32)
+            self.logger.info(
+                f"[ENCODE] 转换为numpy完成，shape={result.shape}，总耗时 {t2 - t0:.3f}s"
+            )
+            return result
         except Exception as e:
-            self.logger.debug(f"批量编码失败，回退到逐个编码: {e}")
+            t_err = time.time()
+            self.logger.error(
+                f"[ENCODE] 批量编码失败 (耗时 {t_err - t0:.3f}s)，回退到逐个编码: {e}"
+            )
             result = [self._encode_text(t) for t in texts]
             return np.array(result, dtype=np.float32)
 
@@ -1928,7 +2499,15 @@ class IndexManager:
         if not self._vector_buffer:
             return
 
+        t0 = time.time()  # 调试：记录开始时间
+        self.logger.info(
+            f"[VECTOR_FLUSH] 开始刷新向量缓冲区，大小={len(self._vector_buffer)}"
+        )
+
+        # 触发延迟加载（如有必要）
+        self._ensure_embedding_loaded()
         if not self.embedding_model or self.hnsw is None:
+            self.logger.info("[VECTOR_FLUSH] Embedding模型未就绪，清空缓冲区")
             self._vector_buffer = []
             return
 
@@ -1937,24 +2516,57 @@ class IndexManager:
         metadatas = [item[1] for item in self._vector_buffer]
 
         try:
+            t1 = time.time()  # 调试时间点
+            self.logger.info(
+                f"[VECTOR_FLUSH] 开始批量编码 {count} 个向量 (距开始 {t1 - t0:.3f}s)"
+            )
             vectors = self._encode_texts_batch(texts)
+            t2 = time.time()  # 调试：编码完成时间
+            self.logger.info(
+                f"[VECTOR_FLUSH] 编码完成，shape={vectors.shape}，耗时 {t2 - t1:.3f}s (累计 {t2 - t0:.3f}s)"
+            )
 
             # 预检查容量
             needed = self.next_id + len(vectors)
             if needed > self.hnsw.get_max_elements():
+                self.logger.info(
+                    f"[VECTOR_FLUSH] HNSW容量不足，扩展索引: {self.hnsw.get_max_elements()} -> {needed + 1024}"
+                )
                 self.hnsw.resize_index(needed + 1024)
 
             ids = np.arange(self.next_id, self.next_id + len(vectors))
+
+            # HNSW写入需要保护，但只在写入时持有锁
+            # metadata更新在锁外进行（因为commit thread不修改metadata）
+            self.logger.info(
+                f"[VECTOR_FLUSH] 开始HNSW写入 {len(vectors)} 个向量 (累计 {t2 - t0:.3f}s)"
+            )
+            t3 = time.time()  # 调试：HNSW写入开始时间
             with self._batch_lock:
                 self.hnsw.add_items(vectors, ids)
+            t4 = time.time()  # 调试：HNSW写入完成时间
+            self.logger.info(
+                f"[VECTOR_FLUSH] HNSW写入完成，耗时 {t4 - t3:.3f}s (累计 {t4 - t0:.3f}s)"
+            )
 
+            # 更新metadata（在锁外进行，减少锁持有时间）
+            t5 = time.time()  # 调试：metadata更新开始时间
             for i, metadata in enumerate(metadatas):
                 self.vector_metadata[str(self.next_id + i)] = metadata
             self.next_id += len(vectors)
+            t6 = time.time()  # 调试：metadata更新完成时间
+            self.logger.info(
+                f"[VECTOR_FLUSH] metadata更新完成，{len(metadatas)} 条，耗时 {t6 - t5:.3f}s (累计 {t6 - t0:.3f}s)"
+            )
 
-            self.logger.debug(f"向量批量写入完成: {count} 个向量")
+            self.logger.info(
+                f"[VECTOR_FLUSH] 向量批量写入完成: {count} 个向量，总耗时 {t6 - t0:.3f}s"
+            )
         except Exception as e:
-            self.logger.error(f"向量批量写入失败，回退到逐个写入: {e}")
+            t_err = time.time()
+            self.logger.error(
+                f"[VECTOR_FLUSH] 向量批量写入失败 (耗时 {t_err - t0:.3f}s)，回退到逐个写入: {e}"
+            )
             for text, metadata in self._vector_buffer:
                 try:
                     v = np.array([self._encode_text(text)], dtype=np.float32)
@@ -1972,6 +2584,7 @@ class IndexManager:
                     self.logger.warning(f"单个向量写入失败: {e2}")
 
         self._vector_buffer = []
+        self.logger.info(f"[VECTOR_FLUSH] 刷新完成，缓冲区已清空")
 
     def save_indexes(self):
         try:
@@ -1993,13 +2606,15 @@ class IndexManager:
 
                 # 原子性移动
                 if os.path.exists(temp_index_file):
-                    import shutil
-
-                    shutil.move(temp_index_file, index_file)
+                    os.replace(temp_index_file, index_file)
 
             metadata_file = os.path.join(self.metadata_path, "vector_metadata.json")
             temp_metadata_file = metadata_file + ".tmp"
-            metadata_dict = {"metadata": self.vector_metadata, "next_id": self.next_id, "vector_dim": self.vector_dim}
+            metadata_dict = {
+                "metadata": self.vector_metadata,
+                "next_id": self.next_id,
+                "vector_dim": self.vector_dim,
+            }
 
             # 保存元数据到临时文件
             with open(temp_metadata_file, "w", encoding="utf-8") as f:
@@ -2007,9 +2622,7 @@ class IndexManager:
 
             # 原子性移动
             if os.path.exists(temp_metadata_file):
-                import shutil
-
-                shutil.move(temp_metadata_file, metadata_file)
+                os.replace(temp_metadata_file, metadata_file)
 
             self.logger.info("索引保存成功")
             return True
@@ -2293,8 +2906,8 @@ class IndexManager:
     def close(self):
         """关闭索引管理器，释放资源"""
         try:
-            # 确保批量模式正确结束
-            if self._batch_mode:
+            # 确保批量模式正确结束（检查属性是否存在，避免初始化失败时出错）
+            if hasattr(self, "_batch_mode") and self._batch_mode:
                 self.end_batch_mode(commit=True)
 
             # 保存索引

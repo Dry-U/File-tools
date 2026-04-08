@@ -168,22 +168,44 @@ const FileToolsUI = (function() {
     }
 
     /**
-     * 健康检查
+     * 健康检查（带重试和轮询）
      */
-    async function checkSystemHealth() {
-        try {
-            const response = await fetch('/api/health');
-            const health = await response.json();
+    async function checkSystemHealth(maxRetries = 12, interval = 5000) {
+        let retryCount = 0;
 
-            if (health.status === 'starting') {
-                FileToolsUtils.showToast('系统正在初始化，请稍候...', 'info');
-            } else if (health.status !== 'healthy') {
-                FileToolsUtils.showToast('系统状态异常: ' + health.message, 'warning');
+        while (retryCount < maxRetries) {
+            try {
+                const response = await fetchWithTimeout('/api/health', {}, 5000);
+                const health = await response.json();
+
+                if (health.status === 'healthy') {
+                    FileToolsUtils.showToast('系统已就绪', 'success');
+                    return true;
+                } else if (health.status === 'starting' || health.status === 'degraded') {
+                    retryCount++;
+                    if (retryCount === 1) {
+                        FileToolsUtils.showToast('系统正在初始化，请稍候...', 'info');
+                    }
+                } else {
+                    FileToolsUtils.showToast('系统状态异常: ' + (health.message || '未知错误'), 'warning');
+                    return false;
+                }
+            } catch (error) {
+                retryCount++;
+                if (retryCount === 1) {
+                    console.log('等待后端服务启动...');
+                }
             }
-        } catch (error) {
-            console.error('Health check error:', error);
-            FileToolsUtils.showToast('无法连接到后端服务', 'error');
+
+            // 等待后重试
+            if (retryCount < maxRetries) {
+                await new Promise(resolve => setTimeout(resolve, interval));
+            }
         }
+
+        // 超过最大重试次数
+        FileToolsUtils.showToast('后端启动超时，请检查日志', 'error');
+        return false;
     }
 
     /**

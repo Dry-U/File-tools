@@ -48,8 +48,8 @@ cd File-tools
 # 安装依赖
 uv sync
 
-# 启动应用（自动打开桌面窗口）
-uv run python main.py
+# 启动 Tauri 桌面应用
+npm run tauri dev
 ```
 
 **环境要求：** Python 3.9+ | Windows 10/11 | 8GB RAM（推荐）
@@ -70,47 +70,28 @@ uv run python main.py
 
 ## 技术架构
 
-```
-┌─────────────────────────────────────────────────────────┐
-│                      main.py (Pywebview 桌面窗口)         │
-├─────────────────────────────────────────────────────────┤
-│                                                         │
-│   ┌─────────────┐      ┌──────────────────────────┐   │
-│   │   Frontend  │◄────►│   FastAPI (API 层)       │   │
-│   │  (HTML/JS)  │      │  /api/search, /api/chat  │   │
-│   └─────────────┘      └────────────┬───────────────┘   │
-│                                    │                    │
-│                        ┌────────────┴────────────┐      │
-│                        │      Core Layer        │      │
-│                        │  ┌──────────────────┐  │      │
-│                        │  │  Search Engine   │  │      │
-│                        │  │  (Tantivy+HNSW) │  │      │
-│                        │  ├──────────────────┤  │      │
-│                        │  │  RAG Pipeline    │  │      │
-│                        │  │  (LLM + Retr.)   │  │      │
-│                        │  ├──────────────────┤  │      │
-│                        │  │  File Scanner    │  │      │
-│                        │  │  (增量索引)       │  │      │
-│                        │  ├──────────────────┤  │      │
-│                        │  │  File Monitor    │  │      │
-│                        │  │  (Watchdog)      │  │      │
-│                        │  └──────────────────┘  │      │
-│                        └──────────────────────────┘      │
-│                                    │                    │
-│                        ┌────────────┴────────────┐      │
-│                        │   Document Parser Layer  │      │
-│                        │  PyMuPDF|pdfplumber    │      │
-│                        │  python-docx|openpyxl   │      │
-│                        └─────────────────────────┘      │
-└─────────────────────────────────────────────────────────┘
+```mermaid
+graph TD
+    A[Tauri Desktop<br/>Rust + WebView2<br/>Frameless Window] -->|启动子进程| B[Python FastAPI<br/>Port 18642]
+    B <-->|HTTP API| C[Frontend<br/>HTML/JS/CSS]
+    B --> D[Core Layer]
+    D --> E[Search Engine<br/>Tantivy BM25<br/>+ HNSW Vector]
+    D --> F[RAG Pipeline<br/>LLM + Retrieval]
+    D --> G[File Scanner<br/>增量索引]
+    D --> H[File Monitor<br/>Watchdog]
+    D --> I[Document Parser<br/>PyMuPDF / python-docx]
+    
+    style A fill:#f9f,stroke:#333,stroke-width:2px
+    style B fill:#bbf,stroke:#333,stroke-width:2px
+    style D fill:#bfb,stroke:#333,stroke-width:2px
 ```
 
 **核心技术栈：**
 
 | 组件 | 技术选型 | 说明 |
 |------|---------|------|
+| 桌面框架 | Tauri 2.x (Rust) | WebView2 原生窗口 |
 | API 框架 | FastAPI + Uvicorn | 高性能异步 API |
-| 桌面窗口 | Pywebview | 原生 Webview 封装 |
 | 全文检索 | Tantivy (Rust) | 毫秒级 BM25 检索 |
 | 向量检索 | HNSWLib | 近似最近邻搜索 |
 | 嵌入模型 | fastembed (bge-small-zh) | 轻量高速 |
@@ -123,68 +104,81 @@ uv run python main.py
 
 ```
 File-tools/
-├── main.py                    # 应用入口
+├── main.py                    # Python FastAPI 入口
 ├── config.yaml                # 配置文件
-├── pyproject.toml            # 项目配置与依赖
+├── pyproject.toml            # Python 依赖
+├── package.json              # Node.js 依赖 (Tauri CLI)
 │
-├── backend/
+├── src-tauri/                 # Tauri 桌面应用 (Rust)
+│   ├── Cargo.toml            # Rust 依赖
+│   ├── tauri.conf.json       # Tauri 配置
+│   ├── build.rs             # 构建脚本
+│   ├── src/
+│   │   ├── main.rs          # 入口 (启动 Python)
+│   │   └── lib.rs           # 库入口
+│   └── bin/                  # PyInstaller 打包的后端
+│
+├── backend/                   # Python 后端
 │   ├── api/                  # API 接口层
 │   │   ├── main.py           # FastAPI 应用
 │   │   ├── models.py         # 数据模型
 │   │   ├── dependencies.py   # 依赖注入
-│   │   └── routes/          # 路由模块
+│   │   └── routes/           # 路由模块
 │   │       ├── search.py     # 搜索/预览
 │   │       ├── chat.py       # 聊天/会话
 │   │       ├── config.py     # 配置管理
 │   │       ├── directory.py  # 目录管理
 │   │       └── system.py     # 系统路由
 │   │
-│   ├── core/                  # 核心业务逻辑
-│   │   ├── search_engine.py  # 搜索引擎（混合检索）
+│   ├── core/                 # 核心业务逻辑
+│   │   ├── search_engine.py # 搜索引擎（混合检索）
 │   │   ├── rag_pipeline.py  # RAG 问答流水线
 │   │   ├── index_manager.py # 索引管理器
 │   │   ├── file_scanner.py  # 文件扫描器
 │   │   ├── file_monitor.py  # 文件监控器
 │   │   ├── document_parser.py # 文档解析器
-│   │   ├── model_manager.py  # 模型管理器
-│   │   ├── chat_history_db.py # 会话历史数据库
-│   │   └── ...
+│   │   ├── query_processor.py # 查询处理器
+│   │   ├── embedding_manager.py # 嵌入管理
+│   │   └── vram_manager.py  # VRAM 管理
 │   │
-│   └── utils/                # 工具模块
+│   └── utils/               # 工具模块
 │       ├── config_loader.py  # 配置加载
 │       ├── logger.py         # 日志系统
-│       └── ...
+│       └── app_paths.py     # 路径工具
 │
 ├── frontend/                  # 前端界面
-│   ├── index.html            # 主页面
-│   └── static/               # 静态资源
-│       ├── css/              # 样式表
-│       ├── js/               # JavaScript 模块
-│       ├── logo.ico          # 应用图标
-│       └── logo.svg          # SVG 图标
+│   ├── index.html           # 主页面
+│   └── static/              # 静态资源
+│       ├── css/             # 样式表
+│       ├── js/              # JavaScript 模块
+│       │   └── modules/
+│       │       ├── tauri-api.js  # Tauri API 封装
+│       │       ├── search.js     # 搜索模块
+│       │       ├── chat.js      # 聊天模块
+│       │       ├── settings.js  # 设置模块
+│       │       └── ...
+│       └── logo.ico        # 应用图标
 │
-├── tests/                     # 测试代码
-│   ├── unit/                 # 单元测试
-│   ├── integration/          # 集成测试
+├── tests/                    # 测试代码
+│   ├── unit/                # 单元测试
+│   ├── integration/         # 集成测试
 │   ├── api/                 # API 测试
-│   └── e2e/                 # 端到端测试
+│   └── e2e/                 # E2E 测试
 │
-├── data/                      # 运行时数据
-│   ├── tantivy_index/       # Tantivy 全文索引
-│   ├── hnsw_index/          # HNSW 向量索引
-│   ├── metadata/             # 元数据
-│   ├── cache/               # 缓存
-│   ├── logs/                # 日志
-│   └── chat_history.db       # 会话历史
+├── data/                     # 运行时数据
+│   ├── tantivy_index/      # Tantivy 全文索引
+│   ├── hnsw_index/         # HNSW 向量索引
+│   ├── metadata/           # 元数据
+│   └── logs/               # 日志
 │
-├── scripts/                   # 构建脚本
-│   ├── run_tests.py         # 测试运行器
-│   ├── allure_report.py     # Allure 报告
-│   └── sync_version.py      # 版本同步
+├── scripts/                  # 工具脚本
+├── docs/                    # 文档
+│   ├── USAGE_GUIDE.md      # 使用手册
+│   ├── DEVELOPER_GUIDE.md  # 开发指南
+│   └── CONTRIBUTING.md    # 贡献指南
 │
-└── docs/                     # 文档
-    ├── USAGE_GUIDE.md       # 使用手册
-    └── DEVELOPER_GUIDE.md   # 开发指南
+├── build_pyinstaller.py     # PyInstaller 构建脚本
+└── uv.lock                  # 依赖锁定文件
 ```
 
 ---
@@ -239,25 +233,35 @@ ai_model:
 
 ## 构建
 
-**Nuitka 编译为 .exe：**
+**使用 PyInstaller + Tauri 构建桌面应用：**
 
 ```bash
-# 使用构建脚本
-./build.bat slim          # Slim 版本（仅搜索，无 AI）
-./build.bat cpu           # CPU 版本（完整 AI）
-./build.bat gpu           # GPU 版本（CUDA 加速）
-./build.bat cpu installer # CPU 版本 + Inno Setup 安装包
+# 开发模式（热重载）
+npm run tauri dev
 
-# 或直接使用 Python 脚本
-python build_nuitka.py slim
+# 发布构建（生成安装包）
+npm run tauri build
+
+# 或分步构建
+python build_pyinstaller.py    # 1. 构建 Python 后端
+npm run tauri build           # 2. 构建 Tauri + 安装包
 ```
 
 **构建产物：**
 
-| 产物 | 路径 |
-|------|------|
-| Windows exe | `dist/main.dist/main.exe` |
-| 安装包 | `dist/installer/FileTools-*-win64-setup.exe` |
+| 平台 | 格式 | 路径 |
+|------|------|------|
+| Windows | NSIS 安装程序 | `src-tauri/target/release/bundle/nsis/*.exe` |
+| Windows | MSI 安装包 | `src-tauri/target/release/bundle/msi/*.msi` |
+| Windows | 便携版 | `src-tauri/target/release/filetools.exe` |
+| Linux | DEB 包 | `src-tauri/target/release/bundle/deb/*.deb` |
+| Linux | AppImage | `src-tauri/target/release/bundle/appimage/*.AppImage` |
+| macOS | DMG 安装包 | `src-tauri/target/release/bundle/dmg/*.dmg` |
+
+**前置要求：**
+- Rust 1.70+ (`rustup update`)
+- Node.js 18+
+- Python 3.9+ with `uv sync`
 
 ---
 
@@ -271,7 +275,7 @@ pytest tests/ -v
 pytest tests/unit/ -v          # 单元测试
 pytest tests/integration/ -v   # 集成测试
 pytest tests/api/ -v           # API 测试
-pytest tests/e2e/ -v           # E2E 测试
+pytest tests/e2e/ -v          # E2E 测试
 
 # 生成 Allure 报告
 python scripts/run_tests.py --allure
@@ -293,4 +297,4 @@ Copyright (c) 2024-2026 Darian (Dar1an@126.com)
 
 ---
 
-**基于 Python + FastAPI + Tantivy + HNSWLib 构建** | **由 Pywebview 驱动桌面体验**
+**基于 Tauri + Python FastAPI + Tantivy + HNSWLib 构建** | **Rust 驱动桌面，Python 驱动智能**

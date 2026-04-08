@@ -6,7 +6,7 @@ import pytest
 @pytest.fixture(scope="session")
 def base_url():
     """测试服务器基础URL"""
-    return "http://127.0.0.1:8000"
+    return "http://127.0.0.1:18642"
 
 
 @pytest.fixture(scope="session")
@@ -21,9 +21,5 @@ def viewport_size():
     return {"width": 1280, "height": 720}
 
 
-@pytest.fixture
-def page(page):
-    """增强的page fixture，带有默认等待"""
-    # 等待 DOM content loaded 而不是 networkidle，后者可能不够
-    page.set_default_timeout(10000)
-    return page
+# 注意: page fixture 由 pytest-playwright 插件提供
+# 不要重新定义，以免导致递归依赖

@@ -608,6 +608,33 @@ class MockConfigFactory:
                 get_side_effect(section, key, default)
             )
         )
+
+        # 实现 set 方法 - 更新配置数据
+        def set_side_effect(section: str, key: str, value: Any) -> None:
+            if section not in config_data:
+                config_data[section] = {}
+            config_data[section][key] = value
+
+        config.set.side_effect = set_side_effect
+
+        # 实现 add_scan_path 方法
+        def add_scan_path_side_effect(path: str) -> None:
+            scan_paths = config_data.get("file_scanner", {}).get("scan_paths", [])
+            if path not in scan_paths:
+                scan_paths.append(path)
+            config_data.setdefault("file_scanner", {})["scan_paths"] = scan_paths
+
+        config.add_scan_path.side_effect = add_scan_path_side_effect
+
+        # 实现 remove_scan_path 方法
+        def remove_scan_path_side_effect(path: str) -> None:
+            scan_paths = config_data.get("file_scanner", {}).get("scan_paths", [])
+            config_data.setdefault("file_scanner", {})["scan_paths"] = [
+                p for p in scan_paths if p != path
+            ]
+
+        config.remove_scan_path.side_effect = remove_scan_path_side_effect
+
         config.save.return_value = True
 
         return config

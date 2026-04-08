@@ -83,10 +83,29 @@ class AppPaths:
                 return Path.home() / ".config" / self.APP_NAME.lower()
 
     @property
+    def project_config_path(self) -> Optional[Path]:
+        """获取项目根目录的配置文件路径（仅开发模式）"""
+        if not self.is_frozen:
+            project_config = self.app_dir / "config.yaml"
+            if project_config.exists():
+                return project_config
+        return None
+
+    @property
     def config_path(self) -> Path:
-        """获取配置文件路径"""
+        """获取配置文件路径
+
+        开发模式：优先使用项目根目录的 config.yaml
+        生产模式：使用 AppData 目录下的 config.yaml
+        """
         if self._config_dir is None:
-            self._config_dir = self.user_data_dir / "config.yaml"
+            # 开发模式下优先使用项目目录的配置
+            project_config = self.project_config_path
+            if project_config:
+                logger.info(f"[AppPaths] 开发模式，使用项目配置: {project_config}")
+                self._config_dir = project_config
+            else:
+                self._config_dir = self.user_data_dir / "config.yaml"
         return self._config_dir
 
     @property

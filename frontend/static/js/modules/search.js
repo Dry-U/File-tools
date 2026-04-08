@@ -90,11 +90,11 @@ const FileToolsSearch = (function() {
         `;
 
         try {
-            const response = await fetch('/api/search', {
+            const response = await fetchWithTimeout('/api/search', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ query, filters })
-            });
+            }, 15000);
 
             if (response.status === 429) {
                 resultsContainer.innerHTML = `
@@ -171,13 +171,16 @@ const FileToolsSearch = (function() {
             const safeFileName = FileToolsUtils.escapeHtml(result.file_name);
             // snippet 可能包含恶意脚本，使用 DOMPurify 清理，只允许安全的高亮标签
             let safeSnippet = result.snippet || '...';
+            // 解码HTML实体（后端已转义，需要还原）
+            const textarea = document.createElement('textarea');
+            textarea.innerHTML = safeSnippet;
+            safeSnippet = textarea.value;
             if (typeof DOMPurify !== 'undefined') {
                 safeSnippet = DOMPurify.sanitize(safeSnippet, {
                     ALLOWED_TAGS: ['mark', 'span'],
                     ALLOWED_ATTR: ['class']
                 });
             } else {
-                // DOMPurify 不可用时，使用 textContent 转义
                 const div = document.createElement('div');
                 div.textContent = safeSnippet;
                 safeSnippet = div.innerHTML;
@@ -232,11 +235,11 @@ const FileToolsSearch = (function() {
         FileToolsUtils.showModal(modalEl);
 
         try {
-            const response = await fetch('/api/preview', {
+            const response = await fetchWithTimeout('/api/preview', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ path })
-            });
+            }, 15000);
 
             if (response.status === 404) {
                 modalContent.innerHTML = '<div class="text-warning p-3"><i class="bi bi-file-earmark-x me-2"></i>文件不存在或已被删除</div>';
@@ -257,29 +260,75 @@ const FileToolsSearch = (function() {
 
             const data = await response.json();
             let content = data.content || '文件内容为空';
+            const metadata = data.metadata || {};
 
-            // 处理内容格式：PDF/DOCX解析后的纯文本需要适当处理
+            // 处理内容格式
             if (content && typeof content === 'string') {
-                // 检查是否为Markdown文件（根据路径判断）
+                const language = metadata.language || 'text';
+                const isTruncated = metadata.is_truncated || false;
+                const lineCount = metadata.line_count || 0;
+                const fileSize = metadata.file_size_formatted || '';
+
+                // 检查是否为Markdown文件
                 const isMarkdown = path && (path.endsWith('.md') || path.endsWith('.markdown'));
-                
+
+                // 构建预览头部信息
+                const headerHtml = `
+                    <div class="preview-header">
+                        <span class="preview-meta-item">${fileSize}</span>
+                        <span class="preview-meta-item">${lineCount} 行</span>
+                        ${isTruncated ? '<span class="preview-meta-item preview-truncated-badge">已截断</span>' : ''}
+                        <span class="preview-meta-item preview-lang-badge">${language}</span>
+                    </div>
+                `;
+
                 if (isMarkdown && typeof marked !== 'undefined' && typeof DOMPurify !== 'undefined') {
-                    // 使用marked.js渲染Markdown，并使用DOMPurify防止XSS攻击
+                    // Markdown渲染
                     const rawHtml = marked.parse(content);
-                    modalContent.innerHTML = DOMPurify.sanitize(rawHtml, {
+                    modalContent.innerHTML = headerHtml + DOMPurify.sanitize(rawHtml, {
                         ALLOWED_TAGS: ['h1','h2','h3','h4','h5','h6','p','br','hr','ul','ol','li',
                                        'blockquote','pre','code','em','strong','a','img','table',
                                        'thead','tbody','tr','th','td','div','span'],
                         ALLOWED_ATTR: ['href','src','alt','title','class','id']
                     });
-                } else if (isMarkdown && typeof marked !== 'undefined') {
-                    // DOMPurify不可用时，使用textContent降级
-                    modalContent.textContent = content;
                 } else {
-                    // 处理换行，保持段落格式
-                    content = content.replace(/\n{3,}/g, '\n\n');
-                    // 使用textContent和<pre>标签保持格式同时防止XSS
-                    modalContent.textContent = content;
+                    // 代码/文本预览：带行号
+                    const lines = content.split('\n');
+                    const maxLineNumWidth = String(lines.length).length;
+
+                    let codeHtml = '<div class="code-preview-container">';
+                    codeHtml += headerHtml;
+                    codeHtml += '<div class="code-preview-wrapper">';
+                    codeHtml += '<table class="code-preview-table">';
+                    codeHtml += '<tbody>';
+
+                    lines.forEach((line, index) => {
+                        const lineNum = index + 1;
+                        // 转义HTML特殊字符
+                        const escapedLine = FileToolsUtils.escapeHtml(line);
+                        codeHtml += `
+                            <tr class="code-line">
+                                <td class="line-number" style="width: ${maxLineNumWidth * 0.8 + 2}em">${lineNum}</td>
+                                <td class="line-content"><pre>${escapedLine || ' '}</pre></td>
+                            </tr>
+                        `;
+                    });
+
+                    codeHtml += '</tbody></table>';
+                    codeHtml += '</div>'; // code-preview-wrapper
+
+                    // 截断提示
+                    if (isTruncated) {
+                        codeHtml += `
+                            <div class="preview-truncated-notice">
+                                <i class="bi bi-info-circle me-2"></i>
+                                文件内容过长，仅显示前 ${(metadata.max_preview_length / 1000).toFixed(0)}K 字符
+                            </div>
+                        `;
+                    }
+
+                    codeHtml += '</div>'; // code-preview-container
+                    modalContent.innerHTML = codeHtml;
                 }
             } else {
                 modalContent.innerHTML = '<div class="text-muted">文件内容为空</div>';

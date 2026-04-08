@@ -1,0 +1,59 @@
+D:\Program Files\Python\Lib\site-packages\coverage\report_core.py:113: CoverageWarning: Couldn't parse 'D:\Python_work\File-tools\backend\api\routes\directory.py': Couldn't use data file 'D:\\Python_work\\File-tools\\.coverage': no such table: line_bits (couldnt-parse); see https://coverage.readthedocs.io/en/7.13.4/messages.html#warning-couldnt-parse
+  coverage._warn(msg, slug="couldnt-parse")
+D:\Program Files\Python\Lib\site-packages\coverage\report_core.py:113: CoverageWarning: Couldn't parse 'D:\Python_work\File-tools\backend\api\routes\search.py': Couldn't use data file 'D:\\Python_work\\File-tools\\.coverage': no such table: tracer (couldnt-parse); see https://coverage.readthedocs.io/en/7.13.4/messages.html#warning-couldnt-parse
+  coverage._warn(msg, slug="couldnt-parse")
+D:\Program Files\Python\Lib\site-packages\coverage\report_core.py:113: CoverageWarning: Couldn't parse 'D:\Python_work\File-tools\backend\api\routes\search_fix.py': Couldn't use data file 'D:\\Python_work\\File-tools\\.coverage': no such table: tracer (couldnt-parse); see https://coverage.readthedocs.io/en/7.13.4/messages.html#warning-couldnt-parse
+  coverage._warn(msg, slug="couldnt-parse")
+D:\Program Files\Python\Lib\site-packages\coverage\report_core.py:113: CoverageWarning: Couldn't parse 'D:\Python_work\File-tools\backend\api\routes\system.py': Couldn't use data file 'D:\\Python_work\\File-tools\\.coverage': no such table: tracer (couldnt-parse); see https://coverage.readthedocs.io/en/7.13.4/messages.html#warning-couldnt-parse
+  coverage._warn(msg, slug="couldnt-parse")
+D:\Program Files\Python\Lib\site-packages\coverage\report_core.py:113: CoverageWarning: Couldn't parse 'D:\Python_work\File-tools\backend\core\__init__.py': Couldn't use data file 'D:\\Python_work\\File-tools\\.coverage': no such table: tracer (couldnt-parse); see https://coverage.readthedocs.io/en/7.13.4/messages.html#warning-couldnt-parse
+  coverage._warn(msg, slug="couldnt-parse")
+D:\Program Files\Python\Lib\site-packages\coverage\report_core.py:113: CoverageWarning: Couldn't parse 'D:\Python_work\File-tools\backend\core\chat_history_db.py': Couldn't use data file 'D:\\Python_work\\File-tools\\.coverage': no such table: tracer (couldnt-parse); see https://coverage.readthedocs.io/en/7.13.4/messages.html#warning-couldnt-parse
+  coverage._warn(msg, slug="couldnt-parse")
+D:\Program Files\Python\Lib\site-packages\coverage\report_core.py:113: CoverageWarning: Couldn't parse 'D:\Python_work\File-tools\backend\core\constants.py': Couldn't use data file 'D:\\Python_work\\File-tools\\.coverage': no such table: tracer (couldnt-parse); see https://coverage.readthedocs.io/en/7.13.4/messages.html#warning-couldnt-parse
+  coverage._warn(msg, slug="couldnt-parse")
+D:\Program Files\Python\Lib\site-packages\coverage\report_core.py:113: CoverageWarning: Couldn't parse 'D:\Python_work\File-tools\backend\core\document_parser.py': Couldn't use data file 'D:\\Python_work\\File-tools\\.coverage': no such table: tracer (couldnt-parse); see https://coverage.readthedocs.io/en/7.13.4/messages.html#warning-couldnt-parse
+  coverage._warn(msg, slug="couldnt-parse")
+D:\Program Files\Python\Lib\site-packages\coverage\report_core.py:113: CoverageWarning: Couldn't parse 'D:\Python_work\File-tools\backend\core\embedding_manager.py': Couldn't use data file 'D:\\Python_work\\File-tools\\.coverage': no such table: tracer (couldnt-parse); see https://coverage.readthedocs.io/en/7.13.4/messages.html#warning-couldnt-parse
+  coverage._warn(msg, slug="couldnt-parse")
+D:\Program Files\Python\Lib\site-packages\coverage\report_core.py:113: CoverageWarning: Couldn't parse 'D:\Python_work\File-tools\backend\core\exceptions.py': Couldn't use data file 'D:\\Python_work\\File-tools\\.coverage': no such table: tracer (couldnt-parse); see https://coverage.readthedocs.io/en/7.13.4/messages.html#warning-couldnt-parse
+  coverage._warn(msg, slug="couldnt-parse")
+D:\Program Files\Python\Lib\site-packages\coverage\report_core.py:113: CoverageWarning: Couldn't parse 'D:\Python_work\File-tools\backend\core\file_monitor.py': Couldn't use data file 'D:\\Python_work\\File-tools\\.coverage': no such table: tracer (couldnt-parse); see https://coverage.readthedocs.io/en/7.13.4/messages.html#warning-couldnt-parse
+  coverage._warn(msg, slug="couldnt-parse")
+D:\Program Files\Python\Lib\site-packages\coverage\report_core.py:113: CoverageWarning: Couldn't parse 'D:\Python_work\File-tools\backend\core\file_scanner.py': Couldn't use data file 'D:\\Python_work\\File-tools\\.coverage': no such table: tracer (couldnt-parse); see https://coverage.readthedocs.io/en/7.13.4/messages.html#warning-couldnt-parse
+  coverage._warn(msg, slug="couldnt-parse")
+D:\Program Files\Python\Lib\site-packages\coverage\report_core.py:113: CoverageWarning: Couldn't parse 'D:\Python_work\File-tools\backend\core\index_manager.py': Couldn't use data file 'D:\\Python_work\\File-tools\\.coverage': no such table: tracer (couldnt-parse); see https://coverage.readthedocs.io/en/7.13.4/messages.html#warning-couldnt-parse
+  coverage._warn(msg, slug="couldnt-parse")
+D:\Program Files\Python\Lib\site-packages\coverage\report_core.py:113: CoverageWarning: Couldn't parse 'D:\Python_work\File-tools\backend\core\model_manager.py': Couldn't use data file 'D:\\Python_work\\File-tools\\.coverage': no such table: tracer (couldnt-parse); see https://coverage.readthedocs.io/en/7.13.4/messages.html#warning-couldnt-parse
+  coverage._warn(msg, slug="couldnt-parse")
+D:\Program Files\Python\Lib\site-packages\coverage\report_core.py:113: CoverageWarning: Couldn't parse 'D:\Python_work\File-tools\backend\core\privacy_guard.py': Couldn't use data file 'D:\\Python_work\\File-tools\\.coverage': no such table: tracer (couldnt-parse); see https://coverage.readthedocs.io/en/7.13.4/messages.html#warning-couldnt-parse
+  coverage._warn(msg, slug="couldnt-parse")
+D:\Program Files\Python\Lib\site-packages\coverage\report_core.py:113: CoverageWarning: Couldn't parse 'D:\Python_work\File-tools\backend\core\query_processor.py': Couldn't use data file 'D:\\Python_work\\File-tools\\.coverage': no such table: tracer (couldnt-parse); see https://coverage.readthedocs.io/en/7.13.4/messages.html#warning-couldnt-parse
+  coverage._warn(msg, slug="couldnt-parse")
+D:\Program Files\Python\Lib\site-packages\coverage\report_core.py:113: CoverageWarning: Couldn't parse 'D:\Python_work\File-tools\backend\core\rag_pipeline.py': Couldn't use data file 'D:\\Python_work\\File-tools\\.coverage': no such table: tracer (couldnt-parse); see https://coverage.readthedocs.io/en/7.13.4/messages.html#warning-couldnt-parse
+  coverage._warn(msg, slug="couldnt-parse")
+D:\Program Files\Python\Lib\site-packages\coverage\report_core.py:113: CoverageWarning: Couldn't parse 'D:\Python_work\File-tools\backend\core\search_engine.py': Couldn't use data file 'D:\\Python_work\\File-tools\\.coverage': no such table: tracer (couldnt-parse); see https://coverage.readthedocs.io/en/7.13.4/messages.html#warning-couldnt-parse
+  coverage._warn(msg, slug="couldnt-parse")
+D:\Program Files\Python\Lib\site-packages\coverage\report_core.py:113: CoverageWarning: Couldn't parse 'D:\Python_work\File-tools\backend\core\sharded_cache.py': Couldn't use data file 'D:\\Python_work\\File-tools\\.coverage': no such table: tracer (couldnt-parse); see https://coverage.readthedocs.io/en/7.13.4/messages.html#warning-couldnt-parse
+  coverage._warn(msg, slug="couldnt-parse")
+D:\Program Files\Python\Lib\site-packages\coverage\report_core.py:113: CoverageWarning: Couldn't parse 'D:\Python_work\File-tools\backend\core\text_chunker.py': Couldn't use data file 'D:\\Python_work\\File-tools\\.coverage': no such table: tracer (couldnt-parse); see https://coverage.readthedocs.io/en/7.13.4/messages.html#warning-couldnt-parse
+  coverage._warn(msg, slug="couldnt-parse")
+D:\Program Files\Python\Lib\site-packages\coverage\report_core.py:113: CoverageWarning: Couldn't parse 'D:\Python_work\File-tools\backend\core\vram_manager.py': Couldn't use data file 'D:\\Python_work\\File-tools\\.coverage': no such table: tracer (couldnt-parse); see https://coverage.readthedocs.io/en/7.13.4/messages.html#warning-couldnt-parse
+  coverage._warn(msg, slug="couldnt-parse")
+D:\Program Files\Python\Lib\site-packages\coverage\report_core.py:113: CoverageWarning: Couldn't parse 'D:\Python_work\File-tools\backend\utils\__init__.py': Couldn't use data file 'D:\\Python_work\\File-tools\\.coverage': no such table: tracer (couldnt-parse); see https://coverage.readthedocs.io/en/7.13.4/messages.html#warning-couldnt-parse
+  coverage._warn(msg, slug="couldnt-parse")
+D:\Program Files\Python\Lib\site-packages\coverage\report_core.py:113: CoverageWarning: Couldn't parse 'D:\Python_work\File-tools\backend\utils\app_paths.py': Couldn't use data file 'D:\\Python_work\\File-tools\\.coverage': no such table: tracer (couldnt-parse); see https://coverage.readthedocs.io/en/7.13.4/messages.html#warning-couldnt-parse
+  coverage._warn(msg, slug="couldnt-parse")
+D:\Program Files\Python\Lib\site-packages\coverage\report_core.py:113: CoverageWarning: Couldn't parse 'D:\Python_work\File-tools\backend\utils\config_loader.py': Couldn't use data file 'D:\\Python_work\\File-tools\\.coverage': no such table: tracer (couldnt-parse); see https://coverage.readthedocs.io/en/7.13.4/messages.html#warning-couldnt-parse
+  coverage._warn(msg, slug="couldnt-parse")
+D:\Program Files\Python\Lib\site-packages\coverage\report_core.py:113: CoverageWarning: Couldn't parse 'D:\Python_work\File-tools\backend\utils\config_validator.py': Couldn't use data file 'D:\\Python_work\\File-tools\\.coverage': no such table: tracer (couldnt-parse); see https://coverage.readthedocs.io/en/7.13.4/messages.html#warning-couldnt-parse
+  coverage._warn(msg, slug="couldnt-parse")
+D:\Program Files\Python\Lib\site-packages\coverage\report_core.py:113: CoverageWarning: Couldn't parse 'D:\Python_work\File-tools\backend\utils\logger.py': Couldn't use data file 'D:\\Python_work\\File-tools\\.coverage': no such table: tracer (couldnt-parse); see https://coverage.readthedocs.io/en/7.13.4/messages.html#warning-couldnt-parse
+  coverage._warn(msg, slug="couldnt-parse")
+D:\Program Files\Python\Lib\site-packages\coverage\report_core.py:113: CoverageWarning: Couldn't parse 'D:\Python_work\File-tools\backend\utils\metrics.py': Couldn't use data file 'D:\\Python_work\\File-tools\\.coverage': no such table: tracer (couldnt-parse); see https://coverage.readthedocs.io/en/7.13.4/messages.html#warning-couldnt-parse
+  coverage._warn(msg, slug="couldnt-parse")
+D:\Program Files\Python\Lib\site-packages\coverage\report_core.py:113: CoverageWarning: Couldn't parse 'D:\Python_work\File-tools\backend\utils\network.py': Couldn't use data file 'D:\\Python_work\\File-tools\\.coverage': no such table: tracer (couldnt-parse); see https://coverage.readthedocs.io/en/7.13.4/messages.html#warning-couldnt-parse
+  coverage._warn(msg, slug="couldnt-parse")
+D:\Program Files\Python\Lib\site-packages\pytest_cov\plugin.py:363: CovReportWarning: Failed to generate report: Couldn't use data file 'D:\\Python_work\\File-tools\\.coverage': no such table: tracer
+
+  warnings.warn(CovReportWarning(message), stacklevel=1)

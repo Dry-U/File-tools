@@ -1,0 +1,340 @@
+"""
+嵌入式模型管理器 - 统一管理 Embedding 和 Reranker 模型
+支持 FastEmbed + ColBERT 轻量化方案
+"""
+
+import os
+import time
+import logging
+from typing import Optional, List, Dict, Any, Generator, Tuple
+from pathlib import Path
+
+logger = logging.getLogger(__name__)
+
+# HuggingFace 镜像
+HF_ENDPOINT = os.environ.get("HF_ENDPOINT", "https://hf-mirror.com")
+os.environ["HF_ENDPOINT"] = HF_ENDPOINT
+
+
+class EmbeddingModelError(Exception):
+    """嵌入模型错误基类"""
+    pass
+
+
+class ModelDownloadError(EmbeddingModelError):
+    """模型下载失败"""
+    pass
+
+
+class ModelLoadError(EmbeddingModelError):
+    """模型加载失败"""
+    pass
+
+
+class EmbeddingModelManager:
+    """
+    统一管理 Embedding 和 Reranker 模型的生命周期
+    """
+
+    def __init__(self, config_loader):
+        self.config_loader = config_loader
+        self._embedding_model = None
+        self._reranker_model = None
+        self._embedding_dim = None
+        self._reranker_type = None
+        self._initialized = False
+
+        # 加载配置
+        self._load_config()
+
+    def _load_config(self):
+        """加载模型配置"""
+        # Embedding 配置
+        self.embedding_provider = self.config_loader.get(
+            "embedding", "provider", "fastembed"
+        ).strip()
+        self.embedding_model_name = self.config_loader.get(
+            "embedding", "model_name", "BAAI/bge-small-zh-v1.5"
+        ).strip()
+        self.embedding_cache_dir = self._resolve_cache_dir(
+            self.config_loader.get("embedding", "cache_dir", "data/models")
+        )
+        self.embedding_device = self.config_loader.get(
+            "embedding", "device", "cpu"
+        ).strip()
+        self.embedding_normalize = self.config_loader.getboolean(
+            "embedding", "normalize", True
+        )
+        self.embedding_batch_size = self.config_loader.getint(
+            "embedding", "batch_size", 32
+        )
+
+        # Reranker 配置
+        self.reranker_enabled = self.config_loader.getboolean(
+            "reranker", "enabled", True
+        )
+        self.reranker_model_name = self.config_loader.get(
+            "reranker", "model_name", "answerdotai/answerai-colbert-small-v1"
+        ).strip()
+        self.reranker_cache_dir = self._resolve_cache_dir(
+            self.config_loader.get("reranker", "cache_dir", "data/models")
+        )
+        self.reranker_top_k = self.config_loader.getint(
+            "reranker", "top_k", 5
+        )
+
+        # 确保缓存目录存在
+        os.makedirs(self.embedding_cache_dir, exist_ok=True)
+        os.makedirs(self.reranker_cache_dir, exist_ok=True)
+
+        logger.info(f"[EmbeddingManager] Embedding: {self.embedding_model_name}")
+        logger.info(f"[EmbeddingManager] Reranker: {self.reranker_model_name} (enabled={self.reranker_enabled})")
+
+    def _resolve_cache_dir(self, cache_dir: str) -> str:
+        """解析缓存目录为绝对路径"""
+        if not cache_dir:
+            return str(Path("data/models").absolute())
+
+        if not os.path.isabs(cache_dir):
+            project_root = Path(__file__).parent.parent.parent
+            resolved = project_root / cache_dir
+        else:
+            resolved = Path(cache_dir)
+
+        return str(resolved)
+
+    # ========== Embedding 模型管理 ==========
+
+    def ensure_embedding_loaded(self) -> bool:
+        """确保 Embedding 模型已加载"""
+        if self._embedding_model is not None:
+            return True
+
+        try:
+            return self._load_embedding_model()
+        except Exception as e:
+            logger.error(f"[EmbeddingManager] Embedding 模型加载失败: {e}")
+            return False
+
+    def is_embedding_model_cached(self) -> bool:
+        """检测 Embedding 模型是否已缓存"""
+        # 检查 FastEmbed 缓存目录
+        model_cache_path = os.path.join(
+            self.embedding_cache_dir,
+            self.embedding_model_name.replace("/", "_")
+        )
+
+        # 也检查 HuggingFace 默认缓存
+        hf_cache = Path.home() / ".cache" / "huggingface" / "hub"
+        hf_model_path = hf_cache / f"models--{self.embedding_model_name.replace('/', '--')}"
+
+        return os.path.exists(model_cache_path) or os.path.exists(hf_model_path)
+
+    def _load_embedding_model(self) -> bool:
+        """加载 Embedding 模型"""
+        try:
+            from fastembed import TextEmbedding
+
+            logger.info(f"[EmbeddingManager] 加载 FastEmbed 模型: {self.embedding_model_name}")
+
+            # 检查模型是否存在，不存在则下载
+            if not self.is_embedding_model_cached():
+                logger.info(f"[EmbeddingManager] 模型不存在，使用 FastEmbed 自动下载...")
+
+            # 加载模型（FastEmbed 会自动从镜像下载）
+            self._embedding_model = TextEmbedding(
+                model_name=self.embedding_model_name,
+                cache_dir=self.embedding_cache_dir,
+            )
+
+            # 获取向量维度
+            self._embedding_dim = self._embedding_model.embedding_size
+            logger.info(f"[EmbeddingManager] FastEmbed 加载成功，向量维度: {self._embedding_dim}")
+            return True
+
+        except ImportError as e:
+            logger.error(f"[EmbeddingManager] FastEmbed 未安装: {e}")
+            return False
+        except Exception as e:
+            logger.error(f"[EmbeddingManager] FastEmbed 加载失败: {e}")
+            return False
+
+    def embed(self, texts: List[str]) -> Generator[List[float], None, None]:
+        """
+        生成文本嵌入向量
+
+        Args:
+            texts: 文本列表
+
+        Yields:
+            嵌入向量
+        """
+        if not self.ensure_embedding_loaded():
+            raise ModelLoadError("Embedding 模型加载失败")
+
+        try:
+            for embedding in self._embedding_model.embed(texts):
+                yield embedding.tolist() if hasattr(embedding, "tolist") else list(embedding)
+        except Exception as e:
+            logger.error(f"[EmbeddingManager] 生成嵌入向量失败: {e}")
+            raise
+
+    # ========== Reranker 模型管理 ==========
+
+    def ensure_reranker_loaded(self) -> bool:
+        """确保 Reranker 模型已加载"""
+        if not self.reranker_enabled:
+            logger.info("[EmbeddingManager] Reranker 未启用")
+            return False
+
+        if self._reranker_model is not None:
+            return True
+
+        try:
+            return self._load_reranker_model()
+        except Exception as e:
+            logger.error(f"[EmbeddingManager] Reranker 模型加载失败: {e}")
+            return False
+
+    def is_reranker_model_cached(self) -> bool:
+        """检测 Reranker 模型是否已缓存"""
+        model_cache_path = os.path.join(
+            self.reranker_cache_dir,
+            self.reranker_model_name.replace("/", "_")
+        )
+
+        hf_cache = Path.home() / ".cache" / "huggingface" / "hub"
+        hf_model_path = hf_cache / f"models--{self.reranker_model_name.replace('/', '--')}"
+
+        return os.path.exists(model_cache_path) or os.path.exists(hf_model_path)
+
+    def _load_reranker_model(self) -> bool:
+        """加载 Reranker 模型"""
+        try:
+            from fastembed.late_interaction import LateInteractionTextEmbedding
+
+            logger.info(f"[EmbeddingManager] 加载 ColBERT 模型: {self.reranker_model_name}")
+
+            # 检查模型是否存在
+            if not self.is_reranker_model_cached():
+                logger.info(f"[EmbeddingManager] ColBERT 模型不存在，使用 FastEmbed 自动下载...")
+
+            # 加载 ColBERT 模型
+            self._reranker_model = LateInteractionTextEmbedding(
+                model_name=self.reranker_model_name,
+                cache_dir=self.reranker_cache_dir,
+            )
+            self._reranker_type = "colbert"
+            logger.info("[EmbeddingManager] ColBERT 模型加载成功")
+            return True
+
+        except ImportError as e:
+            logger.warning(f"[EmbeddingManager] FastEmbed ColBERT 未安装: {e}")
+            return False
+        except Exception as e:
+            logger.error(f"[EmbeddingManager] ColBERT 模型加载失败: {e}")
+            return False
+
+    def rerank(
+        self,
+        query: str,
+        documents: List[Dict[str, Any]],
+        top_k: Optional[int] = None
+    ) -> List[Dict[str, Any]]:
+        """
+        对文档进行重排序
+
+        Args:
+            query: 查询字符串
+            documents: 文档列表，每个包含 content/path 等字段
+            top_k: 返回前 k 个结果
+
+        Returns:
+            重排序后的文档列表
+        """
+        if top_k is None:
+            top_k = self.reranker_top_k
+
+        if not self.ensure_reranker_loaded():
+            return documents[:top_k]
+
+        try:
+            return self._colbert_rerank(query, documents, top_k)
+        except Exception as e:
+            logger.warning(f"[EmbeddingManager] Rerank 失败: {e}")
+            return documents[:top_k]
+
+    def _colbert_rerank(
+        self,
+        query: str,
+        documents: List[Dict[str, Any]],
+        top_k: int
+    ) -> List[Dict[str, Any]]:
+        """使用 ColBERT 进行重排序"""
+        import numpy as np
+
+        # 提取文档内容
+        doc_contents = []
+        for doc in documents:
+            content = doc.get("content", "") or doc.get("snippet", "")
+            doc_contents.append(content[:512])  # 限制长度
+
+        # 编码
+        query_emb = np.array(list(self._reranker_model.embed([query]))[0])
+        doc_embs = list(self._reranker_model.embed(doc_contents))
+
+        # 计算 ColBERT MaxSim 分数
+        scores = []
+        for doc_emb in doc_embs:
+            doc_emb = np.array(doc_emb)
+            # MaxSim: 每个query token与doc所有token的最大相似度之和
+            sim_matrix = np.matmul(query_emb, doc_emb.T)
+            max_sims = np.max(sim_matrix, axis=1)
+            score = float(np.mean(max_sims))
+            scores.append(score)
+
+        # 合并分数并排序
+        scored_docs = list(zip(scores, documents))
+        scored_docs.sort(key=lambda x: x[0], reverse=True)
+
+        # 构建结果
+        reranked = []
+        for rank, (score, doc) in enumerate(scored_docs[:top_k]):
+            new_doc = doc.copy()
+            new_doc["rerank_score"] = score
+            new_doc["rerank_rank"] = rank + 1
+            reranked.append(new_doc)
+
+        return reranked
+
+    # ========== 工具方法 ==========
+
+    @property
+    def embedding_dim(self) -> Optional[int]:
+        """获取 Embedding 向量维度"""
+        if self._embedding_dim is None and self._embedding_model is not None:
+            self._embedding_dim = self._embedding_model.embedding_size
+        return self._embedding_dim
+
+    def get_model_info(self) -> Dict[str, Any]:
+        """获取当前加载的模型信息"""
+        return {
+            "embedding": {
+                "loaded": self._embedding_model is not None,
+                "provider": self.embedding_provider,
+                "model_name": self.embedding_model_name,
+                "dim": self._embedding_dim,
+            },
+            "reranker": {
+                "loaded": self._reranker_model is not None,
+                "enabled": self.reranker_enabled,
+                "model_name": self.reranker_model_name,
+                "type": self._reranker_type,
+            },
+        }
+
+    def cleanup(self):
+        """清理资源"""
+        self._embedding_model = None
+        self._reranker_model = None
+        logger.info("[EmbeddingManager] 资源已清理")

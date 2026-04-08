@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-"\"\"\"文档解析器模块 - 处理多种格式文档的内容提取\"\"\""
+'"""文档解析器模块 - 处理多种格式文档的内容提取"""'
 
 import atexit
 import os
@@ -85,7 +85,6 @@ class DocumentParser:
     MAX_OUTPUT_SIZE_DOC_MB = 10  # Word输出文本最大大小
     MAX_OUTPUT_SIZE_TEXT_MB = 10  # 文本文件输出最大大小
 
-    @timeout(10)
     def _parse_pptx(self, file_path):
         """解析PPTX文件（10秒超时）"""
         try:
@@ -124,6 +123,10 @@ class DocumentParser:
     def __init__(self, config_loader):
         self.config_loader = config_loader
         self.logger = logging.getLogger(__name__)
+
+        # 解析超时时间（秒）- 从配置读取，默认30秒
+        self.parse_timeout = config_loader.getint("file_scanner", "parse_timeout", 30)
+        self.logger.info(f"文档解析超时时间: {self.parse_timeout} 秒")
 
         # 统一的文件大小限制（从配置读取，使用默认值）
         # 这些限制用于防止内存溢出
@@ -231,18 +234,32 @@ class DocumentParser:
             text = ""
             # 尝试使用特定的解析器
             if file_ext in self.parser_map:
-                text = self.parser_map[file_ext](file_path)
+                # 使用可配置的超时来执行解析
+                text = self._parse_with_timeout(file_ext, file_path)
             else:
                 self.logger.info(
                     f"未找到特定的解析器，使用通用解析器。文件: {file_path}, 扩展名: '{file_ext}', 支持的格式: {list(self.parser_map.keys())}"
                 )
                 # 尝试使用通用解析器作为后备
-                text = self._parse_generic(file_path)
+                text = self._parse_with_timeout("generic", file_path)
 
             return self._clean_text(text)
         except Exception as e:
             self.logger.error(f"解析文件失败 {file_path}: {str(e)}")
             return f"错误: 无法解析文件内容\n{str(e)}"
+
+    def _parse_with_timeout(self, file_ext, file_path):
+        """使用可配置超时执行解析"""
+        parser_func = self.parser_map.get(file_ext, self._parse_generic)
+        future = _timeout_executor.submit(parser_func, file_path)
+        try:
+            return future.result(timeout=self.parse_timeout)
+        except FutureTimeoutError:
+            try:
+                future.cancel()
+            except Exception:
+                pass
+            raise TimeoutError(f"文档解析超时（{self.parse_timeout}秒）: {file_path}")
 
     def extract_metadata(self, file_path):
         """提取文件元数据"""
@@ -289,14 +306,13 @@ class DocumentParser:
 
         return metadata
 
-    @timeout(10)
     def _parse_pdf(self, file_path):
-        """解析PDF文件（10秒超时，优化版）
+        """解析PDF文件（使用可配置超时）
 
         优化策略：
         1. 只使用 PyMuPDF（最快）+ pdfplumber（表格支持）
         2. 移除 pdfminer、pypdf、textract 回退链，减少等待时间
-        3. 10秒超时（从30秒减少）提高响应速度
+        3. 超时时间可通过配置文件的 parse_timeout 参数设置
         """
 
         # 检查文件大小，避免加载过大PDF导致内存问题
@@ -333,10 +349,15 @@ class DocumentParser:
                                     if sum(len(t) for t in all_texts) > max_text_length:
                                         text = "\n".join(all_texts)
                                         if len(text) > max_text_length:
-                                            text = text[:max_text_length] + "\n... (内容已截断)"
+                                            text = (
+                                                text[:max_text_length]
+                                                + "\n... (内容已截断)"
+                                            )
                                         return text
                             except Exception as e:
-                                self.logger.warning(f"页面 {page_num} 提取失败: {str(e)}")
+                                self.logger.warning(
+                                    f"页面 {page_num} 提取失败: {str(e)}"
+                                )
                                 continue  # 继续处理下一页
                     finally:
                         doc.close()
@@ -375,9 +396,8 @@ class DocumentParser:
 
         return text
 
-    @timeout(10)
     def _parse_docx(self, file_path):
-        """解析Word文档（10秒超时）"""
+        """解析Word文档（使用可配置超时）"""
         try:
             # 检查文件大小，避免加载过大文件导致内存问题
             file_size = os.path.getsize(file_path)
@@ -467,6 +487,7 @@ class DocumentParser:
                 pass  # 忽略临时文件删除失败，不影响主流程
         try:
             import pythoncom
+
             pythoncom.CoUninitialize()
         except Exception:
             pass  # 忽略 COM 卸载失败，不影响主流程
@@ -510,7 +531,6 @@ class DocumentParser:
         finally:
             self._cleanup_com_resources(doc, word, temp_docx)
 
-    @timeout(10)
     def _parse_doc_win32(self, file_path):
         """使用win32com解析.doc文件 (仅Windows, 10秒超时)"""
         if not win32com:
@@ -649,9 +669,8 @@ class DocumentParser:
             except (OSError, ValueError) as e2:
                 return f"错误: 无法解析CSV内容\n{str(e2)}"
 
-    @timeout(10)
     def _parse_excel(self, file_path):
-        """解析Excel文件（10秒超时）"""
+        """解析Excel文件（使用可配置超时）"""
         try:
             # 检查文件大小，避免加载过大文件导致内存问题
             file_size = os.path.getsize(file_path)

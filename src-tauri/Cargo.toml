@@ -1,0 +1,31 @@
+[package]
+name = "filetools"
+version = "1.1.0"
+description = "智能文件检索与问答系统"
+authors = ["Darian & AI"]
+edition = "2021"
+
+[lib]
+name = "filetools_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-shell = "2"
+tauri-plugin-dialog = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+log = "0.4"
+env_logger = "0.11"
+reqwest = { version = "0.12", features = ["blocking"] }
+parking_lot = "0.12"
+
+[profile.release]
+panic = "abort"
+codegen-units = 1
+lto = true
+opt-level = "s"
+strip = true

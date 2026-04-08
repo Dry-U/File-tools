@@ -93,7 +93,7 @@ search:
 
 ### 方式一：桌面应用（推荐）
 ```bash
-uv run python main.py
+npm run tauri dev
 ```
 
 ### 方式二：直接运行

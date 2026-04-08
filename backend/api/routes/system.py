@@ -4,6 +4,7 @@
 
 import os
 import time
+import threading
 from pathlib import Path
 from typing import Dict, Any
 from fastapi import APIRouter, HTTPException, Request, Depends
@@ -77,6 +78,13 @@ async def rebuild_index(
                 status_code=429, detail="重建索引过于频繁，请10分钟后再试"
             )
 
+    # 检查是否已有重建任务在进行
+    with _rebuild_lock:
+        if _rebuild_progress_state["in_progress"]:
+            raise HTTPException(
+                status_code=409, detail="重建任务正在进行中，请稍后再试"
+            )
+
     try:
         logger.info("开始重建索引...")
         stats = file_scanner.scan_and_index()
@@ -102,21 +110,25 @@ _rebuild_progress_state = {
     "error": None,
 }
 
+# 保护 _rebuild_progress_state 的线程锁
+_rebuild_lock = threading.Lock()
+
 
 @router.get("/rebuild-progress")
 async def get_rebuild_progress():
     """获取当前重建索引的进度状态"""
-    return {
-        "in_progress": _rebuild_progress_state["in_progress"],
-        "progress": _rebuild_progress_state["progress"],
-        "current_file": _rebuild_progress_state["current_file"],
-        "files_scanned": _rebuild_progress_state["files_scanned"],
-        "files_indexed": _rebuild_progress_state["files_indexed"],
-        "error": _rebuild_progress_state["error"],
-    }
+    with _rebuild_lock:
+        return {
+            "in_progress": _rebuild_progress_state["in_progress"],
+            "progress": _rebuild_progress_state["progress"],
+            "current_file": _rebuild_progress_state["current_file"],
+            "files_scanned": _rebuild_progress_state["files_scanned"],
+            "files_indexed": _rebuild_progress_state["files_indexed"],
+            "error": _rebuild_progress_state["error"],
+        }
 
 
-@router.post("/rebuild-index/stream")
+@router.get("/rebuild-index/stream")
 async def rebuild_index_stream(
     request: Request,
     config_loader: ConfigLoader = Depends(get_config_loader),
@@ -142,118 +154,164 @@ async def rebuild_index_stream(
             )
 
     # 检查是否已有重建任务在进行
-    if _rebuild_progress_state["in_progress"]:
-        raise HTTPException(status_code=409, detail="重建任务正在进行中，请稍后再试")
+    with _rebuild_lock:
+        if _rebuild_progress_state["in_progress"]:
+            raise HTTPException(
+                status_code=409, detail="重建任务正在进行中，请稍后再试"
+            )
 
     # 用于线程间通信的队列
     progress_queue = queue.Queue()
+    # 用于通知任务完成的事件
+    task_done_event = asyncio.Event()
 
     async def event_generator():
         """SSE事件生成器"""
-        # 重置进度状态
-        _rebuild_progress_state["in_progress"] = True
-        _rebuild_progress_state["progress"] = 0
-        _rebuild_progress_state["current_file"] = ""
-        _rebuild_progress_state["files_scanned"] = 0
-        _rebuild_progress_state["files_indexed"] = 0
-        _rebuild_progress_state["error"] = None
+        client_disconnected = False
+        last_keepalive = time.time()
+        keepalive_interval = 5  # 每5秒发送一次 keepalive
+
+        with _rebuild_lock:
+            _rebuild_progress_state["in_progress"] = True
+            _rebuild_progress_state["progress"] = 0
+            _rebuild_progress_state["current_file"] = ""
+            _rebuild_progress_state["files_scanned"] = 0
+            _rebuild_progress_state["files_indexed"] = 0
+            _rebuild_progress_state["error"] = None
 
         def progress_callback(progress):
             """进度回调函数 - 发送进度到队列"""
             try:
-                progress_queue.put_nowait(('progress', progress))
+                progress_queue.put_nowait(("progress", progress))
             except queue.Full:
-                pass  # 忽略队列满的情况
-
-        async def poll_progress():
-            """定期检查队列并发送进度更新"""
-            while _rebuild_progress_state["in_progress"]:
-                try:
-                    # 等待最多0.5秒，同时检查停止标志
-                    item = progress_queue.get(timeout=0.5)
-                    if item[0] == 'progress':
-                        progress = item[1]
-                        _rebuild_progress_state["progress"] = progress
-                        # 发送进度更新
-                        yield f"data: {json.dumps({'status': 'progress', 'progress': progress})}\n\n"
-                except queue.Empty:
-                    # 队列为空但仍在进行，发送心跳
-                    if _rebuild_progress_state["in_progress"]:
-                        yield f"data: {json.dumps({'status': 'heartbeat', 'progress': _rebuild_progress_state['progress']})}\n\n"
-                    continue
-                except Exception as e:
-                    logger.debug(f"轮询进度错误: {e}")
-                    break
+                pass
 
         try:
-            # 设置进度回调
             original_callback = file_scanner.progress_callback
             file_scanner.progress_callback = progress_callback
 
-            # 并行执行：轮询进度 + 运行扫描
             loop = asyncio.get_event_loop()
-
-            # 创建扫描任务
             scan_task = loop.run_in_executor(None, file_scanner.scan_and_index)
 
-            # 轮询进度直到扫描完成
             scan_done = False
+            last_yield_time = time.time()
             while not scan_done:
-                # 检查扫描是否完成
+                # 不再阻塞等待断开检测，直接处理进度
+                # 如果客户端断开，yield会自然失败
+
+                # 检查任务是否完成
                 if scan_task.done():
                     scan_done = True
                     break
 
-                # 处理队列中的进度更新
+                # 处理队列中的进度消息
                 try:
-                    item = progress_queue.get_nowait()
-                    if item[0] == 'progress':
-                        progress = item[1]
-                        _rebuild_progress_state["progress"] = progress
-                        yield f"data: {json.dumps({'status': 'progress', 'progress': progress})}\n\n"
+                    while True:
+                        item = progress_queue.get_nowait()
+                        if item[0] == "progress":
+                            progress = item[1]
+                            with _rebuild_lock:
+                                _rebuild_progress_state["progress"] = progress
+                            try:
+                                yield f"data: {json.dumps({'status': 'progress', 'progress': progress})}\n\n"
+                                last_yield_time = time.time()
+                            except Exception:
+                                # 客户端已断开，发送最终状态后退出
+                                logger.info("SSE: 客户端已断开，发送最终状态")
+                                with _rebuild_lock:
+                                    _rebuild_progress_state["in_progress"] = False
+                                yield f"data: {json.dumps({'status': 'disconnected', 'progress': _rebuild_progress_state['progress'], 'files_scanned': _rebuild_progress_state.get('files_scanned', 0), 'files_indexed': _rebuild_progress_state.get('files_indexed', 0)})}\n\n"
+                                return
                 except queue.Empty:
                     pass
 
-                # 让出控制权
-                await asyncio.sleep(0.1)
+                # 定期发送 keepalive 保持连接活跃
+                current_time = time.time()
+                if current_time - last_yield_time >= keepalive_interval:
+                    try:
+                        yield f"data: {json.dumps({'status': 'keepalive', 'progress': _rebuild_progress_state['progress']})}\n\n"
+                        last_yield_time = current_time
+                    except Exception:
+                        # 客户端已断开
+                        logger.info("SSE: keepalive发送时客户端断开")
+                        return
+
+                await asyncio.sleep(0.05)  # 减少等待时间，更快响应
 
             # 获取扫描结果
+            stats = None
             try:
+                logger.info("SSE: 准备获取扫描结果...")
                 stats = scan_task.result()
+                logger.info(f"SSE: 获取到扫描结果: {stats}")
             except Exception as e:
-                raise e
+                logger.error(f"SSE: 获取扫描结果异常: {str(e)}")
+                # 发送错误消息后让异常继续传播到外层
+                with _rebuild_lock:
+                    _rebuild_progress_state["error"] = str(e)
+                    _rebuild_progress_state["in_progress"] = False
+                yield f"data: {json.dumps({'status': 'error', 'error': str(e)})}\n\n"
+                return  # 显式返回，避免继续执行
+            except Exception as e:
+                logger.error(f"SSE: 获取扫描结果异常: {str(e)}")
+                # 发送错误消息后让异常继续传播到外层
+                with _rebuild_lock:
+                    _rebuild_progress_state["error"] = str(e)
+                    _rebuild_progress_state["in_progress"] = False
+                yield f"data: {json.dumps({'status': 'error', 'error': str(e)})}\n\n"
+                return  # 显式返回，避免继续执行
 
-            # 扫描完成，更新最终状态
-            _rebuild_progress_state["progress"] = 100
-            _rebuild_progress_state["files_scanned"] = stats.get(
-                "total_files_scanned", 0
-            )
-            _rebuild_progress_state["files_indexed"] = stats.get(
-                "total_files_indexed", 0
-            )
-            _rebuild_progress_state["in_progress"] = False
+            with _rebuild_lock:
+                _rebuild_progress_state["progress"] = 100
+                _rebuild_progress_state["files_scanned"] = stats.get(
+                    "total_files_scanned", 0
+                )
+                _rebuild_progress_state["files_indexed"] = stats.get(
+                    "total_files_indexed", 0
+                )
+                _rebuild_progress_state["in_progress"] = False
 
-            # 发送完成事件
-            yield f"data: {json.dumps({'status': 'success', 'progress': 100, **stats})}\n\n"
+            # 发送成功消息
+            success_data = {'status': 'success', 'progress': 100, **stats}
+            success_msg = f"data: {json.dumps(success_data)}\n\n"
+            logger.info(f"SSE: 发送成功消息, data={success_data}")
+            try:
+                yield success_msg
+                # 多次 flush 确保消息被发送（WebView2需要更多flush）
+                await asyncio.sleep(0.1)
+                await asyncio.sleep(0.05)
+                await asyncio.sleep(0)
+                logger.info("SSE: 成功消息已发送")
+            except Exception as e:
+                logger.warning(f"SSE: 发送成功消息时客户端已断开: {e}")
 
         except Exception as e:
             logger.error(f"重建索引错误: {str(e)}")
-            _rebuild_progress_state["error"] = str(e)
-            _rebuild_progress_state["in_progress"] = False
-            yield f"data: {json.dumps({'status': 'error', 'error': str(e)})}\n\n"
+            try:
+                with _rebuild_lock:
+                    _rebuild_progress_state["error"] = str(e)
+                    _rebuild_progress_state["in_progress"] = False
+                yield f"data: {json.dumps({'status': 'error', 'error': str(e)})}\n\n"
+            except Exception:
+                pass  # 避免在错误处理中再次抛出异常
 
         finally:
-            # 恢复原始回调
-            file_scanner.progress_callback = original_callback
-            _rebuild_progress_state["in_progress"] = False
+            try:
+                file_scanner.progress_callback = original_callback
+                with _rebuild_lock:
+                    _rebuild_progress_state["in_progress"] = False
+            except Exception:
+                pass  # 避免在 finally 中抛出异常
 
     return StreamingResponse(
         event_generator(),
         media_type="text/event-stream",
         headers={
-            "Cache-Control": "no-cache",
+            "Cache-Control": "no-cache, no-store, must-revalidate",
             "Connection": "keep-alive",
-            "X-Accel-Buffering": "no",  # 禁用Nginx缓冲
+            "X-Accel-Buffering": "no",
+            "X-Content-Type-Options": "nosniff",
+            "Transfer-Encoding": "chunked",
         },
     )
 
@@ -264,25 +322,25 @@ async def cancel_rebuild_index(
     file_scanner=Depends(get_file_scanner),
 ):
     """取消正在进行的重建索引任务"""
-    global _rebuild_progress_state
-
-    if not _rebuild_progress_state["in_progress"]:
-        return {"status": "success", "message": "没有正在进行的重建任务"}
+    with _rebuild_lock:
+        if not _rebuild_progress_state["in_progress"]:
+            return {"status": "success", "message": "没有正在进行的重建任务"}
 
     try:
-        # 停止扫描
         file_scanner.stop_scan()
 
-        # 更新进度状态
-        _rebuild_progress_state["in_progress"] = False
-        _rebuild_progress_state["progress"] = 0
-        _rebuild_progress_state["error"] = "用户取消"
+        with _rebuild_lock:
+            _rebuild_progress_state["in_progress"] = False
+            _rebuild_progress_state["progress"] = 0
+            _rebuild_progress_state["error"] = "用户取消"
+            files_scanned = _rebuild_progress_state["files_scanned"]
+            files_indexed = _rebuild_progress_state["files_indexed"]
 
         return {
             "status": "success",
             "message": "重建任务已取消",
-            "files_scanned": _rebuild_progress_state["files_scanned"],
-            "files_indexed": _rebuild_progress_state["files_indexed"],
+            "files_scanned": files_scanned,
+            "files_indexed": files_indexed,
         }
     except Exception as e:
         logger.error(f"取消重建索引错误: {str(e)}")
@@ -404,7 +462,9 @@ async def check_update():
 
         # 比较版本
         try:
-            is_update_available = pkg_version.parse(latest_version) > pkg_version.parse(current)
+            is_update_available = pkg_version.parse(latest_version) > pkg_version.parse(
+                current
+            )
         except Exception:
             # 版本解析失败，简单比较字符串
             is_update_available = latest_version != current
@@ -480,3 +540,87 @@ async def initialization_status(request: Request):
         "components": components,
         "version": get_version(),
     }
+
+
+@router.post("/shutdown")
+async def shutdown_app(request: Request):
+    """优雅关闭应用（供 Rust 端调用）
+
+    此端点用于 Tauri 后端向 Python 后端发送优雅关闭信号。
+    收到请求后执行清理逻辑，然后终止进程。
+    """
+    import os
+    import signal
+
+    logger.info("收到关闭请求，开始执行清理...")
+
+    # 执行与应用 lifespan 相同的清理逻辑
+    try:
+        # 停止文件监控
+        if (
+            hasattr(request.app.state, "file_monitor")
+            and request.app.state.file_monitor
+        ):
+            try:
+                request.app.state.file_monitor.stop_monitoring()
+                logger.info("文件监控已停止")
+            except Exception as e:
+                logger.error(f"停止文件监控时出错: {e}")
+
+        # 关闭文件扫描器
+        if (
+            hasattr(request.app.state, "file_scanner")
+            and request.app.state.file_scanner
+        ):
+            try:
+                request.app.state.file_scanner.close()
+                logger.info("文件扫描器已关闭")
+            except Exception as e:
+                logger.error(f"关闭文件扫描器时出错: {e}")
+
+        # 关闭索引管理器
+        if (
+            hasattr(request.app.state, "index_manager")
+            and request.app.state.index_manager
+        ):
+            try:
+                request.app.state.index_manager.close()
+                logger.info("索引管理器已关闭")
+            except Exception as e:
+                logger.error(f"关闭索引管理器时出错: {e}")
+
+        # 关闭 RAG Pipeline
+        if (
+            hasattr(request.app.state, "rag_pipeline")
+            and request.app.state.rag_pipeline
+        ):
+            try:
+                if (
+                    hasattr(request.app.state.rag_pipeline, "model_manager")
+                    and request.app.state.rag_pipeline.model_manager
+                ):
+                    request.app.state.rag_pipeline.model_manager.close()
+                logger.info("RAG Pipeline 已关闭")
+            except Exception as e:
+                logger.error(f"关闭 RAG Pipeline 时出错: {e}")
+
+        # 关闭限流器
+        if (
+            hasattr(request.app.state, "rate_limiter")
+            and request.app.state.rate_limiter
+        ):
+            try:
+                request.app.state.rate_limiter.shutdown()
+                logger.info("限流器已关闭")
+            except Exception as e:
+                logger.error(f"关闭限流器时出错: {e}")
+
+        logger.info("清理完成，正在终止进程...")
+
+        # 返回成功响应后再终止进程
+        # 使用 os._exit(0) 立即终止，不执行任何清理（已在上方完成）
+        os._exit(0)
+
+    except Exception as e:
+        logger.error(f"关闭时发生异常: {e}")
+        os._exit(1)

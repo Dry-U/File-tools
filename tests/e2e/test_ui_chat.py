@@ -15,7 +15,7 @@ class TestUIChat:
 
     def navigate_to_chat(self, page):
         """导航到聊天页面"""
-        page.goto("http://127.0.0.1:8000", timeout=60000)
+        page.goto("http://127.0.0.1:18642", timeout=60000)
         page.wait_for_load_state("domcontentloaded")
 
         # 等待主容器加载
@@ -81,7 +81,7 @@ class TestUIChat:
             page.wait_for_timeout(2000)
 
         # 页面应该正常
-        assert page.url.startswith("http://127.0.0.1:8000")
+        assert page.url.startswith("http://127.0.0.1:18642")
 
     def test_send_empty_message(self, page):
         """测试发送空消息"""
@@ -100,7 +100,7 @@ class TestUIChat:
             page.wait_for_timeout(500)
 
         # 页面应该正常
-        assert page.url.startswith("http://127.0.0.1:8000")
+        assert page.url.startswith("http://127.0.0.1:18642")
 
     def test_chat_history_display(self, page):
         """测试聊天历史显示"""
@@ -117,7 +117,7 @@ class TestUIChat:
             page.locator(".message, .chat-message").all()
             # 消息数量应该大于等于0
 
-        assert page.url.startswith("http://127.0.0.1:8000")
+        assert page.url.startswith("http://127.0.0.1:18642")
 
     def test_chat_with_long_message(self, page):
         """测试长消息"""
@@ -136,7 +136,7 @@ class TestUIChat:
 
             page.wait_for_timeout(2000)
 
-        assert page.url.startswith("http://127.0.0.1:8000")
+        assert page.url.startswith("http://127.0.0.1:18642")
 
     def test_chat_with_unicode(self, page):
         """测试Unicode消息"""
@@ -154,7 +154,7 @@ class TestUIChat:
 
             page.wait_for_timeout(2000)
 
-        assert page.url.startswith("http://127.0.0.1:8000")
+        assert page.url.startswith("http://127.0.0.1:18642")
 
     def test_new_chat_button(self, page):
         """测试新建聊天按钮"""
@@ -169,7 +169,7 @@ class TestUIChat:
             new_chat_button.click()
             page.wait_for_timeout(500)
 
-        assert page.url.startswith("http://127.0.0.1:8000")
+        assert page.url.startswith("http://127.0.0.1:18642")
 
     def test_session_list_display(self, page):
         """测试会话列表显示"""
@@ -185,7 +185,7 @@ class TestUIChat:
             page.locator(".session-item, .chat-session").all()
             # 会话数量应该大于等于0
 
-        assert page.url.startswith("http://127.0.0.1:8000")
+        assert page.url.startswith("http://127.0.0.1:18642")
 
     def test_clear_chat(self, page):
         """测试清空聊天"""
@@ -208,11 +208,11 @@ class TestUIChat:
                 confirm_button.click()
                 page.wait_for_timeout(500)
 
-        assert page.url.startswith("http://127.0.0.1:8000")
+        assert page.url.startswith("http://127.0.0.1:18642")
 
     def test_chat_mode_toggle(self, page):
         """测试聊天模式切换"""
-        page.goto("http://127.0.0.1:8000")
+        page.goto("http://127.0.0.1:18642")
         page.wait_for_load_state("networkidle")
 
         # 切换到聊天模式
@@ -231,7 +231,7 @@ class TestUIChat:
             search_button.click()
             page.wait_for_timeout(500)
 
-        assert page.url.startswith("http://127.0.0.1:8000")
+        assert page.url.startswith("http://127.0.0.1:18642")
 
     def test_send_button_click(self, page):
         """测试发送按钮点击"""
@@ -251,7 +251,7 @@ class TestUIChat:
             send_button.click()
             page.wait_for_timeout(2000)
 
-        assert page.url.startswith("http://127.0.0.1:8000")
+        assert page.url.startswith("http://127.0.0.1:18642")
 
     def test_chat_placeholder_text(self, page):
         """测试聊天输入框占位符"""
@@ -279,4 +279,4 @@ class TestUIChat:
             chat_container.evaluate("el => el.scrollTop = el.scrollHeight")
             page.wait_for_timeout(300)
 
-        assert page.url.startswith("http://127.0.0.1:8000")
+        assert page.url.startswith("http://127.0.0.1:18642")

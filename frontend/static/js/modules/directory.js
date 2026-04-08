@@ -18,15 +18,17 @@ const FileToolsDirectory = (function() {
      */
     async function loadDirectories() {
         try {
-            const response = await fetch('/api/directories');
+            const response = await fetchWithTimeout('/api/directories', {}, 10000);
             if (!response.ok) {
                 console.warn('Failed to load directories, HTTP status:', response.status);
+                FileToolsUtils.showToast('加载目录列表失败 (HTTP ' + response.status + ')', 'error');
                 return;
             }
             directoriesData = await response.json();
             renderDirectories();
         } catch (error) {
             console.error('Load directories error:', error);
+            FileToolsUtils.showToast('加载目录列表失败: ' + (error.message || '网络错误'), 'error');
         }
     }
 
@@ -70,7 +72,7 @@ const FileToolsDirectory = (function() {
 
     /**
      * 浏览并添加目录
-     * 优先使用 pywebview 原生对话框，降级到 Bootstrap 模态框
+     * 使用 Tauri 原生对话框，降级到 Bootstrap 模态框
      */
     async function browseAndAddDirectory() {
         if (isBrowsing) return;
@@ -78,10 +80,10 @@ const FileToolsDirectory = (function() {
         try {
             let selectedPath = null;
 
-            // 优先使用 pywebview 原生文件对话框
-            if (window.pywebview && window.pywebview.api && window.pywebview.api.select_directory) {
+            // 优先使用 Tauri 原生文件对话框
+            if (window.TauriAPI) {
                 try {
-                    const result = await window.pywebview.api.select_directory();
+                    const result = await window.TauriAPI.selectDirectory();
                     if (result.canceled) {
                         isBrowsing = false;
                         return;
@@ -94,7 +96,7 @@ const FileToolsDirectory = (function() {
                         return;
                     }
                 } catch (e) {
-                    console.warn('pywebview 原生对话框失败，降级到模态框:', e);
+                    console.warn('Tauri 对话框失败，降级到模态框:', e);
                 }
             }
 
@@ -151,17 +153,17 @@ const FileToolsDirectory = (function() {
                 resolve();
             };
 
-            // 浏览按钮点击事件（尝试调用 pywebview 原生对话框）
+            // 浏览按钮点击事件（尝试调用原生文件对话框）
             const handleBrowse = async function() {
-                // 尝试使用 pywebview 原生对话框
-                if (window.pywebview && window.pywebview.api && window.pywebview.api.select_directory) {
+                // 使用 Tauri
+                if (window.TauriAPI) {
                     try {
-                        const result = await window.pywebview.api.select_directory();
+                        const result = await window.TauriAPI.selectDirectory();
                         if (!result.canceled && result.success && result.path) {
                             inputEl.value = result.path;
                         }
                     } catch (e) {
-                        console.warn('pywebview browse failed:', e);
+                        console.warn('Tauri browse failed:', e);
                     }
                 }
             };
@@ -195,11 +197,11 @@ const FileToolsDirectory = (function() {
      */
     async function addDirectoryByPath(selectedPath) {
         try {
-            const response = await fetch('/api/directories', {
+            const response = await fetchWithTimeout('/api/directories', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ path: selectedPath })
-            });
+            }, 10000);
 
             const resultData = await response.json();
 
@@ -207,10 +209,10 @@ const FileToolsDirectory = (function() {
                 FileToolsUtils.showToast('目录已添加', 'success');
 
                 if (resultData.needs_rebuild) {
-                    if (confirm('目录已添加，是否立即重建索引？\n这将扫描新添加目录中的文件。')) {
-                        if (typeof FileToolsSettings !== 'undefined') {
-                            FileToolsSettings.showRebuildModal();
-                        }
+                    // 使用自定义模态框代替原生 confirm()
+                    const modalEl = document.getElementById('addDirRebuildModal');
+                    if (modalEl && typeof FileToolsUtils !== 'undefined') {
+                        FileToolsUtils.showModal(modalEl);
                     }
                 }
 
@@ -254,11 +256,11 @@ const FileToolsDirectory = (function() {
         try {
             const modalEl = document.getElementById('deleteDirectoryModal');
 
-            const response = await fetch('/api/directories', {
+            const response = await fetchWithTimeout('/api/directories', {
                 method: 'DELETE',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ path: path })
-            });
+            }, 10000);
 
             const result = await response.json();
 
@@ -296,6 +298,7 @@ const FileToolsDirectory = (function() {
         loadDirectories,
         renderDirectories,
         browseAndAddDirectory,
+        addDirectoryByPath,
         removeDirectory,
         doDeleteDirectory,
         initDeleteModalEvents,
@@ -309,5 +312,6 @@ const FileToolsDirectory = (function() {
 const loadDirectories = FileToolsDirectory.loadDirectories;
 const renderDirectories = FileToolsDirectory.renderDirectories;
 const browseAndAddDirectory = FileToolsDirectory.browseAndAddDirectory;
+const addDirectoryByPath = FileToolsDirectory.addDirectoryByPath;
 const removeDirectory = FileToolsDirectory.removeDirectory;
 const doDeleteDirectory = FileToolsDirectory.doDeleteDirectory;
