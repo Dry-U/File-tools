@@ -8,6 +8,7 @@
 - 可扩展性
 """
 
+import os
 import time
 from pathlib import Path
 
@@ -165,6 +166,9 @@ def test_performance_memory_usage(generate_test_data, temp_config):
 
 
 @pytest.mark.performance
+@pytest.mark.skipif(
+    os.environ.get("CI") == "true", reason="Skipped in CI due to resource constraints"
+)
 def test_performance_scalability(generate_test_data, temp_config):
     """测试可扩展性：不同规模下的性能表现"""
     benchmark = PerformanceBenchmark(temp_config)

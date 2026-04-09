@@ -21,6 +21,8 @@ on:
 env:
   PYTHONUNBUFFERED: 1
   UV_SYSTEM_PYTHON: 1
+  # Use default PyPI in CI (override pyproject.toml's Chinese mirror)
+  UV_INDEX_URL: https://pypi.org/simple/
 
 jobs:
   # ==================== 代码质量检查 ====================
@@ -204,7 +206,7 @@ jobs:
 
       - name: Build Python backend with PyInstaller
         run: |
-          python build_pyinstaller.py
+          uv run python build_pyinstaller.py
         env:
           FILETOOLS_VERSION: ${{ env.FILETOOLS_VERSION }}
 
@@ -330,7 +332,7 @@ jobs:
 
       - name: Build Python backend with PyInstaller
         run: |
-          python build_pyinstaller.py
+          uv run python build_pyinstaller.py
 
       - name: Build Tauri application
         run: |
@@ -419,7 +421,7 @@ jobs:
 
       - name: Build Python backend with PyInstaller
         run: |
-          python build_pyinstaller.py
+          uv run python build_pyinstaller.py
 
       - name: Build Tauri application
         run: |
