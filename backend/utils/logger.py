@@ -3,27 +3,27 @@
 # -*- coding: utf-8 -*-
 """日志工具模块 - 提供结构化日志记录功能"""
 
+import atexit
+import datetime
+import json
 import logging
 import os
 import sys
-from pathlib import Path
-import datetime
-import json
-import traceback
-import atexit
-from queue import Queue
-from logging.handlers import (
-    RotatingFileHandler,
-    TimedRotatingFileHandler,
-    QueueHandler,
-    QueueListener,
-)
-from typing import Optional, Dict, Any, Union, Literal
 import threading
 import time
-from functools import wraps
+import traceback
 from dataclasses import dataclass
 from enum import Enum
+from functools import wraps
+from logging.handlers import (
+    QueueHandler,
+    QueueListener,
+    RotatingFileHandler,
+    TimedRotatingFileHandler,
+)
+from pathlib import Path
+from queue import Queue
+from typing import Any, Dict, Literal, Optional, Union
 
 
 def sanitize_log_message(msg: str) -> str:
@@ -86,8 +86,8 @@ class LoggerConfig:
     """日志配置类"""
 
     def __init__(self, config):
-        from backend.utils.config_loader import ConfigLoader
         from backend.utils.app_paths import get_app_paths
+        from backend.utils.config_loader import ConfigLoader
 
         # 获取应用路径（避免相对路径问题）
         app_paths = get_app_paths()
@@ -315,8 +315,12 @@ class EnterpriseLogger:
         if logger_config.log_json:
             formatter = StructuredFormatter(log_json=True)
         elif logger_config.log_format == "structured":
+            structured_fmt = (
+                "%(asctime)s - %(name)s - %(levelname)s - "
+                "%(module)s - %(funcName)s - %(message)s"
+            )
             formatter = StructuredFormatter(
-                fmt="%(asctime)s - %(name)s - %(levelname)s - %(module)s - %(funcName)s - %(message)s",
+                fmt=structured_fmt,
                 datefmt="%Y-%m-%d %H:%M:%S",
                 log_json=False,
             )
@@ -492,7 +496,8 @@ def log_execution_time(func):
         except Exception as e:
             execution_time = time.time() - start_time
             logger.error(
-                f"函数 {func.__name__} 执行失败，耗时: {execution_time:.4f}秒，错误: {str(e)}"
+                f"函数 {func.__name__} 执行失败，耗时: {execution_time:.4f}秒，"
+                f"错误: {str(e)}"
             )
             raise
 

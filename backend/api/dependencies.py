@@ -7,7 +7,9 @@ import stat
 import threading
 import urllib.parse
 from pathlib import Path
+
 from fastapi import Depends
+
 from backend.utils.config_loader import ConfigLoader
 from backend.utils.logger import get_logger
 
@@ -165,7 +167,9 @@ def get_is_path_allowed():
 
 def get_resolve_path_if_allowed():
     """返回 resolve_path_if_allowed 函数作为依赖注入"""
-    from backend.api.dependencies import resolve_path_if_allowed as _resolve_path_if_allowed
+    from backend.api.dependencies import (
+        resolve_path_if_allowed as _resolve_path_if_allowed,
+    )
 
     return _resolve_path_if_allowed
 
@@ -279,7 +283,8 @@ def is_path_allowed(path: str, config_loader: ConfigLoader) -> bool:
         return False
 
     # 使用 relative_to 检查路径是否在允许范围内
-    # 这比 startswith 更安全，因为 "C:\allowed\file.txt" 不会匹配 "C:\allowed_malicious\file.txt"
+    # 这比 startswith 更安全，可避免 "C:\allowed\file.txt"
+    # 匹配 "C:\allowed_malicious\file.txt" 的问题
     for allowed_path in allowed_paths:
         try:
             file_path.relative_to(allowed_path)

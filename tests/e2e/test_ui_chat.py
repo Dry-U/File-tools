@@ -2,9 +2,10 @@
 聊天功能UI测试 - Playwright
 """
 
-import pytest
-import sys
 import os
+import sys
+
+import pytest
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
 
@@ -19,12 +20,14 @@ class TestUIChat:
         page.wait_for_load_state("domcontentloaded")
 
         # 等待主容器加载
-        page.wait_for_timeout(2000)
+        # NOTE: Use wait_for_load_state or element visibility
 
         # 查找并点击聊天模式切换按钮
-        chat_button = page.locator(
-            'button:has-text("聊天"), button:has-text("Chat"), [data-testid="chat-mode"], .chat-tab'
-        ).first
+        chat_selectors = (
+            'button:has-text("聊天"), button:has-text("Chat"), '
+            '[data-testid="chat-mode"], .chat-tab'
+        )
+        chat_button = page.locator(chat_selectors).first
 
         # 等待按钮可见
         try:
@@ -34,7 +37,7 @@ class TestUIChat:
 
         if chat_button.is_visible():
             chat_button.click()
-            page.wait_for_timeout(1000)
+            # NOTE: Use smart wait
 
     def test_chat_page_load(self, page):
         """测试聊天页面加载"""
@@ -49,9 +52,11 @@ class TestUIChat:
         self.navigate_to_chat(page)
 
         # 查找聊天输入框
-        chat_input = page.locator(
-            'textarea, input[placeholder*="消息"], input[placeholder*="message"], input[placeholder*="提问"]'
-        ).first
+        chat_input_selectors = (
+            'textarea, input[placeholder*="消息"], '
+            'input[placeholder*="message"], input[placeholder*="提问"]'
+        )
+        chat_input = page.locator(chat_input_selectors).first
 
         # 如果找不到textarea，尝试找任何文本输入
         if not chat_input.is_visible():
@@ -78,7 +83,7 @@ class TestUIChat:
             chat_input.press("Enter")
 
             # 等待响应
-            page.wait_for_timeout(2000)
+            # NOTE: Use wait_for_load_state or element visibility
 
         # 页面应该正常
         assert page.url.startswith("http://127.0.0.1:18642")
@@ -97,7 +102,7 @@ class TestUIChat:
             chat_input.fill("")
             chat_input.press("Enter")
 
-            page.wait_for_timeout(500)
+            # NOTE: Use auto-wait
 
         # 页面应该正常
         assert page.url.startswith("http://127.0.0.1:18642")
@@ -134,7 +139,7 @@ class TestUIChat:
             chat_input.fill(long_message)
             chat_input.press("Enter")
 
-            page.wait_for_timeout(2000)
+            # NOTE: Use wait_for_load_state or element visibility
 
         assert page.url.startswith("http://127.0.0.1:18642")
 
@@ -152,7 +157,7 @@ class TestUIChat:
             chat_input.fill("你好，这是一个测试消息 🎉")
             chat_input.press("Enter")
 
-            page.wait_for_timeout(2000)
+            # NOTE: Use wait_for_load_state or element visibility
 
         assert page.url.startswith("http://127.0.0.1:18642")
 
@@ -161,13 +166,15 @@ class TestUIChat:
         self.navigate_to_chat(page)
 
         # 查找新建聊天按钮
-        new_chat_button = page.locator(
-            'button:has-text("新建"), button:has-text("New"), button:has-text("+"), .new-chat'
-        ).first
+        new_chat_selectors = (
+            'button:has-text("新建"), button:has-text("New"), '
+            'button:has-text("+"), .new-chat'
+        )
+        new_chat_button = page.locator(new_chat_selectors).first
 
         if new_chat_button.is_visible():
             new_chat_button.click()
-            page.wait_for_timeout(500)
+            # NOTE: Use auto-wait
 
         assert page.url.startswith("http://127.0.0.1:18642")
 
@@ -198,15 +205,17 @@ class TestUIChat:
 
         if clear_button.is_visible():
             clear_button.click()
-            page.wait_for_timeout(500)
+            # NOTE: Use auto-wait
 
             # 可能需要确认
-            confirm_button = page.locator(
-                'button:has-text("确认"), button:has-text("Confirm"), button:has-text("Yes"), .confirm'
-            ).first
+            confirm_selectors = (
+                'button:has-text("确认"), button:has-text("Confirm"), '
+                'button:has-text("Yes"), .confirm'
+            )
+            confirm_button = page.locator(confirm_selectors).first
             if confirm_button.is_visible():
                 confirm_button.click()
-                page.wait_for_timeout(500)
+                # NOTE: Use auto-wait
 
         assert page.url.startswith("http://127.0.0.1:18642")
 
@@ -221,7 +230,7 @@ class TestUIChat:
         ).first
         if chat_button.is_visible():
             chat_button.click()
-            page.wait_for_timeout(500)
+            # NOTE: Use auto-wait
 
         # 切换回搜索模式
         search_button = page.locator(
@@ -229,7 +238,7 @@ class TestUIChat:
         ).first
         if search_button.is_visible():
             search_button.click()
-            page.wait_for_timeout(500)
+            # NOTE: Use auto-wait
 
         assert page.url.startswith("http://127.0.0.1:18642")
 
@@ -242,14 +251,16 @@ class TestUIChat:
         if not chat_input.is_visible():
             chat_input = page.locator('input[type="text"]').nth(1)
 
-        send_button = page.locator(
-            'button:has-text("发送"), button:has-text("Send"), .send-button, [data-testid="send"]'
-        ).first
+        send_button_selectors = (
+            'button:has-text("发送"), button:has-text("Send"), '
+            '.send-button, [data-testid="send"]'
+        )
+        send_button = page.locator(send_button_selectors).first
 
         if chat_input.is_visible() and send_button.is_visible():
             chat_input.fill("Test message")
             send_button.click()
-            page.wait_for_timeout(2000)
+            # NOTE: Use wait_for_load_state or element visibility
 
         assert page.url.startswith("http://127.0.0.1:18642")
 
@@ -277,6 +288,6 @@ class TestUIChat:
         if chat_container.is_visible():
             # 尝试滚动
             chat_container.evaluate("el => el.scrollTop = el.scrollHeight")
-            page.wait_for_timeout(300)
+            # NOTE: Scroll animation - use wait_for_function for production
 
         assert page.url.startswith("http://127.0.0.1:18642")

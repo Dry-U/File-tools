@@ -1,7 +1,8 @@
-import pytest
 import sys
 from pathlib import Path
-from unittest.mock import Mock, patch, PropertyMock
+from unittest.mock import Mock, PropertyMock, patch
+
+import pytest
 
 # 添加项目根目录到路径
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -131,8 +132,9 @@ def test_parse_doc_win32_fail_fallback_textract(mock_textract, mock_win32, parse
     mock_textract.process.return_value = b"textract content"
 
     with patch.dict("sys.modules", {"pythoncom": Mock()}):
-        # We also need _convert_doc_to_docx to fail or return None
-        # Since _convert_doc_to_docx calls Dispatch, and we mocked Dispatch to fail, it will return None
+        # We also need _convert_doc_to_docx to fail or return None.
+        # Since _convert_doc_to_docx calls Dispatch, and we mocked
+        # Dispatch to fail, it will return None
 
         result = parser._parse_doc_win32("test.doc")
 

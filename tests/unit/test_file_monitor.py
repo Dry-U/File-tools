@@ -2,15 +2,16 @@
 # -*- coding: utf-8 -*-
 """文件监控功能测试"""
 
-import pytest
 import sys
 from pathlib import Path
 from unittest.mock import Mock
 
+import pytest
+
 # 添加项目根目录到路径
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from backend.core.file_monitor import FileMonitor, FileChangeHandler
+from backend.core.file_monitor import FileChangeHandler, FileMonitor
 
 
 @pytest.fixture

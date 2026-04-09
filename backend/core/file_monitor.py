@@ -2,15 +2,16 @@
 # -*- coding: utf-8 -*-
 """文件监控器模块 - 监控文件系统变化（高性能版本）"""
 
+import logging
 import os
 import sys
-import time
-import logging
 import threading
-from typing import TYPE_CHECKING, Dict, List, Optional
+import time
 from concurrent.futures import ThreadPoolExecutor
-from watchdog.observers import Observer
+from typing import TYPE_CHECKING, Dict, List, Optional
+
 from watchdog.events import FileSystemEventHandler
+from watchdog.observers import Observer
 
 if TYPE_CHECKING:
     from backend.core.index_manager import IndexManager
@@ -71,7 +72,9 @@ class FileMonitor:
             self._auto_exclude_threshold = int(
                 monitor_config.get("auto_exclude_threshold", 5000)
             )
-            self._auto_exclude_threshold = max(100, min(self._auto_exclude_threshold, 50000))
+            self._auto_exclude_threshold = max(
+                100, min(self._auto_exclude_threshold, 50000)
+            )
         except Exception:
             self._auto_exclude_threshold = 5000
 
@@ -105,11 +108,14 @@ class FileMonitor:
         self.monitored_dirs = self._filter_monitored_directories(self.monitored_dirs)
 
         if self.monitored_dirs:
-            self.logger.info(
-                f"文件监控器初始化完成，监控目录: {', '.join(self.monitored_dirs)}, "
+            dirs_str = ", ".join(self.monitored_dirs)
+            init_msg = (
+                f"文件监控器初始化完成，监控目录: {dirs_str}, "
                 f"并行线程: {self.max_workers}, 缓冲超时: {self._buffer_timeout}s, "
-                f"最大深度: {self._max_depth}, 自动排除阈值: {self._auto_exclude_threshold}文件"
+                f"最大深度: {self._max_depth}, "
+                f"自动排除阈值: {self._auto_exclude_threshold}文件"
             )
+            self.logger.info(init_msg)
         else:
             self.logger.info("文件监控器初始化完成，未启用监控（无配置目录）")
 
@@ -159,21 +165,25 @@ class FileMonitor:
             try:
                 depth = self._get_directory_depth(dir_path, self._max_depth)
                 if depth > self._max_depth:
-                    self.logger.warning(
-                        f"目录 {dir_path} 深度({depth})超过最大限制({self._max_depth})，"
-                        f"将限制监控深度"
+                    warn_msg = (
+                        f"目录 {dir_path} 深度({depth})超过最大限制"
+                        f"({self._max_depth})，将限制监控深度"
                     )
+                    self.logger.warning(warn_msg)
             except Exception as e:
                 self.logger.debug(f"检查目录深度失败 {dir_path}: {e}")
 
             # 检查文件数量
             try:
-                file_count = self._count_files_in_directory(dir_path, max_count=self._auto_exclude_threshold)
+                file_count = self._count_files_in_directory(
+                    dir_path, max_count=self._auto_exclude_threshold
+                )
                 if file_count >= self._auto_exclude_threshold:
-                    self.logger.warning(
-                        f"目录 {dir_path} 文件数量({file_count})超过阈值({self._auto_exclude_threshold})，"
-                        f"跳过监控此目录以避免性能问题"
+                    warn_msg = (
+                        f"目录 {dir_path} 文件数量({file_count})超过阈值"
+                        f"({self._auto_exclude_threshold})，跳过监控此目录以避免性能问题"
                     )
+                    self.logger.warning(warn_msg)
                     continue  # 跳过此目录
             except Exception as e:
                 self.logger.debug(f"统计目录文件数失败 {dir_path}: {e}")
@@ -430,9 +440,11 @@ class FileMonitor:
                     rel_path = os.path.relpath(event_path, monitored_dir)
                     depth = rel_path.count(os.sep) + (1 if event.is_directory else 0)
                     if depth > self._max_depth:
-                        self.logger.debug(
-                            f"路径深度({depth})超过限制({self._max_depth})，忽略: {event_path}"
+                        debug_msg = (
+                            f"路径深度({depth})超过限制({self._max_depth})，"
+                            f"忽略: {event_path}"
                         )
+                        self.logger.debug(debug_msg)
                         return True
                     break
         except Exception:
@@ -563,8 +575,8 @@ class FileMonitor:
 
         try:
             # 构建文档对象（模拟FileScanner中的逻辑）
-            from pathlib import Path
             from datetime import datetime
+            from pathlib import Path
 
             file_path_obj = Path(file_path)
 

@@ -3,9 +3,9 @@
 """测试配置验证模块"""
 
 from backend.utils.config_validator import (
+    ConfigValidator,
     ValidationIssue,
     ValidationResult,
-    ConfigValidator,
     validate_config_or_warn,
 )
 

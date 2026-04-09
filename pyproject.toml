@@ -159,5 +159,36 @@ markers = [
 testpaths = ["tests"]
 asyncio_mode = "auto"
 
+[tool.ruff]
+target-version = "py311"
+
 [tool.ruff.lint]
+select = ["E", "F", "I"]
 ignore = ["E402", "F541"]
+
+# Playwright 跨平台 E2E 测试配置
+[tool.playwright]
+# 测试目录
+test_dir = "tests/e2e"
+
+# 失败时自动生成截图和视频 (CI 环境)
+screenshot = "only-on-failure"
+video = "retain-on-failure"
+trace = "on-first-retry"
+
+# 浏览器配置 (三端通用)
+browsers = ["chromium"]
+
+# 视口设置
+viewport_width = 1280
+viewport_height = 720
+
+# 超时设置 (毫秒)
+action_timeout = 30000
+navigation_timeout = 30000
+
+# 并行执行 (CI 环境单 worker 避免冲突)
+workers = 1
+
+# 重试 (CI 环境重试 2 次)
+retries = 2

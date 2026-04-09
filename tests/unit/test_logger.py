@@ -2,16 +2,17 @@
 # -*- coding: utf-8 -*-
 """日志功能测试"""
 
-import pytest
 import logging
+import sys
 import tempfile
 from pathlib import Path
-import sys
+
+import pytest
 
 # 添加项目根目录到路径
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from backend.utils.logger import setup_logger, LoggerConfig, LogContext, LogLevel
+from backend.utils.logger import LogContext, LoggerConfig, LogLevel, setup_logger
 
 
 class TestLoggerConfig:
@@ -34,6 +35,7 @@ class TestLoggerConfig:
         # 注意: 架构使用 AppPaths 获取标准日志目录，而不是配置中的路径
         # 这是为了避免相对路径问题
         from backend.utils.app_paths import get_app_paths
+
         app_paths = get_app_paths()
         expected_log_dir = str(app_paths.log_dir)
         assert config.log_dir == expected_log_dir

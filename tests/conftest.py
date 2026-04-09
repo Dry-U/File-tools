@@ -8,14 +8,15 @@ pytest 配置文件 - 测试环境和 fixtures
 - 共享 fixtures
 """
 
-import pytest
-import sys
-import os
-import time
-import threading
 import concurrent.futures
-from unittest.mock import Mock, MagicMock
-from typing import List, Dict, Any, Callable
+import os
+import sys
+import threading
+import time
+from typing import Any, Callable, Dict, List
+from unittest.mock import MagicMock, Mock
+
+import pytest
 
 # 添加项目根目录到Python路径（只需在顶层 conftest.py 中添加一次）
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))

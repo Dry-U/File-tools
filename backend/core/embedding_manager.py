@@ -3,10 +3,10 @@
 支持 FastEmbed + ColBERT 轻量化方案
 """
 
-import os
 import logging
-from typing import Optional, List, Dict, Any, Generator
+import os
 from pathlib import Path
+from typing import Any, Dict, Generator, List, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -88,9 +88,10 @@ class EmbeddingModelManager:
         os.makedirs(self.reranker_cache_dir, exist_ok=True)
 
         logger.info(f"[EmbeddingManager] Embedding: {self.embedding_model_name}")
-        logger.info(
-            f"[EmbeddingManager] Reranker: {self.reranker_model_name} (enabled={self.reranker_enabled})"
+        reranker_info = (
+            f"Reranker: {self.reranker_model_name} (enabled={self.reranker_enabled})"
         )
+        logger.info(f"[EmbeddingManager] {reranker_info}")
 
     def _resolve_cache_dir(self, cache_dir: str) -> str:
         """解析缓存目录为绝对路径"""
@@ -156,9 +157,8 @@ class EmbeddingModelManager:
 
             # 获取向量维度
             self._embedding_dim = self._embedding_model.embedding_size
-            logger.info(
-                f"[EmbeddingManager] FastEmbed 加载成功，向量维度: {self._embedding_dim}"
-            )
+            dim_info = f"向量维度: {self._embedding_dim}"
+            logger.info(f"[EmbeddingManager] FastEmbed 加载成功，{dim_info}")
             return True
 
         except ImportError as e:

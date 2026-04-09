@@ -11,9 +11,10 @@
 - 极端数量和大小
 """
 
-import pytest
 import time
 from unittest.mock import Mock
+
+import pytest
 
 
 class TestSearchEdgeCases:
@@ -530,8 +531,9 @@ class TestRateLimiterEdgeCases:
     @pytest.mark.unit
     def test_rate_limiter_concurrent_access(self):
         """测试限流器并发访问"""
-        from backend.api.main import RateLimiter
         import threading
+
+        from backend.api.main import RateLimiter
 
         limiter = RateLimiter(max_entries=1000)
         results = []

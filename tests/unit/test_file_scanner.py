@@ -1,5 +1,6 @@
-import pytest
 from unittest.mock import Mock
+
+import pytest
 
 from backend.core.file_scanner import FileScanner
 
@@ -35,8 +36,9 @@ def test_file_scanner_should_index(mock_scanner, tmp_path):
 
 def test_is_system_file(mock_scanner):
     """测试系统文件检测"""
-    # In Windows/Linux, paths might differ, but logic usually checks for '.' prefix or specific dirs
-    # Assuming _is_system_file checks for dot prefix in parts
+    # In Windows/Linux, paths might differ, but logic usually checks
+    # for '.' prefix or specific dirs. Assuming _is_system_file checks
+    # for dot prefix in parts
 
     system_path = "/path/to/.hidden/file"  # 隐藏文件
     assert mock_scanner._is_system_file(system_path) is True

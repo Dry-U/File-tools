@@ -1,27 +1,28 @@
 # src/core/rag_pipeline.py
+import hashlib
 import os
 import re
-import hashlib
 import secrets
-import time
 import threading
-from typing import Dict, List, Any, Optional
-from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeoutError
+import time
+from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import TimeoutError as FutureTimeoutError
+from typing import Any, Dict, List, Optional
 
-from backend.utils.logger import setup_logger
-from backend.utils.config_loader import ConfigLoader
+from backend.core.chat_history_db import ChatHistoryDB
 from backend.core.model_manager import ModelManager
+from backend.core.query_processor import QueryProcessor
 from backend.core.search_engine import SearchEngine
 from backend.core.vram_manager import VRAMManager
-from backend.core.chat_history_db import ChatHistoryDB
-from backend.core.query_processor import QueryProcessor
+from backend.utils.config_loader import ConfigLoader
+from backend.utils.logger import setup_logger
 
 logger = setup_logger()
 
 # Try to import sklearn for cosine similarity, but make it optional
 try:
-    from sklearn.metrics.pairwise import cosine_similarity
     import numpy as np
+    from sklearn.metrics.pairwise import cosine_similarity
 
     SKLEARN_AVAILABLE = True
 except ImportError:
@@ -74,7 +75,8 @@ class RAGPipeline:
         self.sampling_params = self._load_sampling_params()
         self.fallback_response = rag_config.get(
             "fallback_response",
-            "你好！我是 FileTools Copilot，当前检索没有找到相关文档，请告诉我需要查询的内容。",
+            "你好！我是 FileTools Copilot，当前检索没有找到相关文档，"
+            "请告诉我需要查询的内容。",
         )
         self.context_exhausted_response = rag_config.get(
             "context_exhausted_response",
@@ -267,9 +269,8 @@ class RAGPipeline:
 
             # 重新加载采样参数以应用新配置
             self.sampling_params = self._load_sampling_params()
-            logger.info(
-                f"ModelManager重新初始化完成: mode={self.model_manager.get_mode().value}"
-            )
+            mode_val = self.model_manager.get_mode().value
+            logger.info(f"ModelManager重新初始化完成: mode={mode_val}")
             return True
         except Exception as e:
             logger.error(f"重新初始化ModelManager失败: {e}")
@@ -300,8 +301,8 @@ class RAGPipeline:
         logger.info(
             f"RAG参数已更新为 {self.model_manager.get_mode().value} 模式: "
             f"max_docs={self.max_docs}, chunk_size={self.max_context_chars}, "
-            f"max_context={self.max_context_chars_total}, temperature={self.temperature}, "
-            f"min_doc_score={self.min_doc_score}"
+            f"max_context={self.max_context_chars_total}, "
+            f"temperature={self.temperature}, min_doc_score={self.min_doc_score}"
         )
 
     def _adjust_context_for_memory(self, doc_budget: int) -> int:
@@ -400,7 +401,10 @@ class RAGPipeline:
                             )
                             block = f"【上文{idx}】用户: {q}\n助手: {answer_snippet}"
                         else:
-                            block = f"【上文{idx}】用户: {q[: question_len + remaining_for_answer]}..."
+                            remaining = remaining_for_answer
+                            block = (
+                                f"【上文{idx}】用户: {q[: question_len + remaining]}..."
+                            )
 
                 # 确保最终块不超过预算
                 if len(block) > remaining:
@@ -431,12 +435,14 @@ class RAGPipeline:
 
     @staticmethod
     def _has_query_overlap(cleaned: str, query: str) -> bool:
-        """Check if cleaned text (or filename/path) contains meaningful overlap with query keywords/names."""
+        """Check if cleaned text (or filename/path) contains
+        meaningful overlap with query keywords/names."""
         if not cleaned or not query:
             return False
 
         def _normalize(txt: str) -> str:
-            # remove spaces, underscores, hyphens and common punctuation to improve filename matching
+            # remove spaces, underscores, hyphens and common punctuation
+            # to improve filename matching
             return re.sub(r"[\s_\-，。；、,.!?:；:]+", "", txt.lower())
 
         text_norm = _normalize(cleaned)
@@ -503,8 +509,10 @@ class RAGPipeline:
                                 if path and path not in seen_paths:
                                     seen_paths.add(path)
                                     all_results.append(res)
+                                    is_chunk = res.get("is_chunk", False)
                                     logger.debug(
-                                        f"RAG获取到chunk结果: {path}, is_chunk={res.get('is_chunk', False)}"
+                                        f"RAG获取到chunk结果: {path}, "
+                                        f"is_chunk={is_chunk}"
                                     )
                     except Exception as e:
                         logger.warning(f"RAG向量搜索失败，回退到普通搜索: {e}")
@@ -626,7 +634,9 @@ class RAGPipeline:
 
                     # 对于chunk结果，添加chunk信息到内容中
                     if is_chunk:
-                        chunk_info = f"[文档片段 {res.get('chunk_index', 0) + 1}/{res.get('total_chunks', 1)}]\n"
+                        chunk_idx = res.get("chunk_index", 0) + 1
+                        total_chunks = res.get("total_chunks", 1)
+                        chunk_info = f"[文档片段 {chunk_idx}/{total_chunks}]\n"
                         processed_content = chunk_info + processed_content
 
                     # 计算多维度相关性得分
@@ -870,7 +880,8 @@ class RAGPipeline:
                     else:
                         if not self._warned_no_sklearn:
                             logger.warning(
-                                "sklearn not available, falling back to Jaccard similarity"
+                                "sklearn not available, "
+                                "falling back to Jaccard similarity"
                             )
                             self._warned_no_sklearn = True
 
@@ -1166,7 +1177,8 @@ class RAGPipeline:
         return self._format_prompt_with_template(context_text, query)
 
     def _extract_key_entities(self, documents: List[Dict[str, Any]]) -> str:
-        """Extract key entities (names/keywords from filenames) for prompt enhancement"""
+        """Extract key entities (names/keywords from filenames)
+        for prompt enhancement"""
         key_entities = []
         for doc in documents:
             fname = doc.get("filename", "")
@@ -1451,9 +1463,14 @@ class RAGPipeline:
                 if partial_answer:
                     answer = partial_answer + "\n\n(注意：回答生成超时，内容可能不完整)"
                 else:
-                    # 如果完全没有结果（例如还在思考中），给出明确提示而不是通用的"未找到"
+                    # 如果完全没有结果（例如还在思考中），
+                    # 给出明确提示而不是通用的"未找到"
                     if documents:
-                        answer = "已找到相关文档，但AI模型思考时间过长导致超时。请尝试：\n1. 增加配置文件中的 request_timeout\n2. 简化问题\n3. 直接查看下方列出的参考来源"
+                        answer = (
+                            "已找到相关文档，但AI模型思考时间过长导致超时。"
+                            "请尝试：\n1. 增加配置文件中的 request_timeout\n"
+                            "2. 简化问题\n3. 直接查看下方列出的参考来源"
+                        )
                     else:
                         answer = self._render_template(self.fallback_response, query)
             elif result["error"]:
@@ -1464,7 +1481,11 @@ class RAGPipeline:
                 if not answer:
                     # 如果生成结果为空（可能是被过滤器完全过滤了），给出提示
                     if documents:
-                        answer = "AI模型已完成处理，但未生成有效回答（可能是思考过程被过滤且未生成正文）。请尝试重新提问。"
+                        answer = (
+                            "AI模型已完成处理，但未生成有效回答"
+                            "（可能是思考过程被过滤且未生成正文）。"
+                            "请尝试重新提问。"
+                        )
                     else:
                         answer = self._render_template(self.fallback_response, query)
         except Exception as e:
@@ -1508,7 +1529,10 @@ class RAGPipeline:
                     if "。" in answer:
                         parts = answer.rsplit("。", 1)
                         if len(parts) > 1:
-                            answer = f"{parts[0]}。相关信息来源于文档《{full_source}》{parts[1]}"
+                            answer = (
+                                f"{parts[0]}。相关信息来源于文档"
+                                f"《{full_source}》{parts[1]}"
+                            )
                         else:
                             answer = f"{answer}（信息来源于文档《{full_source}》）"
                     else:

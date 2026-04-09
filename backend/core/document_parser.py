@@ -3,10 +3,11 @@
 '"""文档解析器模块 - 处理多种格式文档的内容提取"""'
 
 import atexit
-import os
 import logging
+import os
+from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import TimeoutError as FutureTimeoutError
 from functools import wraps
-from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeoutError
 
 # 共享线程池用于超时控制，避免每次创建新线程池的开销
 _timeout_executor = ThreadPoolExecutor(max_workers=10)
@@ -51,8 +52,8 @@ try:
     import fitz  # PyMuPDF
 except ImportError:
     fitz = None
-from docx import Document as DocxDocument
 import pandas as pd
+from docx import Document as DocxDocument
 
 # 尝试导入textract，如果失败则设置为None
 try:
@@ -170,11 +171,13 @@ class DocumentParser:
         # 1. 移除常见的不可见控制字符 (保留换行\n, 回车\r, 制表符\t)
         # \x00-\x08: NULL, SOH, STX, ETX, EOT, ENQ, ACK, BEL, BS
         # \x0b-\x0c: VT, FF
-        # \x0e-\x1f: SO, SI, DLE, DC1-4, NAK, SYN, ETB, CAN, EM, SUB, ESC, FS, GS, RS, US
+        # \x0e-\x1f: SO, SI, DLE, DC1-4, NAK, SYN, ETB, CAN, EM, SUB, ESC, FS, GS,
+        # RS, US
         text = re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f]", "", text)
 
         # 2. 移除特殊的Unicode空白和控制字符
-        # \uE000-\uF8FF: 私有使用区 (Private Use Area)，常用于图标字体或特殊符号，PDF提取常出现乱码
+        # \uE000-\uF8FF: 私有使用区 (Private Use Area)，常用于图标字体或特殊符号，
+        # PDF提取常出现乱码
         # \u200b-\u200f: 零宽字符等
         # \u3000: 全角空格 (保留，中文常用)
         # \ue5d2, \ue5d3 等特定乱码
@@ -237,8 +240,11 @@ class DocumentParser:
                 # 使用可配置的超时来执行解析
                 text = self._parse_with_timeout(file_ext, file_path)
             else:
+                supported_formats = list(self.parser_map.keys())
                 self.logger.info(
-                    f"未找到特定的解析器，使用通用解析器。文件: {file_path}, 扩展名: '{file_ext}', 支持的格式: {list(self.parser_map.keys())}"
+                    f"未找到特定的解析器，使用通用解析器。"
+                    f"文件: {file_path}, 扩展名: '{file_ext}', "
+                    f"支持的格式: {supported_formats}"
                 )
                 # 尝试使用通用解析器作为后备
                 text = self._parse_with_timeout("generic", file_path)
@@ -542,9 +548,13 @@ class DocumentParser:
                     error_msg = str(te)
                     if "127" in error_msg or "antiword" in error_msg:
                         self.logger.warning(
-                            "解析.doc失败: 缺少 'antiword' 工具。请确保系统已安装 antiword 或 Microsoft Word。"
+                            "解析.doc失败: 缺少 'antiword' 工具。"
+                            "请确保系统已安装 antiword 或 Microsoft Word。"
                         )
-                        return "错误: 无法解析.doc内容 (缺少 Microsoft Word 或 antiword 工具)"
+                        return (
+                            "错误: 无法解析.doc内容 "
+                            "(缺少 Microsoft Word 或 antiword 工具)"
+                        )
                     self.logger.warning(
                         f"无法使用textract解析.doc文件 {file_path}: {str(te)}"
                     )
@@ -585,9 +595,13 @@ class DocumentParser:
                     error_msg = str(te)
                     if "127" in error_msg or "antiword" in error_msg:
                         self.logger.warning(
-                            "解析.doc失败: 缺少 'antiword' 工具。请确保系统已安装 antiword 或 Microsoft Word。"
+                            "解析.doc失败: 缺少 'antiword' 工具。"
+                            "请确保系统已安装 antiword 或 Microsoft Word。"
                         )
-                        return "错误: 无法解析.doc内容 (缺少 Microsoft Word 或 antiword 工具)"
+                        return (
+                            "错误: 无法解析.doc内容 "
+                            "(缺少 Microsoft Word 或 antiword 工具)"
+                        )
                     self.logger.warning(
                         f"无法使用textract解析.doc文件 {file_path}: {str(te)}"
                     )
@@ -703,9 +717,11 @@ class DocumentParser:
 
                     # 检查Excel文件大小
                     file_size = os.path.getsize(file_path)
-                    if file_size > self.MAX_FILE_SIZE_EXCEL_MB * 1024 * 1024:
+                    max_size = self.MAX_FILE_SIZE_EXCEL_MB * 1024 * 1024
+                    if file_size > max_size:
                         self.logger.warning(
-                            f"Excel文件过大，跳过Win32解析 {file_path}: {file_size} bytes"
+                            f"Excel文件过大，跳过Win32解析 "
+                            f"{file_path}: {file_size} bytes"
                         )
                         return f"错误: Excel文件过大 ({file_size} bytes)，已跳过解析"
 

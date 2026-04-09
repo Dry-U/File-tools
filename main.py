@@ -5,8 +5,8 @@
 FastAPI 服务，由 Tauri 窗口加载。
 """
 
-import sys
 import os
+import sys
 
 # 修复 Windows 控制台编码问题
 if sys.platform == "win32":
@@ -23,6 +23,7 @@ if sys.platform == "win32":
 
 import socket
 import warnings
+
 # 抑制 jieba pkg_resources 弃用警告
 warnings.filterwarnings("ignore", category=UserWarning, module="pkg_resources")
 warnings.filterwarnings("ignore", message="pkg_resources is deprecated")
@@ -110,6 +111,7 @@ def write_backend_port(port):
 def start_fastapi_server(port):
     """启动 FastAPI 服务器"""
     import uvicorn
+
     from backend.api.main import app
 
     logger.info(f"FastAPI 启动于端口 {port}")

@@ -2,17 +2,19 @@
 聊天/对话相关路由
 """
 
-from fastapi import APIRouter, HTTPException, Request, Depends
+from fastapi import APIRouter, Depends, HTTPException, Request
 
+from backend.api.dependencies import (
+    get_config_loader,
+    get_rag_pipeline,
+)
+from backend.api.dependencies import (
+    get_rate_limiter as rate_limiter_dependency,
+)
 from backend.api.models import ChatRequest, ChatResponse
 from backend.utils.config_loader import ConfigLoader
 from backend.utils.logger import get_logger
 from backend.utils.network import get_client_ip
-from backend.api.dependencies import (
-    get_rag_pipeline,
-    get_config_loader,
-    get_rate_limiter as rate_limiter_dependency,
-)
 
 logger = get_logger(__name__)
 router = APIRouter()
@@ -52,7 +54,9 @@ async def chat(
     if not rag_pipeline:
         if not config_loader.getboolean("ai_model", "enabled", False):
             return {
-                "answer": "AI问答功能未启用。请在配置文件中设置 ai_model.enabled = true。",
+                "answer": (
+                    "AI问答功能未启用。请在配置文件中设置 ai_model.enabled = true。"
+                ),
                 "sources": [],
             }
 

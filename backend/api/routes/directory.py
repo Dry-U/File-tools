@@ -2,27 +2,28 @@
 目录管理相关路由
 """
 
+import asyncio
 import os
 import sys
-import asyncio
 from pathlib import Path
-from fastapi import APIRouter, HTTPException, Depends
 
-from backend.api.models import (
-    DirectoryPath,
-    DirectoryResponse,
-    BrowseResponse,
-    DirectoriesListResponse,
-    DirectoryInfo,
-)
-from backend.utils.config_loader import ConfigLoader
-from backend.utils.logger import get_logger
+from fastapi import APIRouter, Depends, HTTPException
+
 from backend.api.dependencies import (
     get_config_loader,
     get_file_monitor,
     get_file_scanner,
     get_index_manager,
 )
+from backend.api.models import (
+    BrowseResponse,
+    DirectoriesListResponse,
+    DirectoryInfo,
+    DirectoryPath,
+    DirectoryResponse,
+)
+from backend.utils.config_loader import ConfigLoader
+from backend.utils.logger import get_logger
 
 logger = get_logger(__name__)
 router = APIRouter()

@@ -2,13 +2,14 @@
 搜索相关路由
 """
 
+import errno
 import os
 import sys
-import errno
+
 from fastapi import APIRouter
 
-from backend.utils.logger import get_logger
 from backend.core.constants import MAX_PREVIEW_LENGTH
+from backend.utils.logger import get_logger
 
 logger = get_logger(__name__)
 router = APIRouter()

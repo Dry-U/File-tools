@@ -24,10 +24,11 @@ class TestRAGWorkflowIntegration:
         with tempfile.TemporaryDirectory() as tmpdir:
             # 创建测试文件
             test_file = Path(tmpdir) / "test_doc.txt"
-            test_file.write_text(
-                "Python is a programming language. It is widely used for web development, data science, and automation.",
-                encoding="utf-8",
+            doc_content = (
+                "Python is a programming language. "
+                "It is widely used for web development, data science, and automation."
             )
+            test_file.write_text(doc_content, encoding="utf-8")
 
             subdir = Path(tmpdir) / "subdir"
             subdir.mkdir()
@@ -97,7 +98,9 @@ class TestRAGWorkflowIntegration:
             # 配置模拟RAG管道
             rag = Mock()
             rag.query.return_value = {
-                "answer": "Python is a programming language widely used for web development.",
+                "answer": (
+                    "Python is a programming language widely used for web development."
+                ),
                 "sources": ["/test/doc.txt"],
             }
             mock_rag_class.return_value = rag

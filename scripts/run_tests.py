@@ -13,8 +13,8 @@
 """
 
 import argparse
-import subprocess
 import shutil
+import subprocess
 import sys
 from pathlib import Path
 
@@ -41,9 +41,9 @@ def is_allure_installed():
 
 def run_pytest(args: list, description: str) -> int:
     """运行 pytest 并返回结果"""
-    print(f"\n{'='*60}")
+    print(f"\n{'=' * 60}")
     print(f"  {description}")
-    print(f"{'='*60}\n")
+    print(f"{'=' * 60}\n")
 
     # 使用当前 Python 解释器确保使用 uv 虚拟环境
     cmd = [sys.executable, "-m", "pytest"] + args
@@ -55,9 +55,9 @@ def run_pytest(args: list, description: str) -> int:
 
 def generate_allure_report(open_browser: bool = False):
     """生成 Allure 报告"""
-    print(f"\n{'='*60}")
+    print(f"\n{'=' * 60}")
     print(f"  生成 Allure 报告")
-    print(f"{'='*60}\n")
+    print(f"{'=' * 60}\n")
 
     if not is_allure_installed():
         print("错误: Allure CLI 未安装")
@@ -77,7 +77,14 @@ def generate_allure_report(open_browser: bool = False):
             shutil.copytree(history_src, history_dest, dirs_exist_ok=True)
 
     # 生成报告
-    cmd = [str(ALLURE_PATH), "generate", str(ALLURE_RESULTS), "-o", str(ALLURE_REPORT), "--clean"]
+    cmd = [
+        str(ALLURE_PATH),
+        "generate",
+        str(ALLURE_RESULTS),
+        "-o",
+        str(ALLURE_REPORT),
+        "--clean",
+    ]
     print(f"执行: {' '.join(cmd)}")
 
     result = subprocess.run(cmd, cwd=PROJECT_ROOT)
@@ -95,28 +102,29 @@ def generate_allure_report(open_browser: bool = False):
         return 1
 
 
-def run_tests(categories: list = None, use_allure: bool = False, open_report: bool = False):
+def run_tests(
+    categories: list = None, use_allure: bool = False, open_report: bool = False
+):
     """运行测试"""
     ensure_reports_dir()
 
     # 构建 pytest 参数
-    args = [
-        "-v",
-        "--tb=short"
-    ]
+    args = ["-v", "--tb=short"]
 
     # 如果使用 Allure，添加相关参数
     if use_allure:
         args.extend(["--alluredir", str(ALLURE_RESULTS)])
 
     # 添加标准报告参数
-    args.extend([
-        "--html=reports/test_report.html",
-        "--self-contained-html",
-        "--cov=backend",
-        "--cov-report=html:reports/coverage",
-        "--cov-report=term-missing",
-    ])
+    args.extend(
+        [
+            "--html=reports/test_report.html",
+            "--self-contained-html",
+            "--cov=backend",
+            "--cov-report=html:reports/coverage",
+            "--cov-report=term-missing",
+        ]
+    )
 
     # 按分类运行
     if categories:
@@ -141,33 +149,21 @@ def run_tests(categories: list = None, use_allure: bool = False, open_report: bo
 def main():
     parser = argparse.ArgumentParser(
         description="测试运行脚本 - 支持 Allure 报告",
-        formatter_class=argparse.RawDescriptionHelpFormatter
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
 
     parser.add_argument(
         "categories",
         nargs="*",
         choices=["unit", "integration", "e2e", "performance"],
-        help="测试分类 (可选)"
+        help="测试分类 (可选)",
     )
-    parser.add_argument(
-        "--allure",
-        action="store_true",
-        help="生成 Allure 报告"
-    )
-    parser.add_argument(
-        "--open",
-        action="store_true",
-        help="打开 Allure 报告"
-    )
+    parser.add_argument("--allure", action="store_true", help="生成 Allure 报告")
+    parser.add_argument("--open", action="store_true", help="打开 Allure 报告")
 
     args = parser.parse_args()
 
-    run_tests(
-        categories=args.categories,
-        use_allure=args.allure,
-        open_report=args.open
-    )
+    run_tests(categories=args.categories, use_allure=args.allure, open_report=args.open)
 
 
 if __name__ == "__main__":

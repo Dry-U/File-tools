@@ -11,14 +11,15 @@
 - 批量操作的原子性
 """
 
-import pytest
+import concurrent.futures
+import os
+import sys
 import threading
 import time
-import concurrent.futures
+from typing import Any, Callable, List
 from unittest.mock import Mock
-from typing import List, Callable, Any
-import sys
-import os
+
+import pytest
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
 
@@ -62,9 +63,9 @@ class TestIndexManagerConcurrency:
 
         assert len(errors) == 0, f"并发添加文档出错: {errors}"
         assert added_count[0] == 100, f"应该添加 100 个文档，实际 {added_count[0]}"
-        assert (
-            len(store._store) == 100
-        ), f"应该有 100 个文档存储，实际 {len(store._store)}"
+        assert len(store._store) == 100, (
+            f"应该有 100 个文档存储，实际 {len(store._store)}"
+        )
 
     @pytest.mark.unit
     def test_concurrent_search_read(self):
@@ -153,9 +154,9 @@ class TestSearchEngineConcurrency:
             futures = [executor.submit(search, f"query_{i}") for i in range(50)]
             [f.result() for f in concurrent.futures.as_completed(futures)]
 
-        assert (
-            engine.search.call_count == 50
-        ), f"应该调用 search 50 次，实际 {engine.search.call_count}"
+        assert engine.search.call_count == 50, (
+            f"应该调用 search 50 次，实际 {engine.search.call_count}"
+        )
         assert len(results) == 50
 
     @pytest.mark.unit

@@ -1,15 +1,16 @@
 # backend/core/model_manager.py
 import json
 import threading
-from typing import Optional, Generator, Dict, Any
 from enum import Enum
+from typing import Any, Dict, Generator, Optional
+
 import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
-from backend.utils.logger import setup_logger
-from backend.utils.config_loader import ConfigLoader
 from backend.core.privacy_guard import get_privacy_guard
+from backend.utils.config_loader import ConfigLoader
+from backend.utils.logger import setup_logger
 
 logger = setup_logger()
 
@@ -297,7 +298,8 @@ class ModelManager:
                 chunk_overlap = 80
                 min_doc_score = 0.45
                 logger.debug(
-                    f"应用小模型(1-4B)配置: max_docs={max_docs}, chunk_size={chunk_size}"
+                    f"应用小模型(1-4B)配置: max_docs={max_docs}, "
+                    f"chunk_size={chunk_size}"
                 )
             elif model_category == "medium":
                 # 中等模型（7-8B）：平衡配置
@@ -306,7 +308,8 @@ class ModelManager:
                 chunk_overlap = 100
                 min_doc_score = 0.4
                 logger.debug(
-                    f"应用中等模型(7-8B)配置: max_docs={max_docs}, chunk_size={chunk_size}"
+                    f"应用中等模型(7-8B)配置: max_docs={max_docs}, "
+                    f"chunk_size={chunk_size}"
                 )
             else:
                 # 大模型（13B+）：宽松配置
@@ -315,7 +318,8 @@ class ModelManager:
                 chunk_overlap = 120
                 min_doc_score = 0.35
                 logger.debug(
-                    f"应用大模型(13B+)配置: max_docs={max_docs}, chunk_size={chunk_size}"
+                    f"应用大模型(13B+)配置: max_docs={max_docs}, "
+                    f"chunk_size={chunk_size}"
                 )
 
             # 根据上下文窗口做最终调整

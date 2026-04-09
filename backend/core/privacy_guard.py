@@ -3,10 +3,11 @@
 始终启用，无需开关
 """
 
-import re
 import hashlib
+import re
 from collections import OrderedDict
-from typing import Tuple, List
+from typing import List, Tuple
+
 from backend.utils.logger import setup_logger
 
 logger = setup_logger()

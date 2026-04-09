@@ -9,10 +9,12 @@
 """
 
 import time
+from pathlib import Path
+
 import numpy as np
 import psutil
 import pytest
-from pathlib import Path
+
 from backend.core.index_manager import IndexManager
 from backend.core.search_engine import SearchEngine
 
@@ -118,10 +120,12 @@ def test_performance_query_response_time(generate_test_data, temp_config):
     p99_time = results["query"]["p99_query_time"]
 
     assert avg_time < PERFORMANCE_THRESHOLDS["query_time_avg"], (
-        f"平均查询时间 {avg_time:.3f}s 超过阈值 {PERFORMANCE_THRESHOLDS['query_time_avg']}s"
+        f"平均查询时间 {avg_time:.3f}s 超过阈值 "
+        f"{PERFORMANCE_THRESHOLDS['query_time_avg']}s"
     )
     assert p99_time < PERFORMANCE_THRESHOLDS["query_time_p99"], (
-        f"P99查询时间 {p99_time:.3f}s 超过阈值 {PERFORMANCE_THRESHOLDS['query_time_p99']}s"
+        f"P99查询时间 {p99_time:.3f}s 超过阈值 "
+        f"{PERFORMANCE_THRESHOLDS['query_time_p99']}s"
     )
 
 
@@ -136,10 +140,12 @@ def test_performance_indexing_throughput(generate_test_data, temp_config):
     avg_time = results["indexing"]["avg_index_time_per_doc"]
 
     assert throughput >= PERFORMANCE_THRESHOLDS["throughput_docs_per_sec"], (
-        f"索引吞吐量 {throughput:.2f} docs/s 低于阈值 {PERFORMANCE_THRESHOLDS['throughput_docs_per_sec']} docs/s"
+        f"索引吞吐量 {throughput:.2f} docs/s 低于阈值 "
+        f"{PERFORMANCE_THRESHOLDS['throughput_docs_per_sec']} docs/s"
     )
     assert avg_time < PERFORMANCE_THRESHOLDS["index_time_per_doc"], (
-        f"单文档平均索引时间 {avg_time:.3f}s 超过阈值 {PERFORMANCE_THRESHOLDS['index_time_per_doc']}s"
+        f"单文档平均索引时间 {avg_time:.3f}s 超过阈值 "
+        f"{PERFORMANCE_THRESHOLDS['index_time_per_doc']}s"
     )
 
 
@@ -153,7 +159,8 @@ def test_performance_memory_usage(generate_test_data, temp_config):
     memory_mb = results["indexing"]["memory_mb"]
 
     assert memory_mb < PERFORMANCE_THRESHOLDS["memory_max_mb"], (
-        f"内存使用 {memory_mb:.2f}MB 超过阈值 {PERFORMANCE_THRESHOLDS['memory_max_mb']}MB"
+        f"内存使用 {memory_mb:.2f}MB 超过阈值 "
+        f"{PERFORMANCE_THRESHOLDS['memory_max_mb']}MB"
     )
 
 
@@ -196,7 +203,8 @@ def test_performance_scalability(generate_test_data, temp_config):
         # 如果任一索引时间为0（可能是测试环境污染），跳过可扩展性验证
         if prev_time <= 0 or curr_time <= 0:
             pytest.skip(
-                f"索引时间为0 (scale={scale}: {curr_time}s, scale={prev_scale}: {prev_time}s)，"
+                f"索引时间为0 (scale={scale}: {curr_time}s, "
+                f"scale={prev_scale}: {prev_time}s)，"
                 "可能是测试环境污染导致的初始化失败，跳过可扩展性验证"
             )
 
@@ -204,7 +212,8 @@ def test_performance_scalability(generate_test_data, temp_config):
 
         # 索引时间增长比率应小于规模增长比率（亚线性）
         assert time_ratio < ratio * 1.5, (
-            f"可扩展性警告: 规模 {scale} 的索引时间比率 {time_ratio:.2f} 超过规模比率 {ratio:.2f}"
+            f"可扩展性警告: 规模 {scale} 的索引时间比率 {time_ratio:.2f} "
+            f"超过规模比率 {ratio:.2f}"
         )
 
 

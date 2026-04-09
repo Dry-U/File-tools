@@ -2,24 +2,23 @@
 FastAPI 应用主文件 - 初始化和生命周期管理
 """
 
-from fastapi.staticfiles import StaticFiles
-from backend.api.routes import search, chat, config, directory, system
 import os
-import time
 import threading
-from pathlib import Path
-from contextlib import asynccontextmanager
-from typing import Optional
+import time
 from collections import OrderedDict
+from contextlib import asynccontextmanager
+from pathlib import Path
+from typing import Optional
 
-from fastapi import FastAPI
-from fastapi.responses import JSONResponse, HTMLResponse, Response
+from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
-from fastapi import Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import HTMLResponse, JSONResponse, Response
+from fastapi.staticfiles import StaticFiles
 
-from backend.utils.logger import get_logger
+from backend.api.routes import chat, config, directory, search, system
 from backend.api.routes.system import get_version
+from backend.utils.logger import get_logger
 
 logger = get_logger(__name__)
 

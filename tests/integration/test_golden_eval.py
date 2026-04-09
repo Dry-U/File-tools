@@ -12,9 +12,10 @@ Golden Eval CI Gate - 检索质量回归测试
     pytest tests/integration/test_golden_eval.py -v --golden-eval
 """
 
-import pytest
+from typing import Any, Dict, List
 from unittest.mock import Mock
-from typing import List, Dict, Any
+
+import pytest
 
 # Golden Eval 配置
 GOLDEN_EVAL_THRESHOLD = 0.90  # 90% pass threshold (11/12 = 91.67%)
@@ -24,6 +25,7 @@ GOLDEN_EVAL_MIN_THRESHOLD = 0.85  # 85% block threshold (10/12 = 83.33%)
 # =============================================================================
 # 测试 Fixtures - 真实文档样本
 # =============================================================================
+
 
 class GoldenFixtures:
     """Golden Eval测试数据fixtures
@@ -67,7 +69,7 @@ class GoldenFixtures:
 第四章 违约责任
 
 第六条 任何一方违反本合同约定，应承担相应违约责任。
-    """
+    """,
         },
         {
             "id": "doc_002",
@@ -98,7 +100,7 @@ class GoldenFixtures:
 高风险项：
 1. 第三方API依赖
 2. 性能达标
-"""
+""",
         },
         {
             "id": "doc_003",
@@ -130,7 +132,7 @@ class GoldenFixtures:
 - 张三：完善需求文档
 - 李四：技术方案设计
 - 王五：测试用例编写
-"""
+""",
         },
         {
             "id": "doc_004",
@@ -157,7 +159,7 @@ class GoldenFixtures:
 | 软件授权费 | V2.0 | 1套 | 500,000 | 500,000 |
 
 合计金额（人民币）：¥500,000
-"""
+""",
         },
     ]
 
@@ -167,25 +169,25 @@ class GoldenFixtures:
             "query": "合同_2024_001号",
             "expected_doc_id": "doc_001",
             "search_type": "text",  # 精确匹配用text搜索
-            "description": "精确文件编号匹配"
+            "description": "精确文件编号匹配",
         },
         {
             "query": "第六条",
             "expected_doc_id": "doc_001",
             "search_type": "text",
-            "description": "条款编号精确匹配"
+            "description": "条款编号精确匹配",
         },
         {
             "query": "FP-2024-0001",
             "expected_doc_id": "doc_004",
             "search_type": "text",
-            "description": "发票号精确匹配"
+            "description": "发票号精确匹配",
         },
         {
             "query": "M2",
             "expected_doc_id": "doc_002",
             "search_type": "text",
-            "description": "里程碑编号精确匹配"
+            "description": "里程碑编号精确匹配",
         },
     ]
 
@@ -195,25 +197,25 @@ class GoldenFixtures:
             "query": "软件授权许可",
             "expected_doc_ids": ["doc_001", "doc_002"],
             "search_type": "vector",
-            "description": "语义相似 - 软件授权概念"
+            "description": "语义相似 - 软件授权概念",
         },
         {
             "query": "智能文档处理系统",
             "expected_doc_ids": ["doc_002", "doc_003"],
             "search_type": "vector",
-            "description": "语义相似 - 项目名称"
+            "description": "语义相似 - 项目名称",
         },
         {
             "query": "会议讨论的功能需求",
             "expected_doc_ids": ["doc_003"],
             "search_type": "vector",
-            "description": "语义相似 - 会议内容"
+            "description": "语义相似 - 会议内容",
         },
         {
             "query": "第三方API集成风险",
             "expected_doc_ids": ["doc_002", "doc_003"],
             "search_type": "vector",
-            "description": "语义相似 - 风险评估"
+            "description": "语义相似 - 风险评估",
         },
     ]
 
@@ -223,25 +225,25 @@ class GoldenFixtures:
             "query": "合同 甲方 乙方 违约责任",
             "expected_doc_ids": ["doc_001"],
             "search_type": "hybrid",
-            "description": "混合 - 合同关键条款"
+            "description": "混合 - 合同关键条款",
         },
         {
             "query": "Q2 项目 截止日期 完成",
             "expected_doc_ids": ["doc_002"],
             "search_type": "hybrid",
-            "description": "混合 - 项目里程碑"
+            "description": "混合 - 项目里程碑",
         },
         {
             "query": "发票 购买方 销售方 金额",
             "expected_doc_ids": ["doc_004"],
             "search_type": "hybrid",
-            "description": "混合 - 发票信息"
+            "description": "混合 - 发票信息",
         },
         {
             "query": "检索 响应时间 性能",
             "expected_doc_ids": ["doc_002", "doc_003"],
             "search_type": "hybrid",
-            "description": "混合 - 技术性能指标"
+            "description": "混合 - 技术性能指标",
         },
     ]
 
@@ -270,10 +272,11 @@ class GoldenFixtures:
         # 退化模式：注入错误结果来验证 CI Gate 是否正确拦截
         if degrade_mode and query["search_type"] != "text":
             # 找到不相关的文档作为错误结果
-            expected_ids = query.get("expected_doc_ids", [query.get("expected_doc_id", "")])
+            expected_ids = query.get(
+                "expected_doc_ids", [query.get("expected_doc_id", "")]
+            )
             wrong_doc = next(
-                (d for d in cls.DOCUMENTS if d["id"] not in expected_ids),
-                None
+                (d for d in cls.DOCUMENTS if d["id"] not in expected_ids), None
             )
             if wrong_doc:
                 wrong_result = {
@@ -285,8 +288,7 @@ class GoldenFixtures:
                 }
                 # 正确文档但分数更低（模拟排序错误）
                 correct_doc = next(
-                    (d for d in cls.DOCUMENTS if d["id"] in expected_ids),
-                    None
+                    (d for d in cls.DOCUMENTS if d["id"] in expected_ids), None
                 )
                 if correct_doc:
                     correct_result = {
@@ -302,30 +304,33 @@ class GoldenFixtures:
         # 正常模式：返回正确的预期结果
         if query["search_type"] == "text":
             expected_doc = next(
-                (d for d in cls.DOCUMENTS if d["id"] == query["expected_doc_id"]),
-                None
+                (d for d in cls.DOCUMENTS if d["id"] == query["expected_doc_id"]), None
             )
             if expected_doc:
-                return [{
-                    "id": expected_doc["id"],
-                    "path": f"/test/{expected_doc['filename']}",
-                    "filename": expected_doc["filename"],
-                    "score": 0.95,
-                    "content": expected_doc["content"][:500],
-                }]
+                return [
+                    {
+                        "id": expected_doc["id"],
+                        "path": f"/test/{expected_doc['filename']}",
+                        "filename": expected_doc["filename"],
+                        "score": 0.95,
+                        "content": expected_doc["content"][:500],
+                    }
+                ]
         elif query["search_type"] == "vector":
             results = []
             expected_ids = query.get("expected_doc_ids", [])
             for i, doc_id in enumerate(expected_ids):
                 doc = next((d for d in cls.DOCUMENTS if d["id"] == doc_id), None)
                 if doc:
-                    results.append({
-                        "id": doc["id"],
-                        "path": f"/test/{doc['filename']}",
-                        "filename": doc["filename"],
-                        "score": 0.90 - (i * 0.05),
-                        "content": doc["content"][:500],
-                    })
+                    results.append(
+                        {
+                            "id": doc["id"],
+                            "path": f"/test/{doc['filename']}",
+                            "filename": doc["filename"],
+                            "score": 0.90 - (i * 0.05),
+                            "content": doc["content"][:500],
+                        }
+                    )
             return results
         elif query["search_type"] == "hybrid":
             results = []
@@ -333,13 +338,15 @@ class GoldenFixtures:
             for i, doc_id in enumerate(expected_ids):
                 doc = next((d for d in cls.DOCUMENTS if d["id"] == doc_id), None)
                 if doc:
-                    results.append({
-                        "id": doc["id"],
-                        "path": f"/test/{doc['filename']}",
-                        "filename": doc["filename"],
-                        "score": 0.88 - (i * 0.03),
-                        "content": doc["content"][:500],
-                    })
+                    results.append(
+                        {
+                            "id": doc["id"],
+                            "path": f"/test/{doc['filename']}",
+                            "filename": doc["filename"],
+                            "score": 0.88 - (i * 0.03),
+                            "content": doc["content"][:500],
+                        }
+                    )
             return results
         return []
 
@@ -348,14 +355,13 @@ class GoldenFixtures:
 # 评估引擎
 # =============================================================================
 
+
 class RetrievalEvaluator:
     """检索质量评估器"""
 
     @staticmethod
     def evaluate_query(
-        query: Dict,
-        search_results: List[Dict],
-        threshold: float = 0.3
+        query: Dict, search_results: List[Dict], threshold: float = 0.3
     ) -> Dict[str, Any]:
         """评估单个查询的检索质量
 
@@ -394,14 +400,17 @@ class RetrievalEvaluator:
                     if result.get("id") in expected_doc_ids:
                         return {
                             "passed": True,
-                            "reason": f"Found expected doc in top 3: {expected_doc_ids}",
+                            "reason": (
+                                f"Found expected doc in top 3: {expected_doc_ids}"
+                            ),
                             "matched_doc_id": result.get("id"),
                             "score": result.get("score", 0),
                         }
 
+            reason = f"Expected {expected_doc_id or expected_doc_ids}, got {top_doc_id}"
             return {
                 "passed": False,
-                "reason": f"Expected {expected_doc_id or expected_doc_ids}, got {top_doc_id}",
+                "reason": reason,
                 "top_doc_id": top_doc_id,
             }
 
@@ -430,6 +439,7 @@ class RetrievalEvaluator:
 # =============================================================================
 # Golden Eval 测试
 # =============================================================================
+
 
 class TestGoldenEval:
     """Golden Eval CI Gate 测试套件
@@ -479,8 +489,7 @@ class TestGoldenEval:
 
         # 精确匹配应该有100%准确率
         assert accuracy >= 1.0, (
-            f"精确匹配准确率 {accuracy:.1%} < 100% "
-            f"({passed}/{len(results)} passed)"
+            f"精确匹配准确率 {accuracy:.1%} < 100% ({passed}/{len(results)} passed)"
         )
 
     def test_semantic_queries(self, mock_search_engine):
@@ -500,8 +509,7 @@ class TestGoldenEval:
 
         # 语义搜索准确率应该 >= 75%
         assert accuracy >= 0.75, (
-            f"语义搜索准确率 {accuracy:.1%} < 75% "
-            f"({passed}/{len(results)} passed)"
+            f"语义搜索准确率 {accuracy:.1%} < 75% ({passed}/{len(results)} passed)"
         )
 
     def test_hybrid_queries(self, mock_search_engine):
@@ -521,8 +529,7 @@ class TestGoldenEval:
 
         # 混合检索准确率应该 >= 75%
         assert accuracy >= 0.75, (
-            f"混合检索准确率 {accuracy:.1%} < 75% "
-            f"({passed}/{len(results)} passed)"
+            f"混合检索准确率 {accuracy:.1%} < 75% ({passed}/{len(results)} passed)"
         )
 
     def test_golden_eval_overall_accuracy(self):
@@ -545,15 +552,15 @@ class TestGoldenEval:
         passed = sum(1 for r in all_results if r["passed"])
 
         # 打印详细结果用于调试
-        print(f"\n{'='*60}")
+        print(f"\n{'=' * 60}")
         print(f"Golden Eval 结果")
-        print(f"{'='*60}")
+        print(f"{'=' * 60}")
         print(f"总查询数: {len(all_results)}")
         print(f"通过数: {passed}")
         print(f"失败数: {len(all_results) - passed}")
         print(f"准确率: {accuracy:.1%}")
         print(f"阈值: {GOLDEN_EVAL_THRESHOLD:.1%}")
-        print(f"{'='*60}")
+        print(f"{'=' * 60}")
 
         # 打印失败案例
         failed = [r for r in all_results if not r["passed"]]
@@ -564,14 +571,16 @@ class TestGoldenEval:
                 print(f"    查询: {r['query']}")
                 print(f"    原因: {r['reason']}")
 
-        print(f"{'='*60}\n")
+        print(f"{'=' * 60}\n")
 
         # CI Gate: 准确率必须 >= 92.6%
-        assert accuracy >= GOLDEN_EVAL_THRESHOLD, (
-            f"Golden Eval FAILED: 准确率 {accuracy:.1%} < 阈值 {GOLDEN_EVAL_THRESHOLD:.1%}\n"
+        fail_msg = (
+            f"Golden Eval FAILED: 准确率 {accuracy:.1%} < 阈值 "
+            f"{GOLDEN_EVAL_THRESHOLD:.1%}\n"
             f"({passed}/{len(all_results)} passed)\n"
             f"请检查是否有检索质量回归。"
         )
+        assert accuracy >= GOLDEN_EVAL_THRESHOLD, fail_msg
 
     def test_golden_eval_no_regression(self):
         """测试没有明显回归 - 准确率不能低于90.6%
@@ -592,17 +601,19 @@ class TestGoldenEval:
         if accuracy < GOLDEN_EVAL_THRESHOLD and accuracy >= GOLDEN_EVAL_MIN_THRESHOLD:
             pytest.warns(
                 UserWarning,
-                match=f"准确率 {accuracy:.1%} 低于理想阈值 {GOLDEN_EVAL_THRESHOLD:.1%}"
+                match=f"准确率 {accuracy:.1%} 低于理想阈值 {GOLDEN_EVAL_THRESHOLD:.1%}",
             )
         elif accuracy < GOLDEN_EVAL_MIN_THRESHOLD:
             pytest.fail(
-                f"严重回归: 准确率 {accuracy:.1%} < 最低阈值 {GOLDEN_EVAL_MIN_THRESHOLD:.1%}"
+                f"严重回归: 准确率 {accuracy:.1%} < "
+                f"最低阈值 {GOLDEN_EVAL_MIN_THRESHOLD:.1%}"
             )
 
 
 # =============================================================================
 # 便捷测试函数
 # =============================================================================
+
 
 def run_golden_eval_suite() -> Dict[str, Any]:
     """运行Golden Eval评估套件（可用于CI脚本）

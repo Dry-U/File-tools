@@ -2,17 +2,17 @@
 配置管理相关路由
 """
 
-from fastapi import APIRouter, HTTPException, Request, Depends
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import ValidationError
 
-from backend.utils.config_loader import ConfigLoader
-from backend.utils.logger import get_logger
 from backend.api.dependencies import get_config_loader
 from backend.api.models import (
     AIModelConfigValidator,
     RAGConfigValidator,
     SearchConfigValidator,
 )
+from backend.utils.config_loader import ConfigLoader
+from backend.utils.logger import get_logger
 
 logger = get_logger(__name__)
 router = APIRouter()

@@ -3,13 +3,13 @@
 """测试自定义异常模块"""
 
 from backend.core.exceptions import (
-    FileToolsError,
-    PathTraversalError,
     ConfigValidationError,
-    IndexCorruptedError,
-    SearchError,
-    RAGError,
     FileAccessError,
+    FileToolsError,
+    IndexCorruptedError,
+    PathTraversalError,
+    RAGError,
+    SearchError,
     SecurityError,
     handle_exception,
     is_retriable_error,

@@ -4,14 +4,16 @@
 Web API 端点测试
 """
 
-import pytest
 from pathlib import Path
-from unittest.mock import Mock, MagicMock, patch
+from unittest.mock import MagicMock, Mock, patch
+
+import pytest
 from fastapi.testclient import TestClient
 
-# 导入 app 和依赖注入函数
-from backend.api.main import app, RateLimiter
 from backend.api import dependencies
+
+# 导入 app 和依赖注入函数
+from backend.api.main import RateLimiter, app
 
 
 # 创建 mock 配置实例
@@ -161,6 +163,7 @@ class TestSearchEndpoint:
         """测试成功搜索"""
         # 创建专门用于搜索测试的 mock config，使用系统临时目录（跨平台）
         import tempfile
+
         from tests.factories import MockConfigFactory
 
         temp_dir = tempfile.gettempdir()
@@ -612,7 +615,8 @@ class TestDirectoryEndpoints:
 
     @pytest.fixture
     def mock_config_loader(self):
-        """创建模拟配置加载器 - 使用工厂创建以支持 set/add_scan_path/remove_scan_path 方法"""
+        """创建模拟配置加载器 - 使用工厂创建以支持
+        set/add_scan_path/remove_scan_path 方法"""
         from tests.factories import MockConfigFactory
 
         return MockConfigFactory.create_config(

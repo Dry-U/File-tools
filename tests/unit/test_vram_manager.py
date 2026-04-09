@@ -1,9 +1,10 @@
 """VRAM Manager 单元测试"""
 
-import pytest
-import sys
 import os
+import sys
 from unittest.mock import Mock, patch
+
+import pytest
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
@@ -272,9 +273,9 @@ class TestVRAMManagerEdgeCases:
 
         # 验证写入数量
         expected_writes = num_writers * writes_per_thread
-        assert (
-            successful_writes[0] == expected_writes
-        ), f"写入次数不匹配: {successful_writes[0]} != {expected_writes}"
+        assert successful_writes[0] == expected_writes, (
+            f"写入次数不匹配: {successful_writes[0]} != {expected_writes}"
+        )
 
         # 验证没有异常
         assert len(errors) == 0, f"并发访问出现错误: {errors}"
@@ -295,9 +296,9 @@ class TestVRAMManagerEdgeCases:
                 expected_prefix = key.replace("_key", "_value").rsplit("_value", 1)[0]
                 expected_suffix = key.split("_key")[1]
                 expected_value = f"{expected_prefix}_value{expected_suffix}"
-                assert (
-                    value == expected_value
-                ), f"数据不一致: {key} -> {value} != {expected_value}"
+                assert value == expected_value, (
+                    f"数据不一致: {key} -> {value} != {expected_value}"
+                )
                 found_keys.add(key)
 
         # 验证缓存状态

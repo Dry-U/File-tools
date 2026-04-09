@@ -2,11 +2,11 @@
 
 import re
 import sqlite3
-import time
 import threading
-from pathlib import Path
-from typing import List, Dict, Any, Optional
+import time
 from contextlib import contextmanager
+from pathlib import Path
+from typing import Any, Dict, List, Optional
 
 from backend.utils.logger import setup_logger
 
@@ -139,18 +139,21 @@ class ChatHistoryDB:
                     role TEXT,
                     content TEXT,
                     timestamp REAL,
-                    FOREIGN KEY (session_id) REFERENCES sessions(session_id) ON DELETE CASCADE
+                    FOREIGN KEY (session_id) REFERENCES sessions(session_id)
+                        ON DELETE CASCADE
                 )
             """)
 
             # Index for faster queries
-            cursor.execute("""
-                CREATE INDEX IF NOT EXISTS idx_messages_session_id ON messages(session_id)
-            """)
+            cursor.execute(
+                "CREATE INDEX IF NOT EXISTS idx_messages_session_id "
+                "ON messages(session_id)"
+            )
 
-            cursor.execute("""
-                CREATE INDEX IF NOT EXISTS idx_sessions_updated_at ON sessions(updated_at)
-            """)
+            cursor.execute(
+                "CREATE INDEX IF NOT EXISTS idx_sessions_updated_at "
+                "ON sessions(updated_at)"
+            )
 
     def _validate_session_id(self, session_id: str) -> bool:
         """验证会话 ID 格式
@@ -185,7 +188,8 @@ class ChatHistoryDB:
             now = time.time()
             cursor.execute(
                 """
-                INSERT OR IGNORE INTO sessions (session_id, title, created_at, updated_at)
+                INSERT OR IGNORE INTO sessions
+                (session_id, title, created_at, updated_at)
                 VALUES (?, ?, ?, ?)
             """,
                 (session_id, title or "新对话", now, now),
@@ -212,7 +216,9 @@ class ChatHistoryDB:
             # 优化：使用 INSERT OR IGNORE 自动创建会话（如果不存在）
             # 这样可以避免先查询再创建的两次数据库操作
             cursor.execute(
-                "INSERT OR IGNORE INTO sessions (session_id, title, created_at, updated_at, message_count) VALUES (?, ?, ?, ?, 0)",
+                "INSERT OR IGNORE INTO sessions "
+                "(session_id, title, created_at, updated_at, message_count) "
+                "VALUES (?, ?, ?, ?, 0)",
                 (session_id, "新对话", now, now),
             )
 
@@ -238,7 +244,8 @@ class ChatHistoryDB:
             # 如果是第一条用户消息，更新标题
             if role == "user":
                 cursor.execute(
-                    "SELECT COUNT(*) FROM messages WHERE session_id = ? AND role = 'user'",
+                    "SELECT COUNT(*) FROM messages "
+                    "WHERE session_id = ? AND role = 'user'",
                     (session_id,),
                 )
                 user_count = cursor.fetchone()[0]
@@ -367,7 +374,8 @@ class ChatHistoryDB:
         with self.get_cursor() as cursor:
             cursor.execute("DELETE FROM messages WHERE session_id = ?", (session_id,))
             cursor.execute(
-                "UPDATE sessions SET message_count = 0, updated_at = ? WHERE session_id = ?",
+                "UPDATE sessions SET message_count = 0, updated_at = ? "
+                "WHERE session_id = ?",
                 (time.time(), session_id),
             )
             return True
@@ -410,7 +418,9 @@ class ChatHistoryDB:
             try:
                 # 1. 删除超过 max_age_days 天的旧会话
                 cutoff_time = time.time() - (max_age_days * 24 * 3600)
-                cursor.execute("DELETE FROM sessions WHERE updated_at < ?", (cutoff_time,))
+                cursor.execute(
+                    "DELETE FROM sessions WHERE updated_at < ?", (cutoff_time,)
+                )
                 deleted_count += cursor.rowcount
 
                 # 2. 如果会话数仍然超过 max_sessions，删除最旧的

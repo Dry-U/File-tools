@@ -14,9 +14,9 @@ FileTools Backend Builder - PyInstaller 版
 """
 
 import os
-import sys
-import subprocess
 import shutil
+import subprocess
+import sys
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).parent.resolve()
@@ -108,7 +108,8 @@ def build_backend():
 
     # 检查是否已存在（跳过重建）
     if output_path.exists() and output_path.stat().st_size > 100_000_000:  # > 100MB
-        print(f"后端文件已存在 ({output_path.stat().st_size / 1024 / 1024:.1f} MB)，跳过构建")
+        size_mb = output_path.stat().st_size / 1024 / 1024
+        print(f"后端文件已存在 ({size_mb:.1f} MB)，跳过构建")
         print(f"如需重新构建，请删除: {output_path}")
         return 0
 

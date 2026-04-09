@@ -1,16 +1,17 @@
 """Privacy Guard 单元测试"""
 
-import pytest
-import sys
 import os
+import sys
+
+import pytest
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 from backend.core.privacy_guard import (
     PrivacyGuard,
     get_privacy_guard,
-    redact_text,
     has_sensitive_info,
+    redact_text,
 )
 
 
@@ -196,7 +197,8 @@ class TestPrivacyGuardEdgeCases:
         """测试超长文本"""
         phones = " ".join([f"1381234{i:04d}" for i in range(100)])
         result = guard.redact(phones)
-        # Should process all phones (each phone creates 2 occurrences of *** in the marker)
+        # Should process all phones (each phone creates 2 occurrences
+        # of *** in the marker)
         assert result.count("***") >= 100
 
     def test_special_characters_around_phone(self, guard):

@@ -1,6 +1,6 @@
-import tempfile
-import sys
 import platform
+import sys
+import tempfile
 from pathlib import Path
 from unittest.mock import Mock
 
@@ -53,7 +53,7 @@ def test_index_manager_initialization():
 
 @pytest.mark.skipif(
     platform.system() == "Windows",
-    reason="Windows 文件锁定导致临时目录清理失败，Tantivy 索引句柄未释放"
+    reason="Windows 文件锁定导致临时目录清理失败，Tantivy 索引句柄未释放",
 )
 def test_add_document():
     """测试添加文档功能"""
@@ -113,7 +113,7 @@ def test_add_document():
 
 @pytest.mark.skipif(
     platform.system() == "Windows",
-    reason="Windows 文件锁定导致临时目录清理失败，Tantivy 索引句柄未释放"
+    reason="Windows 文件锁定导致临时目录清理失败，Tantivy 索引句柄未释放",
 )
 def test_search_functionality():
     """测试搜索功能"""

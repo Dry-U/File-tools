@@ -2,10 +2,11 @@
 # -*- coding: utf-8 -*-
 """测试异步文件扫描功能"""
 
-import pytest
 from unittest.mock import Mock, patch
 
-from backend.core.file_scanner import FileScanner, AIOFILES_AVAILABLE
+import pytest
+
+from backend.core.file_scanner import AIOFILES_AVAILABLE, FileScanner
 
 
 @pytest.fixture

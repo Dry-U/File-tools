@@ -3,16 +3,17 @@
 # -*- coding: utf-8 -*-
 """配置加载器模块 - 负责加载、验证和管理配置"""
 
-import yaml
-from typing import Dict, Any, Optional, List, Tuple
-from pathlib import Path
+import base64
+import datetime
+import hashlib
+import logging
 import os
 import sys
-import datetime
-import logging
 import threading
-import hashlib
-import base64
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Tuple
+
+import yaml
 
 # 尝试导入加密库，如果不存在则使用简单的 base64 混淆
 try:
@@ -307,8 +308,10 @@ class ConfigLoader:
                 # 敏感信息（如 API key）将使用可逆的 base64 编码存储，
                 # 在 cryptography 库安装后将自动升级为真正加密
                 logger.warning(
-                    "SECURITY WARNING: cryptography 库未安装，API密钥将使用 Base64 编码存储（非加密）。"
-                    "建议安装 cryptography 库以获得真正的加密保护：pip install cryptography"
+                    "SECURITY WARNING: cryptography 库未安装，"
+                    "API密钥将使用 Base64 编码存储（非加密）。"
+                    "建议安装 cryptography 库以获得真正的加密保护："
+                    "pip install cryptography"
                 )
                 obfuscated = base64.b64encode(value.encode("utf-8")).decode("utf-8")
                 return f"enc:b64:{obfuscated}"
@@ -346,7 +349,8 @@ class ConfigLoader:
             logger.warning(f"解密失败: {e}")
             if encrypted_data.startswith("b64:") and not _ensure_crypto_check():
                 logger.warning(
-                    "SECURITY WARNING: 使用 Base64 解码。请安装 cryptography 库以获得真正的加密保护。"
+                    "SECURITY WARNING: 使用 Base64 解码。"
+                    "请安装 cryptography 库以获得真正的加密保护。"
                 )
             return value  # 返回原值，避免丢失配置
 
@@ -420,10 +424,15 @@ class ConfigLoader:
             },
             "file_scanner": {
                 "scan_paths": str(Path.home() / "Documents"),
-                "exclude_patterns": ".git;.svn;.hg;__pycache__;.idea;.vscode;node_modules;venv;env;.DS_Store;Thumbs.db",
+                "exclude_patterns": (
+                    ".git;.svn;.hg;__pycache__;.idea;.vscode;"
+                    "node_modules;venv;env;.DS_Store;Thumbs.db"
+                ),
                 "max_file_size": 100,  # MB
                 "file_types": {
-                    "document": ".txt,.md,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.csv,.json,.xml",
+                    "document": (
+                        ".txt,.md,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.csv,.json,.xml"
+                    ),
                     "code": ".py,.js,.java,.cpp,.c,.h,.cs,.go,.rs,.php,.rb,.swift",
                     "archive": ".zip,.rar,.7z,.tar,.gz",
                 },
@@ -448,7 +457,10 @@ class ConfigLoader:
             },
             "monitor": {
                 "directories": str(Path.home() / "Documents"),
-                "ignored_patterns": ".git;.svn;.hg;__pycache__;.idea;.vscode;node_modules;venv;env;.DS_Store;Thumbs.db",
+                "ignored_patterns": (
+                    ".git;.svn;.hg;__pycache__;.idea;.vscode;"
+                    "node_modules;venv;env;.DS_Store;Thumbs.db"
+                ),
                 "refresh_interval": 1,
                 "debounce_time": 0.5,
                 "enabled": True,
@@ -468,7 +480,17 @@ class ConfigLoader:
                 "api_url": "http://127.0.0.1:8080/v1/chat/completions",
                 "api_model": "wsl",
                 "api_key": "",
-                "system_prompt": "你是一名专业的中文文档助理。请根据下方的【文档集合】回答用户的【问题】。\n规则：\n1. 严格基于文档内容回答，不要编造。\n2. 如果用户询问某人、某事出现在哪里，或者询问来源，请务必列出对应的文件名。\n3. 如果答案仅出现在文件名中（例如文件名包含查询词），请明确指出该文件。\n4. 如果文档中没有相关信息，请直接说明未找到。",
+                "system_prompt": (
+                    "你是一名专业的中文文档助理。"
+                    "请根据下方的【文档集合】回答用户的【问题】。\n"
+                    "规则：\n"
+                    "1. 严格基于文档内容回答，不要编造。\n"
+                    "2. 如果用户询问某人、某事出现在哪里，或者询问来源，"
+                    "请务必列出对应的文件名。\n"
+                    "3. 如果答案仅出现在文件名中（例如文件名包含查询词），"
+                    "请明确指出该文件。\n"
+                    "4. 如果文档中没有相关信息，请直接说明未找到。"
+                ),
                 "max_tokens": 4096,
                 "temperature": 0.6,
                 "request_timeout": 600,
@@ -486,11 +508,52 @@ class ConfigLoader:
                 "frequency_penalty": 0.2,
                 "presence_penalty": 0.2,
                 "repetition_penalty": 1.1,
-                "prompt_template": "你是一名专业的中文文档分析助理。请基于【文档集合】中的内容，对用户的【问题】提供一个连贯、流畅、总结性的回答。\n\n核心要求：\n1. 严格基于文档内容回答，不得编造任何信息。\n2. 将相关信息整合成一个连贯的段落，而非分点列表。\n3. 突出关键信息和核心内容，提供综合性的总结。\n4. 对于人物、研究、技术等主题，提供背景、方法、成果等的完整概述。\n5. 如需引用来源，请在回答中自然提及文档名称，而非单独列出。\n6. 重点提取技术细节、研究方法、实现方案、实验结果等知识性内容。\n7. 对于多个文档的信息，进行有机整合，形成统一的叙述。\n8. 避免机械重复文档原文，而是进行概括和总结。\n9. 确保回答逻辑清晰、语句通顺，形成完整的信息实体描述。\n\n【文档集合】:\n{context}\n\n【问题】: {question}\n\n请提供一个连贯、总结性的回答：",
-                "context_exhausted_response": "对话过长，为避免超出上下文，请说'重置'或简要概括后再继续。",
+                "prompt_template": (
+                    "你是一名专业的中文文档分析助理。"
+                    "请基于【文档集合】中的内容，对用户的【问题】"
+                    "提供一个连贯、流畅、总结性的回答。\n\n"
+                    "核心要求：\n"
+                    "1. 严格基于文档内容回答，不得编造任何信息。\n"
+                    "2. 将相关信息整合成一个连贯的段落，而非分点列表。\n"
+                    "3. 突出关键信息和核心内容，提供综合性的总结。\n"
+                    "4. 对于人物、研究、技术等主题，"
+                    "提供背景、方法、成果等的完整概述。\n"
+                    "5. 如需引用来源，请在回答中自然提及文档名称，"
+                    "而非单独列出。\n"
+                    "6. 重点提取技术细节、研究方法、实现方案、"
+                    "实验结果等知识性内容。\n"
+                    "7. 对于多个文档的信息，进行有机整合，形成统一的叙述。\n"
+                    "8. 避免机械重复文档原文，而是进行概括和总结。\n"
+                    "9. 确保回答逻辑清晰、语句通顺，"
+                    "形成完整的信息实体描述。\n\n"
+                    "【文档集合】:\n{context}\n\n"
+                    "【问题】: {question}\n\n"
+                    "请提供一个连贯、总结性的回答："
+                ),
+                "context_exhausted_response": (
+                    "对话过长，为避免超出上下文，请说'重置'或简要概括后再继续。"
+                ),
                 "reset_response": "已清空上下文，可以重新开始提问。",
-                "fallback_response": '我在本地索引中暂时没有找到与" {query} "直接对应的正文内容。\n你可以：\n1. 再提供更具体的描述（如文件名、章节、作者、时间等）；\n2. 指明文件类型或格式，例如"PDF 报告""Word 文档"；\n3. 如果需要的是操作指南或检索策略，也欢迎直接告诉我，我会给出建议。\n告诉我更详细的线索后，我会立即在全部已扫描文件中再次检索。',
-                "greeting_response": "你好呀，我是 FileTools Copilot，本地文件的智能助手。\n我可以帮你搜索 PDF、Word、PPT 甚至代码，把结果整理成摘要或问答。\n需要查资料、找报告要点、生成概览或者验证内容都可以直接告诉我。\n只要说出关键词或问题，我就能立刻从本地库里找到相关内容。",
+                "fallback_response": (
+                    '我在本地索引中暂时没有找到与" {query} "'
+                    "直接对应的正文内容。\n"
+                    "你可以：\n"
+                    "1. 再提供更具体的描述（如文件名、章节、作者、时间等）；\n"
+                    '2. 指明文件类型或格式，例如"PDF 报告""Word 文档"；\n'
+                    "3. 如果需要的是操作指南或检索策略，"
+                    "也欢迎直接告诉我，我会给出建议。\n"
+                    "告诉我更详细的线索后，"
+                    "我会立即在全部已扫描文件中再次检索。"
+                ),
+                "greeting_response": (
+                    "你好呀，我是 FileTools Copilot，本地文件的智能助手。\n"
+                    "我可以帮你搜索 PDF、Word、PPT 甚至代码，"
+                    "把结果整理成摘要或问答。\n"
+                    "需要查资料、找报告要点、生成概览或者验证内容"
+                    "都可以直接告诉我。\n"
+                    "只要说出关键词或问题，"
+                    "我就能立刻从本地库里找到相关内容。"
+                ),
                 "greeting_keywords": [
                     "你好",
                     "您好",
@@ -737,12 +800,15 @@ class ConfigLoader:
                 if isinstance(val, (int, float)):
                     if val < min_val or val > max_val:
                         logger.warning(
-                            f"配置项 {section}.{key} 的值 {val} 超出范围 [{min_val}, {max_val}]，使用默认值 {default_val}"
+                            f"配置项 {section}.{key} 的值 {val} "
+                            f"超出范围 [{min_val}, {max_val}]，"
+                            f"使用默认值 {default_val}"
                         )
                         self.set(section, key, default_val)
                 else:
                     logger.warning(
-                        f"配置项 {section}.{key} 的值 {val} 不是数值类型，使用默认值 {default_val}"
+                        f"配置项 {section}.{key} 的值 {val} "
+                        f"不是数值类型，使用默认值 {default_val}"
                     )
                     self.set(section, key, default_val)
             except Exception as e:
@@ -852,7 +918,9 @@ class ConfigLoader:
                 if val and isinstance(val, str):
                     if val.upper() not in [v.upper() for v in allowed_values]:
                         logger.warning(
-                            f"配置项 {section}.{key} 的值 {val} 不在允许的范围 {allowed_values} 内，使用默认值 {default_val}"
+                            f"配置项 {section}.{key} 的值 {val} "
+                            f"不在允许的范围 {allowed_values} 内，"
+                            f"使用默认值 {default_val}"
                         )
                         self.set(section, key, default_val)
             except Exception as e:
@@ -914,7 +982,9 @@ class ConfigLoader:
                         "presence_penalty": 0.2,
                         "repetition_penalty": 1.1,
                         "prompt_template": "你是一名专业的中文文档分析助理...",
-                        "context_exhausted_response": "对话过长，为避免超出上下文，请说'重置'或简要概括后再继续。",
+                        "context_exhausted_response": (
+                            "对话过长，为避免超出上下文，请说'重置'或简要概括后再继续。"
+                        ),
                         "reset_response": "已清空上下文，可以重新开始提问。",
                         "fallback_response": "我在本地索引中暂时没有找到...",
                         "greeting_response": "你好呀，我是 FileTools Copilot...",
@@ -939,7 +1009,8 @@ class ConfigLoader:
         if key is None:
             return self.config[section]
 
-        # 支持点分隔符访问嵌套配置 (如 "local.api_url" → config[section]["local"]["api_url"])
+        # 支持点分隔符访问嵌套配置
+        # (如 "local.api_url" → config[section]["local"]["api_url"])
         if "." in key:
             keys = key.split(".")
             value = self.config[section]
@@ -1003,7 +1074,8 @@ class ConfigLoader:
         if section not in self.config:
             self.config[section] = {}
 
-        # 支持点分隔符访问嵌套配置 (如 "local.api_url" → config[section]["local"]["api_url"])
+        # 支持点分隔符访问嵌套配置
+        # (如 "local.api_url" → config[section]["local"]["api_url"])
         if "." in key:
             keys = key.split(".")
             current = self.config[section]

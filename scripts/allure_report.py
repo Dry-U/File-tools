@@ -11,8 +11,8 @@ Allure 报告管理脚本
 """
 
 import argparse
-import subprocess
 import shutil
+import subprocess
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).parent.parent
@@ -24,11 +24,7 @@ ALLURE_HISTORY = ALLURE_RESULTS / "history"
 
 def check_allure():
     """检查 allure 是否安装"""
-    result = subprocess.run(
-        ["allure", "--version"],
-        capture_output=True,
-        text=True
-    )
+    result = subprocess.run(["allure", "--version"], capture_output=True, text=True)
     if result.returncode != 0:
         print("错误: Allure 命令行工具未安装")
         print("\n安装方式:")
@@ -56,7 +52,14 @@ def generate_report(open_browser: bool = False):
         shutil.copytree(history_source, ALLURE_HISTORY, dirs_exist_ok=True)
 
     print(f"\n生成 Allure 报告...")
-    cmd = ["allure", "generate", str(ALLURE_RESULTS), "-o", str(ALLURE_REPORT), "--clean"]
+    cmd = [
+        "allure",
+        "generate",
+        str(ALLURE_RESULTS),
+        "-o",
+        str(ALLURE_REPORT),
+        "--clean",
+    ]
     result = subprocess.run(cmd, cwd=PROJECT_ROOT)
 
     if result.returncode == 0:
@@ -100,7 +103,7 @@ def serve_report():
 def main():
     parser = argparse.ArgumentParser(
         description="Allure 报告管理工具",
-        formatter_class=argparse.RawDescriptionHelpFormatter
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
 
     subparsers = parser.add_subparsers(dest="command", help="可用命令")

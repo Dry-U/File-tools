@@ -7,9 +7,9 @@
 """
 
 import os
-from pathlib import Path
-from typing import List, Dict, Any, Optional
 from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Any, Dict, List, Optional
 
 from backend.core.exceptions import ConfigValidationError
 from backend.utils.logger import get_logger
@@ -512,8 +512,12 @@ class ConfigValidator:
                     continue
 
                 if value < min_val or value > max_val:
+                    msg = (
+                        f"配置值超出范围: [{section}].{key} = {value} "
+                        f"(应在 {min_val}-{max_val} 之间)"
+                    )
                     result.add_warning(
-                        message=f"配置值超出范围: [{section}].{key} = {value} (应在 {min_val}-{max_val} 之间)",
+                        message=msg,
                         section=f"{section}.{key}",
                         code="NUMERIC_RANGE_ERROR",
                         suggestion="调整配置值到有效范围",
@@ -566,8 +570,12 @@ class ConfigValidator:
 
                 value = float(value)
                 if value < min_val or value > max_val:
+                    msg = (
+                        f"配置值超出范围: {key} = {value} "
+                        f"(应在 {min_val}-{max_val} 之间)"
+                    )
                     result.add_warning(
-                        message=f"配置值超出范围: {key} = {value} (应在 {min_val}-{max_val} 之间)",
+                        message=msg,
                         section=key,
                         code="NUMERIC_RANGE_ERROR",
                     )

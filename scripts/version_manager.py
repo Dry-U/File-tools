@@ -21,7 +21,7 @@ def read_version():
 
 def parse_version(version_str):
     """解析版本号为 major, minor, patch"""
-    match = re.match(r'^(\d+)\.(\d+)\.(\d+)$', version_str)
+    match = re.match(r"^(\d+)\.(\d+)\.(\d+)$", version_str)
     if not match:
         return 0, 1, 0
     return int(match.group(1)), int(match.group(2)), int(match.group(3))
@@ -52,9 +52,9 @@ def get_version_for_ci():
     current = read_version()
 
     # 如果是 tag 触发，使用 tag 的版本号
-    ref = os.environ.get('GITHUB_REF', '')
-    if ref.startswith('refs/tags/v'):
-        return ref.replace('refs/tags/v', '')
+    ref = os.environ.get("GITHUB_REF", "")
+    if ref.startswith("refs/tags/v"):
+        return ref.replace("refs/tags/v", "")
 
     # 否则递增 patch 版本
     new_version = bump_patch_version(current)
@@ -65,18 +65,18 @@ def get_version_for_ci():
 if __name__ == "__main__":
     import argparse
 
-    parser = argparse.ArgumentParser(description='版本号管理工具')
-    parser.add_argument('command', choices=['get', 'bump', 'bump-minor', 'ci'])
+    parser = argparse.ArgumentParser(description="版本号管理工具")
+    parser.add_argument("command", choices=["get", "bump", "bump-minor", "ci"])
 
     args = parser.parse_args()
 
-    if args.command == 'get':
+    if args.command == "get":
         print(read_version())
-    elif args.command == 'bump':
+    elif args.command == "bump":
         new_ver = bump_patch_version(read_version())
         write_version(new_ver)
-    elif args.command == 'bump-minor':
+    elif args.command == "bump-minor":
         new_ver = bump_minor_version(read_version())
         write_version(new_ver)
-    elif args.command == 'ci':
+    elif args.command == "ci":
         print(get_version_for_ci())

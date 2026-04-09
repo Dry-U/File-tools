@@ -7,10 +7,10 @@
 支持多种分块策略和重叠区域处理。
 """
 
-import re
-from typing import List, Dict, Any, Optional
-from dataclasses import dataclass, field
 import logging
+import re
+from dataclasses import dataclass, field
+from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -86,7 +86,8 @@ class TextChunker:
             )
 
         logger.info(
-            f"文本分块器初始化: 策略={strategy}, 块大小={self.chunk_size}, 重叠={self.chunk_overlap}"
+            f"文本分块器初始化: 策略={strategy}, "
+            f"块大小={self.chunk_size}, 重叠={self.chunk_overlap}"
         )
 
     def chunk_document(

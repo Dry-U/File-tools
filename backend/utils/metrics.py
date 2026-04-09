@@ -8,10 +8,10 @@
 """
 
 import time
-from typing import Dict, Any, Optional, Callable
-from functools import wraps
 from dataclasses import dataclass, field
+from functools import wraps
 from threading import Lock
+from typing import Any, Callable, Dict, Optional
 
 from backend.utils.logger import get_logger
 
@@ -296,7 +296,8 @@ class MetricsCollector:
                 f'search_duration_seconds_bucket{{{label},le="+Inf"}} {sum(stats)}'
             )
             lines.append(
-                f"search_duration_seconds_sum{{{label}}} {self.search_duration._sums.get((status,), 0)}"
+                f"search_duration_seconds_sum{{{label}}} "
+                f"{self.search_duration._sums.get((status,), 0)}"
             )
             lines.append(f"search_duration_seconds_count{{{label}}} {sum(stats)}")
 

@@ -2,9 +2,10 @@
 # -*- coding: utf-8 -*-
 """测试缓存模块 - 使用 cachetools 实现"""
 
-import time
 import threading
-from backend.core.sharded_cache import ShardedCache, LRUCache
+import time
+
+from backend.core.sharded_cache import LRUCache, ShardedCache
 
 
 class TestShardedCache:

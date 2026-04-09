@@ -93,6 +93,40 @@ jobs:
           fail_ci_if_error: false
           verbose: true
 
+  # ==================== macOS 测试 ====================
+  test-macos:
+    name: Unit Tests (Python ${{ matrix.python-version }} on macOS)
+    runs-on: macos-14
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ['3.12']
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          enable-cache: true
+
+      - name: Install Python dependencies
+        run: |
+          uv sync
+
+      - name: Run unit tests with coverage
+        run: |
+          uv run pytest tests/unit/ -v --cov=backend --cov-report=xml --cov-report=term --tb=short
+
+      - name: Run integration tests
+        run: |
+          uv run pytest tests/integration/ -v --tb=short
+
+      - name: Run API tests
+        run: |
+          uv run pytest tests/api/ -v --tb=short
+
   # ==================== 安全检查 ====================
   security:
     name: Security Checks
@@ -120,7 +154,7 @@ jobs:
     name: Build Tauri (Windows)
     runs-on: windows-latest
     timeout-minutes: 180
-    needs: [lint, test]
+    needs: [lint, test, test-macos]
     if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
     steps:
       - uses: actions/checkout@v4
@@ -131,6 +165,12 @@ jobs:
         uses: dtolnay/rust-action@stable
         with:
           targets: x86_64-pc-windows-msvc
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: 'src-tauri -> target'
+          shared-key: 'tauri-windows'
 
       - name: Install uv
         uses: astral-sh/setup-uv@v4
@@ -171,11 +211,12 @@ jobs:
       - name: Verify backend binary
         shell: bash
         run: |
-          if [ -f "src-tauri/bin/filetools-backend.exe" ]; then
+          if [ -f "src-tauri/bin/filetools_backend-x86_64-pc-windows-msvc.exe" ]; then
             echo "Backend binary found"
             ls -la src-tauri/bin/
           else
             echo "ERROR: Backend binary not found"
+            ls -la src-tauri/bin/ || echo "bin directory not found"
             exit 1
           fi
 
@@ -185,6 +226,9 @@ jobs:
           npm run tauri:build -- --bundles nsis,msi
         env:
           FILETOOLS_VERSION: ${{ env.FILETOOLS_VERSION }}
+          # Windows 代码签名（需要先在 GitHub Secrets 中配置）
+          # TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          # TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
 
       - name: Display build artifacts
         run: |
@@ -211,12 +255,22 @@ jobs:
           if-no-files-found: warn
           retention-days: 30
 
+      - name: Upload build logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-build-logs
+          path: |
+            src-tauri/target/release/build/
+            data/logs/
+          retention-days: 7
+
   # ==================== Tauri 构建 (Linux) ====================
   build-tauri-linux:
     name: Build Tauri (Linux)
     runs-on: ubuntu-24.04
     timeout-minutes: 180
-    needs: [lint, test]
+    needs: [lint, test, test-macos]
     if: startsWith(github.ref, 'refs/tags/v')
     steps:
       - uses: actions/checkout@v4
@@ -227,6 +281,12 @@ jobs:
         uses: dtolnay/rust-action@stable
         with:
           targets: x86_64-unknown-linux-gnu
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: 'src-tauri -> target'
+          shared-key: 'tauri-linux'
 
       - name: Install system dependencies
         run: |
@@ -295,12 +355,22 @@ jobs:
           if-no-files-found: warn
           retention-days: 30
 
+      - name: Upload build logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-build-logs
+          path: |
+            src-tauri/target/release/build/
+            data/logs/
+          retention-days: 7
+
   # ==================== Tauri 构建 (macOS) ====================
   build-tauri-macos:
     name: Build Tauri (macOS)
     runs-on: macos-14
     timeout-minutes: 180
-    needs: [lint, test]
+    needs: [lint, test, test-macos]
     if: startsWith(github.ref, 'refs/tags/v')
     steps:
       - uses: actions/checkout@v4
@@ -311,6 +381,12 @@ jobs:
         uses: dtolnay/rust-action@stable
         with:
           targets: aarch64-apple-darwin,x86_64-apple-darwin
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: 'src-tauri -> target'
+          shared-key: 'tauri-macos'
 
       - name: Install uv
         uses: astral-sh/setup-uv@v4
@@ -350,6 +426,13 @@ jobs:
           npm run tauri:build -- --bundles dmg
         env:
           FILETOOLS_VERSION: ${{ env.FILETOOLS_VERSION }}
+          # macOS 代码签名（需要先在 GitHub Secrets 中配置）
+          # APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          # APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          # APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          # APPLE_ID: ${{ secrets.APPLE_ID }}
+          # APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          # APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
 
       - name: Upload macOS installer
         uses: actions/upload-artifact@v4
@@ -360,10 +443,269 @@ jobs:
           if-no-files-found: warn
           retention-days: 30
 
+      - name: Upload build logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-build-logs
+          path: |
+            src-tauri/target/release/build/
+            data/logs/
+          retention-days: 7
+
+  # ==================== E2E 测试 (Windows) ====================
+  e2e-windows:
+    name: E2E Tests (Windows)
+    runs-on: windows-latest
+    timeout-minutes: 30
+    needs: [build-tauri-windows]
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download Windows build
+        uses: actions/download-artifact@v4
+        with:
+          name: filetools-windows-portable-v${{ env.FILETOOLS_VERSION }}
+          path: ./build
+
+      - name: Display downloaded artifacts
+        run: |
+          Get-ChildItem -Path "./build" -Recurse -File | ForEach-Object {
+            Write-Host "$($_.Name) - $([math]::Round($_.Length / 1MB, 2)) MB"
+          }
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          enable-cache: true
+
+      - name: Install Python dependencies
+        run: |
+          uv sync
+
+      - name: Install Playwright browsers
+        run: |
+          uv run playwright install chromium --with-deps
+
+      - name: Run E2E tests
+        run: |
+          # Start the backend sidecar directly for API testing
+          $backendPath = "./build/filetools_backend.exe"
+          if (Test-Path $backendPath) {
+            Start-Process -FilePath $backendPath -WindowStyle Hidden
+            Write-Host "Started backend: $backendPath"
+          } else {
+            # Fallback: extract and start from the main exe
+            Write-Host "Backend not found as separate file, using main app"
+            Start-Process -FilePath "./build/filetools.exe" -WindowStyle Hidden
+          }
+
+          # Wait for app to be ready (smart polling)
+          $maxWait = 30
+          $ready = $false
+          for ($i = 0; $i -lt $maxWait; $i++) {
+            try {
+              $response = Invoke-WebRequest -Uri "http://127.0.0.1:18642/api/health" -UseBasicParsing -TimeoutSec 2 -ErrorAction SilentlyContinue
+              if ($response.StatusCode -eq 200) {
+                Write-Host "App is ready after $i seconds"
+                $ready = $true
+                break
+              }
+            } catch {}
+            Start-Sleep -Milliseconds 500
+          }
+          if (-not $ready) {
+            Write-Host "Warning: App may not be fully ready after $maxWait seconds"
+          }
+
+          # Run E2E tests
+          uv run pytest tests/e2e/ -v --tb=short -x
+
+          # Cleanup
+          Get-Process -Name "filetools*" -ErrorAction SilentlyContinue | Stop-Process -Force
+          Get-Process -Name "filetools_backend*" -ErrorAction SilentlyContinue | Stop-Process -Force
+
+      - name: Upload test artifacts on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-e2e-failure-artifacts
+          path: |
+            test-results/
+            data/logs/
+          retention-days: 7
+
+  # ==================== E2E 测试 (Linux) ====================
+  e2e-linux:
+    name: E2E Tests (Linux)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    needs: [build-tauri-linux]
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download Linux build
+        uses: actions/download-artifact@v4
+        with:
+          name: filetools-linux-installers-v${{ env.FILETOOLS_VERSION }}
+          path: ./build
+
+      - name: Display downloaded artifacts
+        run: |
+          echo "=== Downloaded artifacts ==="
+          ls -la ./build/
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libfuse2 xvfb
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          enable-cache: true
+
+      - name: Install Python dependencies
+        run: |
+          uv sync
+
+      - name: Install Playwright browsers
+        run: |
+          uv run playwright install chromium --with-deps
+
+      - name: Run E2E tests
+        run: |
+          # 提取并运行 AppImage
+          chmod +x ./build/*.AppImage
+          # 使用 xvfb-run 在虚拟显示中运行
+          xvfb-run --auto-servernum --server-args="-screen 0 1280x720x24" ./build/*.AppImage --appimage-extract-and-run &
+          APP_PID=$!
+
+          # Wait for app to be ready (smart polling)
+          max_wait=30
+          ready=false
+          for i in $(seq 1 $max_wait); do
+            if curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:18642/api/health 2>/dev/null | grep -q "200"; then
+              echo "App is ready after $i seconds"
+              ready=true
+              break
+            fi
+            sleep 0.5
+          done
+          if [ "$ready" = false ]; then
+            echo "Warning: App may not be fully ready after $max_wait seconds"
+          fi
+
+          # 运行 E2E 测试
+          uv run pytest tests/e2e/ -v --tb=short -x
+
+          # Cleanup
+          kill $APP_PID 2>/dev/null || true
+
+      - name: Upload test artifacts on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-e2e-failure-artifacts
+          path: |
+            test-results/
+            data/logs/
+          retention-days: 7
+
+  # ==================== E2E 测试 (macOS) ====================
+  e2e-macos:
+    name: E2E Tests (macOS)
+    runs-on: macos-14
+    timeout-minutes: 30
+    needs: [build-tauri-macos]
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download macOS build
+        uses: actions/download-artifact@v4
+        with:
+          name: filetools-macos-dmg-v${{ env.FILETOOLS_VERSION }}
+          path: ./build
+
+      - name: Display downloaded artifacts
+        run: |
+          ls -la ./build/
+
+      - name: Mount DMG and verify app exists
+        run: |
+          hdiutil attach ./build/*.dmg -mountpoint /Volumes/test || true
+          ls -la /Volumes/test/
+          # Basic smoke test - verify app bundle exists
+          if [ -d "/Volumes/test/FileTools.app" ]; then
+            echo "App bundle found"
+            echo "App size: $(du -sh /Volumes/test/FileTools.app | cut -f1)"
+          else
+            echo "ERROR: App bundle not found"
+            exit 1
+          fi
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          enable-cache: true
+
+      - name: Install Python dependencies
+        run: |
+          uv sync
+
+      - name: Install Playwright browsers
+        run: |
+          uv run playwright install chromium --with-deps
+
+      - name: Run E2E tests
+        run: |
+          # 复制 app 到本地目录并启动
+          cp -R /Volumes/test/FileTools.app ./FileTools.app
+          hdiutil detach /Volumes/test || true
+
+          # 启动应用
+          open ./FileTools.app
+
+          # Wait for app to be ready (smart polling)
+          max_wait=30
+          ready=false
+          for i in $(seq 1 $max_wait); do
+            if curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:18642/api/health 2>/dev/null | grep -q "200"; then
+              echo "App is ready after $i seconds"
+              ready=true
+              break
+            fi
+            sleep 0.5
+          done
+          if [ "$ready" = false ]; then
+            echo "Warning: App may not be fully ready after $max_wait seconds"
+          fi
+
+          # 运行 E2E 测试
+          uv run pytest tests/e2e/ -v --tb=short -x
+
+      - name: Cleanup
+        if: always()
+        run: |
+          pkill -f FileTools || true
+
+      - name: Upload test artifacts on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-e2e-failure-artifacts
+          path: |
+            test-results/
+            data/logs/
+          retention-days: 7
+
   # ==================== 发布 ====================
   release:
     name: Publish Release
-    needs: [build-tauri-windows, build-tauri-linux, build-tauri-macos]
+    needs: [build-tauri-windows, build-tauri-linux, build-tauri-macos, e2e-windows, e2e-linux, e2e-macos]
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     permissions:

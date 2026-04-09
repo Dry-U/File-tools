@@ -2,26 +2,29 @@
 搜索相关路由
 """
 
+import errno
 import os
 import sys
-import errno
-import numpy as np
 from typing import List
-from fastapi import APIRouter, HTTPException, Request, Depends
 
+import numpy as np
+from fastapi import APIRouter, Depends, HTTPException, Request
+
+from backend.api.dependencies import (
+    get_config_loader,
+    get_index_manager,
+    get_is_path_allowed,
+    get_resolve_path_if_allowed,
+    get_search_engine,
+)
+from backend.api.dependencies import (
+    get_rate_limiter as rate_limiter_dependency,
+)
 from backend.api.models import SearchRequest, SearchResult
+from backend.core.constants import ALLOWED_MIME_TYPES, MAX_PREVIEW_LENGTH
 from backend.utils.config_loader import ConfigLoader
 from backend.utils.logger import get_logger
 from backend.utils.network import get_client_ip
-from backend.api.dependencies import (
-    get_search_engine,
-    get_config_loader,
-    get_rate_limiter as rate_limiter_dependency,
-    get_index_manager,
-    get_resolve_path_if_allowed,
-    get_is_path_allowed,
-)
-from backend.core.constants import ALLOWED_MIME_TYPES, MAX_PREVIEW_LENGTH
 
 logger = get_logger(__name__)
 router = APIRouter()
@@ -324,7 +327,11 @@ async def preview_file(
                     detail={
                         "error": {
                             "code": "FILE_TOO_LARGE",
-                            "message": f"文件过大（超过{max_preview_size / 1024 / 1024:.0f}MB），无法预览",
+                            "message": (
+                                f"文件过大（超过"
+                                f"{max_preview_size / 1024 / 1024:.0f}MB），"
+                                f"无法预览"
+                            ),
                         }
                     },
                 )
@@ -375,7 +382,7 @@ async def preview_file(
         # 计算内容统计信息
         if content:
             content_length = len(content)
-            line_count = content.count('\n') + 1
+            line_count = content.count("\n") + 1
             is_truncated = content_length >= MAX_PREVIEW_LENGTH
 
             # 检测文件类型用于语法高亮
@@ -395,12 +402,12 @@ async def preview_file(
                     "language": language,
                     "file_extension": file_ext,
                     "mime_type": mime_type,
-                }
+                },
             }
 
         raise HTTPException(
             status_code=500,
-            detail={"error": {"code": "EMPTY_CONTENT", "message": "无法读取文件内容"}}
+            detail={"error": {"code": "EMPTY_CONTENT", "message": "无法读取文件内容"}},
         )
 
     except UnicodeDecodeError:

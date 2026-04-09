@@ -5,32 +5,32 @@
 类型注解完善版本，提升代码可维护性和 IDE 支持。
 """
 
+import fnmatch
+import hashlib
+import json
+import logging
 import os
 import re
 import time
-import json
-import hashlib
-import fnmatch
-import logging
 import traceback
 from datetime import datetime
-from typing import List, Dict, Any, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from backend.core.constants import (
-    DEFAULT_CACHE_TTL,
     DEFAULT_CACHE_SIZE,
+    DEFAULT_CACHE_TTL,
     DEFAULT_RERANK_BASE_WEIGHT,
     DEFAULT_RERANK_FILENAME_WEIGHT,
     DEFAULT_RERANK_KEYWORD_WEIGHT,
-    DEFAULT_RERANK_RECENCY_WEIGHT,
     DEFAULT_RERANK_LENGTH_WEIGHT,
+    DEFAULT_RERANK_RECENCY_WEIGHT,
     FILENAME_VARIANT_KEYWORDS,
     KEYWORD_SCORE_MAX,
     LENGTH_PENALTY_THRESHOLD_HIGH,
     LENGTH_PENALTY_THRESHOLD_LOW,
 )
-from backend.core.sharded_cache import ShardedCache
 from backend.core.query_processor import QueryProcessor
+from backend.core.sharded_cache import ShardedCache
 
 # 类型别名定义
 FilterDict = Dict[str, Any]
@@ -131,12 +131,14 @@ class SearchEngine:
             self.cache = ShardedCache(max_size=self.cache_size)
             self.cache.set_ttl(self.cache_ttl)
             self.logger.info(
-                f"搜索引擎初始化完成，文本权重: {self.text_weight}, 向量权重: {self.vector_weight}, 分片缓存已启用"
+                f"搜索引擎初始化完成，文本权重: {self.text_weight}, "
+                f"向量权重: {self.vector_weight}, 分片缓存已启用"
             )
         else:
             self.cache = None
             self.logger.info(
-                f"搜索引擎初始化完成，文本权重: {self.text_weight}, 向量权重: {self.vector_weight}, 缓存已禁用"
+                f"搜索引擎初始化完成，文本权重: {self.text_weight}, "
+                f"向量权重: {self.vector_weight}, 缓存已禁用"
             )
 
         # 初始化 EmbeddingModelManager（用于 ColBERT reranker）
@@ -148,9 +150,14 @@ class SearchEngine:
             from backend.core.embedding_manager import EmbeddingModelManager
 
             self.reranker_manager = EmbeddingModelManager(self.config_loader)
-            reranker_enabled = self.config_loader.getboolean("reranker", "enabled", True)
+            reranker_enabled = self.config_loader.getboolean(
+                "reranker", "enabled", True
+            )
             if reranker_enabled:
-                self.logger.info(f"[SearchEngine] Reranker 已启用: {self.reranker_manager.reranker_model_name}")
+                self.logger.info(
+                    "[SearchEngine] Reranker 已启用: "
+                    f"{self.reranker_manager.reranker_model_name}"
+                )
             else:
                 self.logger.info("[SearchEngine] Reranker 未启用")
         except Exception as e:
@@ -323,7 +330,8 @@ class SearchEngine:
                         all_vector_results.append(result)
 
         self.logger.info(
-            f"多路召回: 文本搜索 {len(all_text_results)} 条, 向量搜索 {len(all_vector_results)} 条"
+            f"多路召回: 文本搜索 {len(all_text_results)} 条, "
+            f"向量搜索 {len(all_vector_results)} 条"
         )
 
         return all_text_results, all_vector_results
@@ -467,7 +475,8 @@ class SearchEngine:
         """
         try:
             # 调用索引管理器的向量搜索功能，获取更多结果以确保过滤后有足够数量
-            # 注意：向量搜索暂不支持 filters 参数，过滤在 _post_process_results 中对合并结果统一处理
+            # 注意：向量搜索暂不支持 filters 参数，
+            # 过滤在 _post_process_results 中对合并结果统一处理
             results = self.index_manager.search_vector(
                 query, limit=self.max_results * 3
             )
@@ -898,26 +907,40 @@ class SearchEngine:
         is_short_query = len(query_stripped) <= 2
 
         # 尝试使用 ColBERT Reranker（短查询跳过以提升性能）
-        if not is_short_query and hasattr(self, 'reranker_manager') and self.reranker_manager:
+        if (
+            not is_short_query
+            and hasattr(self, "reranker_manager")
+            and self.reranker_manager
+        ):
             try:
-                reranker_enabled = self.config_loader.getboolean("reranker", "enabled", True)
+                reranker_enabled = self.config_loader.getboolean(
+                    "reranker", "enabled", True
+                )
                 if reranker_enabled:
                     top_k = self.config_loader.getint("reranker", "top_k", 5)
                     # 调用 reranker（只对 top 50 进行精排）
                     results_to_rerank = results[:50]
-                    reranked = self.reranker_manager.rerank(query, results_to_rerank, top_k=top_k)
+                    reranked = self.reranker_manager.rerank(
+                        query, results_to_rerank, top_k=top_k
+                    )
                     if reranked:
                         # 合并 rerank 分数到原结果
-                        rerank_map = {r.get("path"): r.get("rerank_score", 0) for r in reranked}
+                        rerank_map = {
+                            r.get("path"): r.get("rerank_score", 0) for r in reranked
+                        }
                         for result in results:
                             path = result.get("path", "")
                             if path in rerank_map:
                                 result["colbert_score"] = rerank_map[path]
-                        self.logger.info(f"[SearchEngine] ColBERT rerank 完成, top_k={top_k}")
+                        self.logger.info(
+                            f"[SearchEngine] ColBERT rerank 完成, top_k={top_k}"
+                        )
             except Exception as e:
                 self.logger.warning(f"[SearchEngine] ColBERT rerank 失败: {e}")
         elif is_short_query:
-            self.logger.info(f"[SearchEngine] 短查询 '{query}' 跳过 ColBERT rerank 以提升性能")
+            self.logger.info(
+                f"[SearchEngine] 短查询 '{query}' 跳过 ColBERT rerank 以提升性能"
+            )
 
         query_lower = query.lower()
         query_words = set(re.findall(r"\w+", query_lower))

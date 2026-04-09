@@ -13,14 +13,14 @@
 - 图片 Alt 文本
 """
 
-import pytest
-import sys
 import os
+import sys
+
+import pytest
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
 
 from playwright.sync_api import Page
-
 
 # WCAG 2.1 AA 标准颜色对比度要求
 MIN_CONTRAST_RATIO = 4.5  # 普通文本
@@ -74,7 +74,7 @@ class TestAccessibility:
                 has_aria_modal = modal.get_attribute("aria-modal")
                 has_labelledby = modal.get_attribute("aria-labelledby")
 
-                print(f"\n  模态框 {i+1}:")
+                print(f"\n  模态框 {i + 1}:")
                 print(f"    role: {has_role}")
                 print(f"    aria-modal: {has_aria_modal}")
                 print(f"    aria-labelledby: {has_labelledby}")
@@ -146,7 +146,7 @@ class TestAccessibility:
             for i, img in enumerate(images.all()):
                 alt = img.get_attribute("alt")
                 src = img.get_attribute("src") or "N/A"
-                print(f"  图片 {i+1}: alt='{alt}', src={src[:50]}...")
+                print(f"  图片 {i + 1}: alt='{alt}', src={src[:50]}...")
 
                 # 所有图片都应该有 alt 属性
                 # alt="" 表示装饰性图片，alt 文本表示内容图片
@@ -160,7 +160,11 @@ class TestAccessibility:
         page.wait_for_load_state("networkidle")
 
         # 查找所有表单输入
-        inputs = page.locator("input:not([type='hidden']):not([type='submit']):not([type='button']), textarea")
+        form_inputs = (
+            "input:not([type='hidden']):not([type='submit']):not([type='button']), "
+            "textarea"
+        )
+        inputs = page.locator(form_inputs)
         input_count = inputs.count()
 
         if input_count > 0:
@@ -177,7 +181,7 @@ class TestAccessibility:
                 if input_id:
                     associated_label = page.locator(f"label[for='{input_id}']").count()
 
-                print(f"\n  输入 {i+1}: type={input_type}")
+                print(f"\n  输入 {i + 1}: type={input_type}")
                 print(f"    aria-label: {bool(has_aria_label)}")
                 print(f"    aria-labelledby: {bool(has_aria_labelledby)}")
                 print(f"    关联label: {associated_label > 0}")
@@ -185,7 +189,11 @@ class TestAccessibility:
                 # 可视输入应该有某种标签关联
                 is_visible = inp.is_visible()
                 if is_visible:
-                    has_label = bool(has_aria_label) or bool(has_aria_labelledby) or associated_label > 0
+                    has_label = (
+                        bool(has_aria_label)
+                        or bool(has_aria_labelledby)
+                        or associated_label > 0
+                    )
                     if not has_label:
                         print(f"    警告: 可视输入缺少无障碍标签")
         else:
@@ -197,7 +205,12 @@ class TestAccessibility:
         page.wait_for_load_state("networkidle")
 
         # 检查 HTML5 语义区域和自定义区域
-        landmarks = page.locator("header, nav, main, footer, aside, [role='banner'], [role='navigation'], [role='main'], [role='contentinfo'], .main-content, .app-container")
+        landmark_selectors = (
+            "header, nav, main, footer, aside, "
+            "[role='banner'], [role='navigation'], [role='main'], "
+            "[role='contentinfo'], .main-content, .app-container"
+        )
+        landmarks = page.locator(landmark_selectors)
         landmark_count = landmarks.count()
 
         print(f"\n发现 {landmark_count} 个区域标记")
@@ -214,7 +227,9 @@ class TestAccessibility:
         if has_main == 0:
             print("\n警告: 页面缺少 main 区域，但使用 .main-content 作为主内容区")
             # 放宽断言，允许使用自定义类名
-            has_content = page.locator(".main-content, #view-search, #view-chat").count()
+            has_content = page.locator(
+                ".main-content, #view-search, #view-chat"
+            ).count()
             assert has_content > 0, "页面缺少主内容区域"
 
     def test_skip_links(self, page: Page):
@@ -236,9 +251,9 @@ class TestAccessibility:
             for i, link in enumerate(skip_links.all()):
                 href = link.get_attribute("href") or ""
                 text = link.inner_text()
-                print(f"  链接 {i+1}: {text or href}")
+                print(f"  链接 {i + 1}: {text or href}")
                 # 跳过链接应该有有效的 href 属性
-                assert href, f"链接 {i+1} 缺少 href 属性"
+                assert href, f"链接 {i + 1} 缺少 href 属性"
 
 
 # 便捷运行函数

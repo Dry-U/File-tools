@@ -1,17 +1,18 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 # pyright: reportOptionalMemberAccess=false
+import json
+import logging
 import os
 import re
 import shutil
+import threading
 import time
-import logging
+from datetime import datetime
+from typing import Any, Dict
+
 import jieba
 import numpy as np
-from datetime import datetime
-from typing import Dict, Any
-import json
-import threading
 
 from backend.core.text_chunker import TextChunker
 
@@ -48,8 +49,8 @@ class IndexManager:
         self.logger = logging.getLogger(__name__)
 
         # Lazy import native modules to prevent SIGILL on incompatible CI runners
-        import tantivy as _tantivy_mod
         import hnswlib as _hnswlib_mod
+        import tantivy as _tantivy_mod
 
         self._tantivy = _tantivy_mod
         self._hnswlib = _hnswlib_mod
@@ -162,7 +163,8 @@ class IndexManager:
 
         model_enabled = self.config_loader.get("embedding", "enabled", False)
         self.logger.info(
-            f"[INIT] _init_embedding_model called: enabled={model_enabled}, provider='{self.embedding_provider}'"
+            f"[INIT] _init_embedding_model called: "
+            f"enabled={model_enabled}, provider='{self.embedding_provider}'"
         )
         sys.stdout.flush()
 
@@ -187,8 +189,9 @@ class IndexManager:
                 )
             elif "fastembed" in str(ie).lower():
                 self.logger.warning(
-                    f"FastEmbed 未安装 (pip install fastembed)，语义搜索功能已禁用。"
-                    f"当前仅使用文本搜索 (BM25)。如需语义搜索，请安装: pip install fastembed"
+                    f"FastEmbed 未安装 (pip install fastembed)，"
+                    f"语义搜索功能已禁用。当前仅使用文本搜索 (BM25)。"
+                    f"如需语义搜索，请安装: pip install fastembed"
                 )
             else:
                 self.logger.warning(
@@ -354,7 +357,8 @@ class IndexManager:
             except Exception as e:
                 self.vector_dim = 384
                 self.logger.warning(
-                    f"Embedding模型测试失败，使用默认维度: {self.vector_dim}, 错误: {str(e)}"
+                    f"Embedding模型测试失败，使用默认维度: {self.vector_dim}, "
+                    f"错误: {str(e)}"
                 )
                 self.embedding_model = None
                 self._embedding_lazy_loaded = False
@@ -467,7 +471,8 @@ class IndexManager:
                     stored_dim = metadata_dict.get("vector_dim", self.vector_dim)
                     if stored_dim != self.vector_dim:
                         self.logger.error(
-                            f"向量维度不匹配: 索引={stored_dim}, 模型={self.vector_dim}，重建索引"
+                            f"向量维度不匹配: 索引={stored_dim}, "
+                            f"模型={self.vector_dim}，重建索引"
                         )
                         self._create_new_hnsw_index()
                         return
@@ -476,7 +481,8 @@ class IndexManager:
                     max_elements = max(self.next_id + 50000, 50000)
                     self.hnsw.load_index(index_file, max_elements=max_elements)
                     self.logger.info(
-                        f"成功加载向量索引，维度: {self.vector_dim}, 元素数: {self.next_id}"
+                        f"成功加载向量索引，维度: {self.vector_dim}, "
+                        f"元素数: {self.next_id}"
                     )
                 else:
                     self.logger.warning("向量索引已存在但嵌入模型未启用，跳过加载")
@@ -667,7 +673,8 @@ class IndexManager:
                         elapsed = time.time() - self._last_commit_time
                         buffer_size = len(self._batch_buffer)
                         self.logger.info(
-                            f"[COMMIT_THREAD] 检查commit: elapsed={elapsed:.1f}s, buffer={buffer_size}"
+                            f"[COMMIT_THREAD] 检查commit: "
+                            f"elapsed={elapsed:.1f}s, buffer={buffer_size}"
                         )
 
                         # 行业最佳实践：基于文档数量 + 时间双重触发
@@ -683,26 +690,33 @@ class IndexManager:
                                 docs_to_process = list(self._batch_buffer)
                                 if docs_to_process:
                                     self.logger.info(
-                                        f"[COMMIT_THREAD] 开始提交 {len(docs_to_process)} 个文档"
+                                        f"[COMMIT_THREAD] 开始提交 "
+                                        f"{len(docs_to_process)} 个文档"
                                     )
                                     t_commit_start = time.time()
                                     for doc in docs_to_process:
                                         self._add_doc_to_writer(doc)
+                                    elapsed_add = time.time() - t_commit_start
                                     self.logger.info(
-                                        f"[COMMIT_THREAD] 添加文档到writer完成，耗时 {time.time() - t_commit_start:.3f}s"
+                                        f"[COMMIT_THREAD] 添加文档到writer完成，"
+                                        f"耗时 {elapsed_add:.3f}s"
                                     )
                                     self._batch_buffer = []
 
                                 t_writer_commit = time.time()
+                                elapsed_since = t_writer_commit - elapsed
                                 self.logger.info(
-                                    f"[COMMIT_THREAD] 开始writer.commit() (累计 {t_writer_commit - elapsed:.3f}s from last commit)"
+                                    f"[COMMIT_THREAD] 开始writer.commit() "
+                                    f"(累计 {elapsed_since:.3f}s from last commit)"
                                 )
                                 self._writer.commit()
                                 t_commit_done = time.time()
                                 self._last_commit_time = t_commit_done
                                 commit_count += 1
+                                commit_time = t_commit_done - t_writer_commit
                                 self.logger.info(
-                                    f"[COMMIT_THREAD] Commit #{commit_count} 完成，writer.commit()耗时 {t_commit_done - t_writer_commit:.3f}s"
+                                    f"[COMMIT_THREAD] Commit #{commit_count} 完成，"
+                                    f"writer.commit()耗时 {commit_time:.3f}s"
                                 )
                             except Exception as e:
                                 self.logger.error(
@@ -710,7 +724,9 @@ class IndexManager:
                                 )
                         else:
                             self.logger.info(
-                                f"[COMMIT_THREAD] 跳过commit: elapsed={elapsed:.1f}s < 10s, buffer={buffer_size} < 50"
+                                f"[COMMIT_THREAD] 跳过commit: "
+                                f"elapsed={elapsed:.1f}s < 10s, "
+                                f"buffer={buffer_size} < 50"
                             )
                 except Exception as e:
                     self.logger.error(f"[COMMIT_THREAD] Commit循环异常: {e}")
@@ -867,8 +883,11 @@ class IndexManager:
         # 确保 writer 有效
         if self._writer is None:
             self._writer = self.tantivy_index.writer()
+            buffer_size = (
+                len(self._batch_buffer) if hasattr(self, "_batch_buffer") else 0
+            )
             self.logger.info(
-                f"[_ADD_DOC_WRITER] 创建新Writer，缓冲区大小={len(self._batch_buffer) if hasattr(self, '_batch_buffer') else 0}"
+                f"[_ADD_DOC_WRITER] 创建新Writer，缓冲区大小={buffer_size}"
             )
 
         seg_filename = self._segment(document["filename"])
@@ -1069,8 +1088,10 @@ class IndexManager:
 
         original_chunk_count = len(chunks)
         if len(chunks) > MAX_CHUNKS_PER_DOC:
+            doc_path = document.get("path", "")
             self.logger.warning(
-                f"文档 {document.get('path', '')} 产生过多分块 ({len(chunks)})，已截断至 {MAX_CHUNKS_PER_DOC}"
+                f"文档 {doc_path} 产生过多分块 ({len(chunks)})，"
+                f"已截断至 {MAX_CHUNKS_PER_DOC}"
             )
             chunks = chunks[:MAX_CHUNKS_PER_DOC]
 
@@ -1165,7 +1186,8 @@ class IndexManager:
         original_chunk_count = len(chunks)
         if len(chunks) > MAX_CHUNKS_PER_DOC:
             self.logger.warning(
-                f"文档 {document['path']} 产生过多分块 ({len(chunks)})，已截断至 {MAX_CHUNKS_PER_DOC}"
+                f"文档 {document['path']} 产生过多分块 ({len(chunks)})，"
+                f"已截断至 {MAX_CHUNKS_PER_DOC}"
             )
             chunks = chunks[:MAX_CHUNKS_PER_DOC]
 
@@ -1231,7 +1253,8 @@ class IndexManager:
             self.save_indexes()
 
         self.logger.info(
-            f"成功添加 {success_count}/{len(chunks)} 个chunks到向量索引: {document['path']}"
+            f"成功添加 {success_count}/{len(chunks)} 个chunks到向量索引: "
+            f"{document['path']}"
         )
 
     def _store_chunk_vector(
@@ -1347,7 +1370,8 @@ class IndexManager:
                 elapsed = time.time() - batch_start
                 if elapsed > self._BATCH_MODE_TIMEOUT:
                     self.logger.warning(
-                        f"批量模式已运行 {elapsed:.1f} 秒，超过上限 {self._BATCH_MODE_TIMEOUT} 秒"
+                        f"批量模式已运行 {elapsed:.1f} 秒，"
+                        f"超过上限 {self._BATCH_MODE_TIMEOUT} 秒"
                     )
                     if force_if_timeout:
                         self.logger.warning("强制结束卡住的批量模式（避免死锁）...")
@@ -1470,7 +1494,8 @@ class IndexManager:
                 elapsed = time.time() - batch_start
                 if elapsed > self._BATCH_MODE_TIMEOUT:
                     self.logger.warning(
-                        f"批量模式已运行 {elapsed:.1f} 秒，超过上限 {self._BATCH_MODE_TIMEOUT} 秒"
+                        f"批量模式已运行 {elapsed:.1f} 秒，"
+                        f"超过上限 {self._BATCH_MODE_TIMEOUT} 秒"
                     )
                     if force_if_timeout:
                         self.logger.warning("强制结束卡住的批量模式（避免死锁）...")
@@ -1564,7 +1589,8 @@ class IndexManager:
                                 except Exception:
                                     continue
                     finally:
-                        # 确保 searcher 被关闭（Tantivy searcher 是轻量对象，不需要显式 release）
+                        # 确保 searcher 被关闭
+                        # Tantivy searcher 是轻量对象，不需要显式 release
                         if searcher is not None:
                             try:
                                 searcher.release()
@@ -1904,7 +1930,8 @@ class IndexManager:
             highlighted.append(html.escape(text[last:start]))
             # 使用 text-danger 和 fw-bold 高亮
             highlighted.append(
-                f'<span class="text-success fw-bold">{html.escape(text[start:end])}</span>'
+                '<span class="text-success fw-bold">'
+                f"{html.escape(text[start:end])}</span>"
             )
             last = end
         # 最后一部分也需要转义
@@ -2445,8 +2472,10 @@ class IndexManager:
             self.logger.debug(f"[ENCODE_SINGLE] 完成，耗时 {time.time() - t0:.3f}s")
             return result
         except (StopIteration, RuntimeError, ValueError) as e:
+            elapsed = time.time() - t0
             self.logger.warning(
-                f"[ENCODE_SINGLE] 文本编码失败: {str(e)}，耗时 {time.time() - t0:.3f}s，返回零向量"
+                f"[ENCODE_SINGLE] 文本编码失败: {str(e)}，"
+                f"耗时 {elapsed:.3f}s，返回零向量"
             )
             return np.zeros(getattr(self, "vector_dim", 384), dtype=np.float32)
 
@@ -2464,14 +2493,16 @@ class IndexManager:
         self._ensure_embedding_loaded()
         if not texts or not self.embedding_model:
             dim = getattr(self, "vector_dim", 384)
+            elapsed = time.time() - t0
             self.logger.warning(
-                f"[ENCODE] Embedding模型未就绪，返回零向量，耗时 {time.time() - t0:.3f}s"
+                f"[ENCODE] Embedding模型未就绪，返回零向量，耗时 {elapsed:.3f}s"
             )
             return np.zeros((len(texts) if texts else 0, dim), dtype=np.float32)
 
         try:
+            model_name = getattr(self.embedding_model, "model_name", "unknown")
             self.logger.info(
-                f"[ENCODE] 开始编码 {len(texts)} 个文本，模型={getattr(self.embedding_model, 'model_name', 'unknown')}"
+                f"[ENCODE] 开始编码 {len(texts)} 个文本，模型={model_name}"
             )
             t1 = time.time()
             vectors = list(self.embedding_model.embed(texts))
@@ -2530,15 +2561,20 @@ class IndexManager:
             )
             vectors = self._encode_texts_batch(texts)
             t2 = time.time()  # 调试：编码完成时间
+            encode_time = t2 - t1
+            total_time = t2 - t0
             self.logger.info(
-                f"[VECTOR_FLUSH] 编码完成，shape={vectors.shape}，耗时 {t2 - t1:.3f}s (累计 {t2 - t0:.3f}s)"
+                f"[VECTOR_FLUSH] 编码完成，shape={vectors.shape}，"
+                f"耗时 {encode_time:.3f}s (累计 {total_time:.3f}s)"
             )
 
             # 预检查容量
             needed = self.next_id + len(vectors)
-            if needed > self.hnsw.get_max_elements():
+            max_elements = self.hnsw.get_max_elements()
+            if needed > max_elements:
                 self.logger.info(
-                    f"[VECTOR_FLUSH] HNSW容量不足，扩展索引: {self.hnsw.get_max_elements()} -> {needed + 1024}"
+                    f"[VECTOR_FLUSH] HNSW容量不足，"
+                    f"扩展索引: {max_elements} -> {needed + 1024}"
                 )
                 self.hnsw.resize_index(needed + 1024)
 
@@ -2546,15 +2582,20 @@ class IndexManager:
 
             # HNSW写入需要保护，但只在写入时持有锁
             # metadata更新在锁外进行（因为commit thread不修改metadata）
+            elapsed = t2 - t0
             self.logger.info(
-                f"[VECTOR_FLUSH] 开始HNSW写入 {len(vectors)} 个向量 (累计 {t2 - t0:.3f}s)"
+                f"[VECTOR_FLUSH] 开始HNSW写入 {len(vectors)} 个向量 "
+                f"(累计 {elapsed:.3f}s)"
             )
             t3 = time.time()  # 调试：HNSW写入开始时间
             with self._batch_lock:
                 self.hnsw.add_items(vectors, ids)
             t4 = time.time()  # 调试：HNSW写入完成时间
+            hnsw_time = t4 - t3
+            total_time = t4 - t0
             self.logger.info(
-                f"[VECTOR_FLUSH] HNSW写入完成，耗时 {t4 - t3:.3f}s (累计 {t4 - t0:.3f}s)"
+                f"[VECTOR_FLUSH] HNSW写入完成，耗时 {hnsw_time:.3f}s "
+                f"(累计 {total_time:.3f}s)"
             )
 
             # 更新metadata（在锁外进行，减少锁持有时间）
@@ -2563,17 +2604,24 @@ class IndexManager:
                 self.vector_metadata[str(self.next_id + i)] = metadata
             self.next_id += len(vectors)
             t6 = time.time()  # 调试：metadata更新完成时间
+            meta_time = t6 - t5
+            total_time = t6 - t0
             self.logger.info(
-                f"[VECTOR_FLUSH] metadata更新完成，{len(metadatas)} 条，耗时 {t6 - t5:.3f}s (累计 {t6 - t0:.3f}s)"
+                f"[VECTOR_FLUSH] metadata更新完成，{len(metadatas)} 条，"
+                f"耗时 {meta_time:.3f}s (累计 {total_time:.3f}s)"
             )
 
+            total_time = t6 - t0
             self.logger.info(
-                f"[VECTOR_FLUSH] 向量批量写入完成: {count} 个向量，总耗时 {t6 - t0:.3f}s"
+                f"[VECTOR_FLUSH] 向量批量写入完成: {count} 个向量，"
+                f"总耗时 {total_time:.3f}s"
             )
         except Exception as e:
             t_err = time.time()
+            elapsed = t_err - t0
             self.logger.error(
-                f"[VECTOR_FLUSH] 向量批量写入失败 (耗时 {t_err - t0:.3f}s)，回退到逐个写入: {e}"
+                f"[VECTOR_FLUSH] 向量批量写入失败 "
+                f"(耗时 {elapsed:.3f}s)，回退到逐个写入: {e}"
             )
             for text, metadata in self._vector_buffer:
                 try:
@@ -2855,8 +2903,12 @@ class IndexManager:
                 missing_in_index = metadata_ids - indexed_ids
 
                 if missing_in_metadata or missing_in_index:
+                    missing_meta = len(missing_in_metadata)
+                    missing_idx = len(missing_in_index)
                     self.logger.warning(
-                        f"向量索引与元数据不一致: 索引中缺失元数据的ID数: {len(missing_in_metadata)}, 元数据中缺失索引的ID数: {len(missing_in_index)}"
+                        f"向量索引与元数据不一致: "
+                        f"索引中缺失元数据的ID数: {missing_meta}, "
+                        f"元数据中缺失索引的ID数: {missing_idx}"
                     )
                 else:
                     self.logger.info("向量索引与元数据一致性检查通过")

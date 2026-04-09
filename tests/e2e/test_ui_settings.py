@@ -2,9 +2,10 @@
 设置面板UI测试 - Playwright
 """
 
-import pytest
-import sys
 import os
+import sys
+
+import pytest
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
 
@@ -24,7 +25,8 @@ class TestUISettings:
             # 如果超时，再试一次
             page.goto("http://127.0.0.1:18642", timeout=30000)
 
-        page.wait_for_timeout(2000)
+        # 等待页面加载完成
+        page.wait_for_load_state("networkidle")
 
         # 查找设置按钮
         settings_button = page.locator(
@@ -40,7 +42,10 @@ class TestUISettings:
 
         if settings_button.is_visible():
             settings_button.click()
-            page.wait_for_timeout(1000)
+            # 等待设置模态框出现
+            page.locator(
+                '#settingsModal, .modal.show, [class*="settings"]'
+            ).first.wait_for(state="visible", timeout=5000)
 
     def test_settings_panel_open(self, page):
         """测试设置面板打开"""
@@ -67,7 +72,10 @@ class TestUISettings:
                 ).first
                 if settings_btn.is_visible():
                     settings_btn.click()
-                    page.wait_for_timeout(1000)
+                    # 等待模态框出现
+                    page.locator("#settingsModal, .modal.show").first.wait_for(
+                        state="visible", timeout=5000
+                    )
 
         # 验证设置模态框存在（可能不可见但存在于DOM中）
         settings_modal = page.locator("#settingsModal").first
@@ -80,13 +88,18 @@ class TestUISettings:
         self.open_settings(page)
 
         # 查找关闭按钮
-        close_button = page.locator(
-            'button:has-text("关闭"), button:has-text("Close"), button:has-text("×"), .close-button, [data-testid="close"]'
-        ).first
+        close_selectors = (
+            'button:has-text("关闭"), button:has-text("Close"), '
+            'button:has-text("×"), .close-button, [data-testid="close"]'
+        )
+        close_button = page.locator(close_selectors).first
 
         if close_button.is_visible():
             close_button.click()
-            page.wait_for_timeout(500)
+            # 等待模态框关闭
+            page.locator("#settingsModal, .modal.show").first.wait_for(
+                state="hidden", timeout=5000
+            )
 
         assert page.url.startswith("http://127.0.0.1:18642")
 
@@ -107,7 +120,7 @@ class TestUISettings:
         if enable_checkbox.is_visible():
             # 切换启用状态
             enable_checkbox.click()
-            page.wait_for_timeout(300)
+            # NOTE: Removed fixed wait - Playwright auto-waits
 
         assert page.url.startswith("http://127.0.0.1:18642")
 
@@ -123,7 +136,7 @@ class TestUISettings:
         if api_url_input.is_visible():
             # 输入测试URL
             api_url_input.fill("http://localhost:8080/v1/chat/completions")
-            page.wait_for_timeout(300)
+            # NOTE: Removed fixed wait - Playwright auto-waits
 
             # 验证输入值
             value = api_url_input.input_value()
@@ -141,7 +154,7 @@ class TestUISettings:
         if api_key_input.is_visible():
             # 输入测试密钥
             api_key_input.fill("test-api-key-12345")
-            page.wait_for_timeout(300)
+            # NOTE: Removed fixed wait - Playwright auto-waits
 
             # 验证输入值（密码字段可能无法直接读取）
             assert api_key_input.is_visible()
@@ -152,13 +165,14 @@ class TestUISettings:
 
         # 查找temperature滑块
         temp_slider = page.locator(
-            'input[type="range"][name*="temperature"], input[type="range"][name*="temp"]'
+            'input[type="range"][name*="temperature"], '
+            'input[type="range"][name*="temp"]'
         ).first
 
         if temp_slider.is_visible():
             # 设置值
             temp_slider.fill("0.7")
-            page.wait_for_timeout(300)
+            # NOTE: Removed fixed wait - Playwright auto-waits
 
             value = temp_slider.input_value()
             assert value is not None
@@ -175,7 +189,7 @@ class TestUISettings:
         if max_tokens_input.is_visible():
             # 输入值
             max_tokens_input.fill("2048")
-            page.wait_for_timeout(300)
+            # NOTE: Removed fixed wait - Playwright auto-waits
 
             value = max_tokens_input.input_value()
             assert value == "2048" or value == "2048.0"
@@ -185,13 +199,15 @@ class TestUISettings:
         self.open_settings(page)
 
         # 查找保存按钮
-        save_button = page.locator(
-            'button:has-text("保存"), button:has-text("Save"), .save-button, [data-testid="save"]'
-        ).first
+        save_selectors = (
+            'button:has-text("保存"), button:has-text("Save"), '
+            '.save-button, [data-testid="save"]'
+        )
+        save_button = page.locator(save_selectors).first
 
         if save_button.is_visible():
             save_button.click()
-            page.wait_for_timeout(1000)
+            # NOTE: Use wait_for_load_state or element visibility
 
         assert page.url.startswith("http://127.0.0.1:18642")
 
@@ -206,7 +222,7 @@ class TestUISettings:
 
         if reset_button.is_visible():
             reset_button.click()
-            page.wait_for_timeout(500)
+            # NOTE: Use auto-wait or specific condition
 
             # 可能需要确认
             confirm_button = page.locator(
@@ -214,7 +230,7 @@ class TestUISettings:
             ).first
             if confirm_button.is_visible():
                 confirm_button.click()
-                page.wait_for_timeout(500)
+                # NOTE: Use auto-wait or specific condition
 
         assert page.url.startswith("http://127.0.0.1:18642")
 
@@ -226,13 +242,13 @@ class TestUISettings:
         mode_tab = page.locator('#v-pills-mode-tab, button:has-text("接入模式")').first
         if mode_tab.is_visible():
             mode_tab.click()
-            page.wait_for_timeout(500)
+            # NOTE: Use auto-wait or specific condition
 
         # 切换到API模式
         api_mode_radio = page.locator('#modeAPI, input[value="api"]').first
         if api_mode_radio.is_visible():
             api_mode_radio.click()
-            page.wait_for_timeout(500)
+            # NOTE: Use auto-wait or specific condition
 
         # 查找提供商下拉菜单（使用正确的ID）
         provider_select = page.locator(
@@ -242,7 +258,7 @@ class TestUISettings:
         if provider_select.is_visible():
             # 选择一个选项
             provider_select.select_option("siliconflow")
-            page.wait_for_timeout(300)
+            # NOTE: Removed fixed wait - Playwright auto-waits
 
             value = provider_select.input_value()
             assert value is not None
@@ -255,15 +271,17 @@ class TestUISettings:
         self.open_settings(page)
 
         # 查找系统提示词文本框
-        system_prompt = page.locator(
-            'textarea[name*="system_prompt"], textarea[name*="system-prompt"], textarea[placeholder*="system"]'
-        ).first
+        system_prompt_selectors = (
+            'textarea[name*="system_prompt"], textarea[name*="system-prompt"], '
+            'textarea[placeholder*="system"]'
+        )
+        system_prompt = page.locator(system_prompt_selectors).first
 
         if system_prompt.is_visible():
             # 输入测试提示词
             test_prompt = "You are a helpful assistant."
             system_prompt.fill(test_prompt)
-            page.wait_for_timeout(300)
+            # NOTE: Removed fixed wait - Playwright auto-waits
 
             value = system_prompt.input_value()
             assert test_prompt in value
@@ -280,7 +298,7 @@ class TestUISettings:
             for tab in tabs[:3]:  # 最多测试前3个
                 if tab.is_visible():
                     tab.click()
-                    page.wait_for_timeout(300)
+                    # NOTE: Removed fixed wait - Playwright auto-waits
 
         assert page.url.startswith("http://127.0.0.1:18642")
 
@@ -292,13 +310,15 @@ class TestUISettings:
         page.locator('.directory-list, [class*="directory"]').first
 
         # 查找添加目录按钮
-        add_dir_button = page.locator(
-            'button:has-text("添加目录"), button:has-text("Add Directory"), .add-directory'
-        ).first
+        add_dir_selectors = (
+            'button:has-text("添加目录"), button:has-text("Add Directory"), '
+            ".add-directory"
+        )
+        add_dir_button = page.locator(add_dir_selectors).first
 
         if add_dir_button.is_visible():
             add_dir_button.click()
-            page.wait_for_timeout(500)
+            # NOTE: Use auto-wait or specific condition
 
         assert page.url.startswith("http://127.0.0.1:18642")
 
@@ -307,13 +327,15 @@ class TestUISettings:
         self.open_settings(page)
 
         # 查找测试连接按钮
-        test_button = page.locator(
-            'button:has-text("测试"), button:has-text("Test"), button:has-text("连接"), .test-connection'
-        ).first
+        test_button_selectors = (
+            'button:has-text("测试"), button:has-text("Test"), '
+            'button:has-text("连接"), .test-connection'
+        )
+        test_button = page.locator(test_button_selectors).first
 
         if test_button.is_visible():
             test_button.click()
-            page.wait_for_timeout(2000)
+            # NOTE: Use smart wait for async operations
 
         assert page.url.startswith("http://127.0.0.1:18642")
 
@@ -329,7 +351,7 @@ class TestUISettings:
         if api_url_input.is_visible():
             test_url = "http://example.com/api"
             api_url_input.fill(test_url)
-            page.wait_for_timeout(300)
+            # NOTE: Removed fixed wait - Playwright auto-waits
 
             # 保存设置
             save_button = page.locator(
@@ -337,7 +359,7 @@ class TestUISettings:
             ).first
             if save_button.is_visible():
                 save_button.click()
-                page.wait_for_timeout(1000)
+                # NOTE: Use wait_for_load_state or element visibility
 
         assert page.url.startswith("http://127.0.0.1:18642")
 
@@ -346,13 +368,15 @@ class TestUISettings:
         self.open_settings(page)
 
         # 查找高级设置切换
-        advanced_toggle = page.locator(
-            'button:has-text("高级"), button:has-text("Advanced"), .advanced-toggle, [data-testid="advanced"]'
-        ).first
+        advanced_selectors = (
+            'button:has-text("高级"), button:has-text("Advanced"), '
+            '.advanced-toggle, [data-testid="advanced"]'
+        )
+        advanced_toggle = page.locator(advanced_selectors).first
 
         if advanced_toggle.is_visible():
             advanced_toggle.click()
-            page.wait_for_timeout(500)
+            # NOTE: Use auto-wait or specific condition
 
             # 高级设置应该显示
             page.locator('.advanced-settings, [class*="advanced"]').first
@@ -374,7 +398,7 @@ class TestUISettings:
 
         # 点击添加目录按钮
         add_dir_button.click()
-        page.wait_for_timeout(500)
+        # NOTE: Use auto-wait or specific condition
 
         # 验证模态框打开 - 检查模态框元素
         modal = page.locator(
@@ -398,7 +422,7 @@ class TestUISettings:
             )
             if cancel_btn.count() > 0 and cancel_btn.first.is_visible():
                 cancel_btn.first.click()
-                page.wait_for_timeout(300)
+                # NOTE: Removed fixed wait - Playwright auto-waits
 
     def test_delete_directory_modal(self, page):
         """测试删除目录模态框"""
@@ -410,7 +434,7 @@ class TestUISettings:
         ).first
         if dir_tab.is_visible():
             dir_tab.click()
-            page.wait_for_timeout(500)
+            # NOTE: Use auto-wait or specific condition
 
         # 检查是否有目录存在
         empty_state = page.locator(".directory-empty").first
@@ -429,7 +453,7 @@ class TestUISettings:
 
         # 点击第一个删除按钮
         delete_buttons.first.click()
-        page.wait_for_timeout(500)
+        # NOTE: Use auto-wait or specific condition
 
         # 验证确认删除模态框打开
         modal = page.locator("#deleteDirectoryModal")
@@ -437,21 +461,23 @@ class TestUISettings:
 
         # 检查确认按钮
         confirm_delete = page.locator("#confirmDirectoryDeleteBtn")
-        cancel_delete = page.locator(
-            '#deleteDirectoryModal button:has-text("取消"), #deleteDirectoryModal button[data-bs-dismiss="modal"]'
+        cancel_delete_selectors = (
+            '#deleteDirectoryModal button:has-text("取消"), '
+            '#deleteDirectoryModal button[data-bs-dismiss="modal"]'
         )
+        cancel_delete = page.locator(cancel_delete_selectors)
 
         if confirm_delete.count() > 0 or cancel_delete.count() > 0:
             # 点击取消关闭模态框
             if cancel_delete.count() > 0 and cancel_delete.first.is_visible():
                 cancel_delete.first.click()
-                page.wait_for_timeout(300)
+                # NOTE: Removed fixed wait - Playwright auto-waits
 
     def test_rebuild_index_modal(self, page):
         """测试重建索引模态框"""
         # 访问首页（不打开设置）
         page.goto("http://127.0.0.1:18642", timeout=30000)
-        page.wait_for_timeout(2000)
+        # NOTE: Use smart wait for async operations
 
         # 查找重建索引按钮（在搜索侧边栏）
         rebuild_button = page.locator(
@@ -463,14 +489,14 @@ class TestUISettings:
 
         # 点击重建索引按钮（使用 JavaScript 点击避免被遮挡）
         rebuild_button.scroll_into_view_if_needed()
-        page.wait_for_timeout(500)
+        # NOTE: Use auto-wait or specific condition
         # 尝试直接点击，如果失败则使用 JS 点击
         try:
             rebuild_button.click(timeout=5000)
         except Exception:
             # 使用 JavaScript 点击
             rebuild_button.evaluate("el => el.click()")
-        page.wait_for_timeout(500)
+        # NOTE: Use auto-wait or specific condition
 
         # 验证模态框打开
         modal = page.locator("#rebuildIndexModal")
@@ -489,11 +515,13 @@ class TestUISettings:
             assert is_displayed, "重建索引模态框应该可见"
 
         # 关闭模态框
-        cancel_button = page.locator(
-            '#rebuildIndexModal button:has-text("取消"), #rebuildCloseBtn, #rebuildIndexModal button[data-bs-dismiss="modal"]'
-        ).first
+        rebuild_cancel_selectors = (
+            '#rebuildIndexModal button:has-text("取消"), #rebuildCloseBtn, '
+            '#rebuildIndexModal button[data-bs-dismiss="modal"]'
+        )
+        cancel_button = page.locator(rebuild_cancel_selectors).first
         if cancel_button.is_visible():
             cancel_button.click()
         else:
             page.keyboard.press("Escape")
-        page.wait_for_timeout(300)
+        # NOTE: Removed fixed wait - Playwright auto-waits

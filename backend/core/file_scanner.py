@@ -3,28 +3,28 @@
 # -*- coding: utf-8 -*-
 """文件扫描器模块 - 负责扫描文件系统并识别可索引文件（支持同步和异步操作）"""
 
-import os
-import re
-import platform
-import time
 import asyncio
+import fnmatch
+import logging
+import os
+import platform
+import re
+import threading
+import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from pathlib import Path
-from typing import List, Dict, Optional, Any, Tuple, Callable, Generator
-import logging
-import fnmatch
-from concurrent.futures import ThreadPoolExecutor, as_completed
-import threading
+from typing import Any, Callable, Dict, Generator, List, Optional, Tuple
 
-from backend.utils.config_loader import ConfigLoader
-from backend.core.index_manager import IndexManager
-from backend.core.document_parser import DocumentParser
 from backend.core.constants import (
-    DEFAULT_MAX_WORKERS,
     DEFAULT_BATCH_SIZE,
+    DEFAULT_MAX_WORKERS,
     LOG_FREQUENCY,
     PROGRESS_FREQUENCY,
 )
+from backend.core.document_parser import DocumentParser
+from backend.core.index_manager import IndexManager
+from backend.utils.config_loader import ConfigLoader
 
 # 异步支持（可选依赖）
 try:
@@ -218,9 +218,10 @@ class FileScanner:
         for i in range(entries_to_remove):
             del self._file_hash_cache[sorted_items[i][0]]
 
-        self.logger.debug(
-            f"缓存修剪：移除了 {entries_to_remove} 个条目，当前大小: {len(self._file_hash_cache)}"
+        cache_info = (
+            f"移除了 {entries_to_remove} 个条目，当前大小: {len(self._file_hash_cache)}"
         )
+        self.logger.debug(f"缓存修剪：{cache_info}")
 
     def _process_file_batch(self, file_paths: List[Path]) -> List[Dict]:
         """批量处理文件，返回成功处理的文档列表（文档格式，用于批量索引）"""
@@ -243,9 +244,8 @@ class FileScanner:
         try:
             scan_paths_value = self.config_loader.get("file_scanner", "scan_paths", "")
             # 避免在大规模扫描时刷屏 info 日志
-            self.logger.debug(
-                f"配置的扫描路径原始值: {scan_paths_value} (类型: {type(scan_paths_value).__name__})"
-            )
+            path_info = f"类型: {type(scan_paths_value).__name__}"
+            self.logger.debug(f"配置的扫描路径原始值: {scan_paths_value} ({path_info})")
         except Exception as e:
             self.logger.error(f"获取扫描路径配置失败: {str(e)}")
             scan_paths_value = ""
@@ -602,13 +602,15 @@ class FileScanner:
             self.scan_stats["last_scan_time"] = time.time()
             stats = self.scan_stats.copy()
 
-        self.logger.info(
+        avg_speed = stats["total_files_scanned"] / max(stats["scan_time"], 0.001)
+        scan_info = (
             f"扫描完成，统计: 扫描文件 {stats['total_files_scanned']} 个, "
             f"索引文件 {stats['total_files_indexed']} 个, "
             f"跳过文件 {stats['total_files_skipped']} 个, "
             f"耗时 {stats['scan_time']:.2f} 秒, "
-            f"平均速度: {stats['total_files_scanned'] / max(stats['scan_time'], 0.001):.1f} 文件/秒"
+            f"平均速度: {avg_speed:.1f} 文件/秒"
         )
+        self.logger.info(scan_info)
 
         return stats
 
@@ -1222,8 +1224,9 @@ class FileScanner:
 
         # 检查文件大小
         if stat_result.st_size > self.max_file_size:
+            size_mb = stat_result.st_size / 1024 / 1024
             self.logger.debug(
-                f"跳过过大文件: {os.path.basename(path)}, 大小: {stat_result.st_size / 1024 / 1024:.1f}MB"
+                f"跳过过大文件: {os.path.basename(path)}, 大小: {size_mb:.1f}MB"
             )
             return False
 

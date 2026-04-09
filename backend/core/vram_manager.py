@@ -1,13 +1,14 @@
 # -*- coding: utf-8 -*-
 """VRAM管理器模块 - 用于内存和性能优化"""
 
-import os
-import time
-import logging
-import psutil
 import gc
+import logging
+import os
 import threading
-from typing import Optional, Dict, Any
+import time
+from typing import Any, Dict, Optional
+
+import psutil
 
 # 尝试导入GPU监控库
 try:
@@ -16,7 +17,11 @@ try:
     gpu_available = True
 except ImportError:
     gpu_available = False
-    logging.info("GPUtil 未安装，GPU 监控功能已跳过。如需 GPU 显存监控，请安装: pip install gputil")
+    gpu_msg = (
+        "GPUtil 未安装，GPU 监控功能已跳过。"
+        "如需 GPU 显存监控，请安装: pip install gputil"
+    )
+    logging.info(gpu_msg)
 
 logger = logging.getLogger(__name__)
 
@@ -48,7 +53,8 @@ class VRAMManager:
             self.max_cached_results = 1000
 
         logger.info(
-            f"内存管理器初始化，模型目录: {self.models_dir}, 内存限制: {self.mem_limit}MB, 最大缓存: {self.max_cached_results}"
+            f"内存管理器初始化，模型目录: {self.models_dir}, "
+            f"内存限制: {self.mem_limit}MB, 最大缓存: {self.max_cached_results}"
         )
 
     def available_vram(self) -> int:

@@ -1,13 +1,14 @@
 """RAG Pipeline 单元测试"""
 
-import pytest
-import sys
 import os
+import sys
 from unittest.mock import Mock, patch
+
+import pytest
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-from backend.core.rag_pipeline import RAGPipeline, DEFAULT_PROMPT
+from backend.core.rag_pipeline import DEFAULT_PROMPT, RAGPipeline
 
 
 class TestRAGPipeline:

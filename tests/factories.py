@@ -1,17 +1,16 @@
 """测试数据工厂 - 用于生成测试数据"""
 
-from typing import Dict, Any, List, Optional
-from unittest.mock import Mock
+import os
 import random
 import sys
-import os
 from datetime import datetime, timedelta
+from typing import Any, Dict, List, Optional
+from unittest.mock import Mock
 
 # 添加项目根目录到Python路径
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 from backend.utils.config_loader import ConfigLoader
-
 
 # =============================================================================
 # 辅助函数
@@ -279,11 +278,11 @@ class MessageFactory:
         messages = []
         for i in range(turns):
             # User message
-            user_msg = MessageFactory.create(role="user", content=f"Question {i+1}?")
+            user_msg = MessageFactory.create(role="user", content=f"Question {i + 1}?")
             messages.append(user_msg)
 
             # Assistant message
-            assistant_content = f"Answer {i+1} to your question."
+            assistant_content = f"Answer {i + 1} to your question."
             if include_sources:
                 assistant_content += "\n\nSources: /test/doc1.txt"
 
@@ -598,15 +597,11 @@ class MockConfigFactory:
         config.getint.side_effect = lambda section, key, default=0: int_or_default(
             get_side_effect(section, key, default)
         )
-        config.getfloat.side_effect = (
-            lambda section, key, default=0.0: float_or_default(
-                get_side_effect(section, key, default)
-            )
+        config.getfloat.side_effect = lambda section, key, default=0.0: (
+            float_or_default(get_side_effect(section, key, default))
         )
-        config.getboolean.side_effect = (
-            lambda section, key, default=False: bool_or_default(
-                get_side_effect(section, key, default)
-            )
+        config.getboolean.side_effect = lambda section, key, default=False: (
+            bool_or_default(get_side_effect(section, key, default))
         )
 
         # 实现 set 方法 - 更新配置数据

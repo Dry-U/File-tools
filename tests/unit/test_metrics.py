@@ -2,9 +2,11 @@
 # -*- coding: utf-8 -*-
 """测试性能指标收集模块"""
 
-import pytest
 import time
-from backend.utils.metrics import Counter, Histogram, Gauge, MetricsCollector, timed
+
+import pytest
+
+from backend.utils.metrics import Counter, Gauge, Histogram, MetricsCollector, timed
 
 
 class TestCounter:

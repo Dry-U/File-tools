@@ -3,22 +3,25 @@
 """
 
 import os
-import time
 import threading
+import time
 from pathlib import Path
-from typing import Dict, Any
-from fastapi import APIRouter, HTTPException, Request, Depends
+from typing import Any, Dict
 
-from backend.utils.config_loader import ConfigLoader
-from backend.utils.logger import get_logger
+from fastapi import APIRouter, Depends, HTTPException, Request
+
 from backend.api.dependencies import (
     get_config_loader,
-    get_index_manager,
     get_file_scanner,
+    get_index_manager,
+)
+from backend.api.dependencies import (
     get_rate_limiter as rate_limiter_dependency,
 )
-from backend.utils.network import get_client_ip
 from backend.api.models import HealthCheckResponse
+from backend.utils.config_loader import ConfigLoader
+from backend.utils.logger import get_logger
+from backend.utils.network import get_client_ip
 
 logger = get_logger(__name__)
 router = APIRouter()
@@ -136,10 +139,11 @@ async def rebuild_index_stream(
     limiter=Depends(rate_limiter_dependency),
 ):
     """重建文件索引（带进度流式返回）"""
-    from fastapi.responses import StreamingResponse
-    import json
     import asyncio
+    import json
     import queue
+
+    from fastapi.responses import StreamingResponse
 
     # 限流检查
     if config_loader.getboolean("security", "rate_limiter.enabled", True):
@@ -209,14 +213,28 @@ async def rebuild_index_stream(
                             with _rebuild_lock:
                                 _rebuild_progress_state["progress"] = progress
                             try:
-                                yield f"data: {json.dumps({'status': 'progress', 'progress': progress})}\n\n"
+                                progress_data = {
+                                    "status": "progress",
+                                    "progress": progress,
+                                }
+                                yield f"data: {json.dumps(progress_data)}\n\n"
                                 last_yield_time = time.time()
                             except Exception:
                                 # 客户端已断开，发送最终状态后退出
                                 logger.info("SSE: 客户端已断开，发送最终状态")
                                 with _rebuild_lock:
                                     _rebuild_progress_state["in_progress"] = False
-                                yield f"data: {json.dumps({'status': 'disconnected', 'progress': _rebuild_progress_state['progress'], 'files_scanned': _rebuild_progress_state.get('files_scanned', 0), 'files_indexed': _rebuild_progress_state.get('files_indexed', 0)})}\n\n"
+                                disconnected_data = {
+                                    "status": "disconnected",
+                                    "progress": _rebuild_progress_state["progress"],
+                                    "files_scanned": _rebuild_progress_state.get(
+                                        "files_scanned", 0
+                                    ),
+                                    "files_indexed": _rebuild_progress_state.get(
+                                        "files_indexed", 0
+                                    ),
+                                }
+                                yield f"data: {json.dumps(disconnected_data)}\n\n"
                                 return
                 except queue.Empty:
                     pass
@@ -225,7 +243,11 @@ async def rebuild_index_stream(
                 current_time = time.time()
                 if current_time - last_yield_time >= keepalive_interval:
                     try:
-                        yield f"data: {json.dumps({'status': 'keepalive', 'progress': _rebuild_progress_state['progress']})}\n\n"
+                        keepalive_data = {
+                            "status": "keepalive",
+                            "progress": _rebuild_progress_state["progress"],
+                        }
+                        yield f"data: {json.dumps(keepalive_data)}\n\n"
                         last_yield_time = current_time
                     except Exception:
                         # 客户端已断开
