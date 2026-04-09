@@ -263,7 +263,6 @@ async def _cleanup_invalid_index_documents(index_manager, config_loader):
     """
     import asyncio
     from pathlib import Path
-    from backend.api.dependencies import is_path_allowed
 
     # 获取所有扫描路径
     scan_paths = config_loader.get("file_scanner", "scan_paths", "")

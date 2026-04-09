@@ -5,23 +5,10 @@
 import os
 import sys
 import errno
-import numpy as np
-from typing import List
-from fastapi import APIRouter, HTTPException, Request, Depends
+from fastapi import APIRouter
 
-from backend.api.models import SearchRequest, SearchResult
-from backend.utils.config_loader import ConfigLoader
 from backend.utils.logger import get_logger
-from backend.utils.network import get_client_ip
-from backend.api.dependencies import (
-    get_search_engine,
-    get_config_loader,
-    get_rate_limiter as rate_limiter_dependency,
-    get_index_manager,
-    get_resolve_path_if_allowed,
-    get_is_path_allowed,
-)
-from backend.core.constants import ALLOWED_MIME_TYPES, MAX_PREVIEW_LENGTH
+from backend.core.constants import MAX_PREVIEW_LENGTH
 
 logger = get_logger(__name__)
 router = APIRouter()

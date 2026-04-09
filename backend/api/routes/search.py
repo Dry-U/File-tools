@@ -360,7 +360,6 @@ async def preview_file(
 
         # 首先尝试从索引管理器获取内容（支持PDF/DOCX等）
         content = None
-        content_source = "index"
         try:
             content = index_manager.get_document_content(str(normalized_path))
         except Exception as e:
@@ -368,7 +367,6 @@ async def preview_file(
 
         # 回退到直接读取文本文件
         if not content:
-            content_source = "file"
             try:
                 content = safe_read_file(str(normalized_path), MAX_PREVIEW_LENGTH)
             except Exception:
