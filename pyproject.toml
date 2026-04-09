@@ -23,7 +23,7 @@ license = "MIT"
 # 核心依赖 - uv tree 验证的实际依赖
 dependencies = [
     # Web 框架
-    "fastapi>=0.115.0,<0.120.0",
+    "fastapi>=0.115.0,<0.129.0",
     "uvicorn[standard]>=0.30.0,<1.0.0",
     "python-multipart>=0.0.6,<1.0.0",
     "aiofiles>=24.0.0,<25.0.0",
