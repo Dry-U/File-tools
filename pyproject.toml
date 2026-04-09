@@ -28,7 +28,7 @@ dependencies = [
     "python-multipart>=0.0.6,<1.0.0",
     "aiofiles>=24.0.0,<25.0.0",
     # 桌面 GUI
-    "pywebview>=5.0.0,<6.0.0",
+    "pywebview>=5.0.0,<7.0.0",
     # 数据处理
     "pydantic>=2.12.0,<3.0.0",
     "pandas>=2.0.0,<3.0.0",
