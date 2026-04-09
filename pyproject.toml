@@ -159,8 +159,5 @@ markers = [
 testpaths = ["tests"]
 asyncio_mode = "auto"
 
-[tool.ruff]
-ignore = ["E402", "F541"]
-
 [tool.ruff.lint]
 ignore = ["E402", "F541"]

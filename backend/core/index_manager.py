@@ -180,7 +180,6 @@ class IndexManager:
         except ImportError as ie:
             import sys
 
-            provider = self.embedding_provider
             if "modelscope" in str(ie).lower():
                 self.logger.warning(
                     f"ModelScope 未安装 (pip install modelscope)，语义搜索功能已禁用。"

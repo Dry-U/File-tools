@@ -17,7 +17,9 @@ class TestUISettings:
         """打开设置面板"""
         # 先尝试简单访问，缩短超时
         try:
-            page.goto("http://127.0.0.1:18642", timeout=30000, wait_until="domcontentloaded")
+            page.goto(
+                "http://127.0.0.1:18642", timeout=30000, wait_until="domcontentloaded"
+            )
         except Exception:
             # 如果超时，再试一次
             page.goto("http://127.0.0.1:18642", timeout=30000)
@@ -34,7 +36,7 @@ class TestUISettings:
             settings_button.wait_for(state="visible", timeout=5000)
         except Exception:
             # 如果找不到，尝试其他选择器
-            settings_button = page.locator('.top-nav-bar button').last
+            settings_button = page.locator(".top-nav-bar button").last
 
         if settings_button.is_visible():
             settings_button.click()
@@ -57,17 +59,21 @@ class TestUISettings:
             settings_panel.wait_for(state="visible", timeout=3000)
         except Exception:
             # 如果特定选择器失败，检查是否有任何模态框显示
-            any_modal = page.locator('.modal:visible, .modal.show').first
+            any_modal = page.locator(".modal:visible, .modal.show").first
             if not any_modal.is_visible():
                 # 检查设置按钮是否被点击，如果没有找到面板可能是面板已经存在
-                settings_btn = page.locator('.settings-btn, button[aria-label="设置"]').first
+                settings_btn = page.locator(
+                    '.settings-btn, button[aria-label="设置"]'
+                ).first
                 if settings_btn.is_visible():
                     settings_btn.click()
                     page.wait_for_timeout(1000)
 
         # 验证设置模态框存在（可能不可见但存在于DOM中）
-        settings_modal = page.locator('#settingsModal').first
-        assert settings_modal.count() > 0 or settings_panel.is_visible(), "设置面板应该存在或可见"
+        settings_modal = page.locator("#settingsModal").first
+        assert settings_modal.count() > 0 or settings_panel.is_visible(), (
+            "设置面板应该存在或可见"
+        )
 
     def test_settings_panel_close(self, page):
         """测试设置面板关闭"""
@@ -371,19 +377,25 @@ class TestUISettings:
         page.wait_for_timeout(500)
 
         # 验证模态框打开 - 检查模态框元素
-        modal = page.locator('#addDirectoryModal, .modal.add-directory, [role="dialog"]')
+        modal = page.locator(
+            '#addDirectoryModal, .modal.add-directory, [role="dialog"]'
+        )
         assert modal.count() > 0, "添加目录模态框未打开"
 
         # 检查模态框内的关键元素
         path_input = page.locator('#addDirectoryPathInput, input[type="text"]')
-        browse_btn = page.locator('#browseDirectoryBtn')
-        confirm_btn = page.locator('#confirmAddDirectoryBtn')
+        browse_btn = page.locator("#browseDirectoryBtn")
+        confirm_btn = page.locator("#confirmAddDirectoryBtn")
 
         # 至少应该有一个元素可见
-        has_elements = path_input.count() > 0 or browse_btn.count() > 0 or confirm_btn.count() > 0
+        has_elements = (
+            path_input.count() > 0 or browse_btn.count() > 0 or confirm_btn.count() > 0
+        )
         if has_elements:
             # 关闭模态框
-            cancel_btn = page.locator('button:has-text("取消"), button:has-text("Cancel")')
+            cancel_btn = page.locator(
+                'button:has-text("取消"), button:has-text("Cancel")'
+            )
             if cancel_btn.count() > 0 and cancel_btn.first.is_visible():
                 cancel_btn.first.click()
                 page.wait_for_timeout(300)
@@ -393,14 +405,15 @@ class TestUISettings:
         self.open_settings(page)
 
         # 先切换到目录管理标签
-        dir_tab = page.locator('#v-pills-directories-tab, button:has-text("目录管理")').first
+        dir_tab = page.locator(
+            '#v-pills-directories-tab, button:has-text("目录管理")'
+        ).first
         if dir_tab.is_visible():
             dir_tab.click()
             page.wait_for_timeout(500)
 
         # 检查是否有目录存在
-        directory_list = page.locator('#directoriesList, .directory-list').first
-        empty_state = page.locator('.directory-empty').first
+        empty_state = page.locator(".directory-empty").first
 
         if empty_state.is_visible():
             pytest.skip("没有可删除的目录（目录列表为空）")
@@ -419,12 +432,14 @@ class TestUISettings:
         page.wait_for_timeout(500)
 
         # 验证确认删除模态框打开
-        modal = page.locator('#deleteDirectoryModal')
+        modal = page.locator("#deleteDirectoryModal")
         assert modal.count() > 0, "删除目录确认模态框未打开"
 
         # 检查确认按钮
-        confirm_delete = page.locator('#confirmDirectoryDeleteBtn')
-        cancel_delete = page.locator('#deleteDirectoryModal button:has-text("取消"), #deleteDirectoryModal button[data-bs-dismiss="modal"]')
+        confirm_delete = page.locator("#confirmDirectoryDeleteBtn")
+        cancel_delete = page.locator(
+            '#deleteDirectoryModal button:has-text("取消"), #deleteDirectoryModal button[data-bs-dismiss="modal"]'
+        )
 
         if confirm_delete.count() > 0 or cancel_delete.count() > 0:
             # 点击取消关闭模态框
@@ -440,7 +455,7 @@ class TestUISettings:
 
         # 查找重建索引按钮（在搜索侧边栏）
         rebuild_button = page.locator(
-            '.sidebar .rebuild-btn, #sidebar-search-content .rebuild-btn, .rebuild-btn'
+            ".sidebar .rebuild-btn, #sidebar-search-content .rebuild-btn, .rebuild-btn"
         ).first
 
         if not rebuild_button.is_visible():
@@ -458,19 +473,25 @@ class TestUISettings:
         page.wait_for_timeout(500)
 
         # 验证模态框打开
-        modal = page.locator('#rebuildIndexModal')
+        modal = page.locator("#rebuildIndexModal")
         assert modal.count() > 0, "重建索引模态框未打开"
 
         # 检查模态框是否可见
-        modal_visible = page.locator('#rebuildIndexModal.show, #rebuildIndexModal.fade.show').first
+        modal_visible = page.locator(
+            "#rebuildIndexModal.show, #rebuildIndexModal.fade.show"
+        ).first
         if not modal_visible.is_visible():
             # 检查 display 样式
-            modal_element = page.locator('#rebuildIndexModal').first
-            is_displayed = modal_element.evaluate('el => window.getComputedStyle(el).display !== "none"')
+            modal_element = page.locator("#rebuildIndexModal").first
+            is_displayed = modal_element.evaluate(
+                'el => window.getComputedStyle(el).display !== "none"'
+            )
             assert is_displayed, "重建索引模态框应该可见"
 
         # 关闭模态框
-        cancel_button = page.locator('#rebuildIndexModal button:has-text("取消"), #rebuildCloseBtn, #rebuildIndexModal button[data-bs-dismiss="modal"]').first
+        cancel_button = page.locator(
+            '#rebuildIndexModal button:has-text("取消"), #rebuildCloseBtn, #rebuildIndexModal button[data-bs-dismiss="modal"]'
+        ).first
         if cancel_button.is_visible():
             cancel_button.click()
         else:

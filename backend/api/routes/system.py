@@ -162,13 +162,9 @@ async def rebuild_index_stream(
 
     # 用于线程间通信的队列
     progress_queue = queue.Queue()
-    # 用于通知任务完成的事件
-    task_done_event = asyncio.Event()
 
     async def event_generator():
         """SSE事件生成器"""
-        client_disconnected = False
-        last_keepalive = time.time()
         keepalive_interval = 5  # 每5秒发送一次 keepalive
 
         with _rebuild_lock:
@@ -272,7 +268,7 @@ async def rebuild_index_stream(
                 _rebuild_progress_state["in_progress"] = False
 
             # 发送成功消息
-            success_data = {'status': 'success', 'progress': 100, **stats}
+            success_data = {"status": "success", "progress": 100, **stats}
             success_msg = f"data: {json.dumps(success_data)}\n\n"
             logger.info(f"SSE: 发送成功消息, data={success_data}")
             try:
@@ -550,7 +546,6 @@ async def shutdown_app(request: Request):
     收到请求后执行清理逻辑，然后终止进程。
     """
     import os
-    import signal
 
     logger.info("收到关闭请求，开始执行清理...")
 

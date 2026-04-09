@@ -4,9 +4,8 @@
 """
 
 import os
-import time
 import logging
-from typing import Optional, List, Dict, Any, Generator, Tuple
+from typing import Optional, List, Dict, Any, Generator
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -18,16 +17,19 @@ os.environ["HF_ENDPOINT"] = HF_ENDPOINT
 
 class EmbeddingModelError(Exception):
     """嵌入模型错误基类"""
+
     pass
 
 
 class ModelDownloadError(EmbeddingModelError):
     """模型下载失败"""
+
     pass
 
 
 class ModelLoadError(EmbeddingModelError):
     """模型加载失败"""
+
     pass
 
 
@@ -79,16 +81,16 @@ class EmbeddingModelManager:
         self.reranker_cache_dir = self._resolve_cache_dir(
             self.config_loader.get("reranker", "cache_dir", "data/models")
         )
-        self.reranker_top_k = self.config_loader.getint(
-            "reranker", "top_k", 5
-        )
+        self.reranker_top_k = self.config_loader.getint("reranker", "top_k", 5)
 
         # 确保缓存目录存在
         os.makedirs(self.embedding_cache_dir, exist_ok=True)
         os.makedirs(self.reranker_cache_dir, exist_ok=True)
 
         logger.info(f"[EmbeddingManager] Embedding: {self.embedding_model_name}")
-        logger.info(f"[EmbeddingManager] Reranker: {self.reranker_model_name} (enabled={self.reranker_enabled})")
+        logger.info(
+            f"[EmbeddingManager] Reranker: {self.reranker_model_name} (enabled={self.reranker_enabled})"
+        )
 
     def _resolve_cache_dir(self, cache_dir: str) -> str:
         """解析缓存目录为绝对路径"""
@@ -120,13 +122,14 @@ class EmbeddingModelManager:
         """检测 Embedding 模型是否已缓存"""
         # 检查 FastEmbed 缓存目录
         model_cache_path = os.path.join(
-            self.embedding_cache_dir,
-            self.embedding_model_name.replace("/", "_")
+            self.embedding_cache_dir, self.embedding_model_name.replace("/", "_")
         )
 
         # 也检查 HuggingFace 默认缓存
         hf_cache = Path.home() / ".cache" / "huggingface" / "hub"
-        hf_model_path = hf_cache / f"models--{self.embedding_model_name.replace('/', '--')}"
+        hf_model_path = (
+            hf_cache / f"models--{self.embedding_model_name.replace('/', '--')}"
+        )
 
         return os.path.exists(model_cache_path) or os.path.exists(hf_model_path)
 
@@ -135,11 +138,15 @@ class EmbeddingModelManager:
         try:
             from fastembed import TextEmbedding
 
-            logger.info(f"[EmbeddingManager] 加载 FastEmbed 模型: {self.embedding_model_name}")
+            logger.info(
+                f"[EmbeddingManager] 加载 FastEmbed 模型: {self.embedding_model_name}"
+            )
 
             # 检查模型是否存在，不存在则下载
             if not self.is_embedding_model_cached():
-                logger.info(f"[EmbeddingManager] 模型不存在，使用 FastEmbed 自动下载...")
+                logger.info(
+                    f"[EmbeddingManager] 模型不存在，使用 FastEmbed 自动下载..."
+                )
 
             # 加载模型（FastEmbed 会自动从镜像下载）
             self._embedding_model = TextEmbedding(
@@ -149,7 +156,9 @@ class EmbeddingModelManager:
 
             # 获取向量维度
             self._embedding_dim = self._embedding_model.embedding_size
-            logger.info(f"[EmbeddingManager] FastEmbed 加载成功，向量维度: {self._embedding_dim}")
+            logger.info(
+                f"[EmbeddingManager] FastEmbed 加载成功，向量维度: {self._embedding_dim}"
+            )
             return True
 
         except ImportError as e:
@@ -174,7 +183,11 @@ class EmbeddingModelManager:
 
         try:
             for embedding in self._embedding_model.embed(texts):
-                yield embedding.tolist() if hasattr(embedding, "tolist") else list(embedding)
+                yield (
+                    embedding.tolist()
+                    if hasattr(embedding, "tolist")
+                    else list(embedding)
+                )
         except Exception as e:
             logger.error(f"[EmbeddingManager] 生成嵌入向量失败: {e}")
             raise
@@ -199,12 +212,13 @@ class EmbeddingModelManager:
     def is_reranker_model_cached(self) -> bool:
         """检测 Reranker 模型是否已缓存"""
         model_cache_path = os.path.join(
-            self.reranker_cache_dir,
-            self.reranker_model_name.replace("/", "_")
+            self.reranker_cache_dir, self.reranker_model_name.replace("/", "_")
         )
 
         hf_cache = Path.home() / ".cache" / "huggingface" / "hub"
-        hf_model_path = hf_cache / f"models--{self.reranker_model_name.replace('/', '--')}"
+        hf_model_path = (
+            hf_cache / f"models--{self.reranker_model_name.replace('/', '--')}"
+        )
 
         return os.path.exists(model_cache_path) or os.path.exists(hf_model_path)
 
@@ -213,11 +227,15 @@ class EmbeddingModelManager:
         try:
             from fastembed.late_interaction import LateInteractionTextEmbedding
 
-            logger.info(f"[EmbeddingManager] 加载 ColBERT 模型: {self.reranker_model_name}")
+            logger.info(
+                f"[EmbeddingManager] 加载 ColBERT 模型: {self.reranker_model_name}"
+            )
 
             # 检查模型是否存在
             if not self.is_reranker_model_cached():
-                logger.info(f"[EmbeddingManager] ColBERT 模型不存在，使用 FastEmbed 自动下载...")
+                logger.info(
+                    f"[EmbeddingManager] ColBERT 模型不存在，使用 FastEmbed 自动下载..."
+                )
 
             # 加载 ColBERT 模型
             self._reranker_model = LateInteractionTextEmbedding(
@@ -236,10 +254,7 @@ class EmbeddingModelManager:
             return False
 
     def rerank(
-        self,
-        query: str,
-        documents: List[Dict[str, Any]],
-        top_k: Optional[int] = None
+        self, query: str, documents: List[Dict[str, Any]], top_k: Optional[int] = None
     ) -> List[Dict[str, Any]]:
         """
         对文档进行重排序
@@ -265,10 +280,7 @@ class EmbeddingModelManager:
             return documents[:top_k]
 
     def _colbert_rerank(
-        self,
-        query: str,
-        documents: List[Dict[str, Any]],
-        top_k: int
+        self, query: str, documents: List[Dict[str, Any]], top_k: int
     ) -> List[Dict[str, Any]]:
         """使用 ColBERT 进行重排序"""
         import numpy as np

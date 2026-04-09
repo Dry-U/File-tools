@@ -75,8 +75,6 @@ def dependency_override():
     app.dependency_overrides.update(original_overrides)
 
 
-
-
 class TestHealthEndpoint:
     """健康检查端点测试"""
 
@@ -161,11 +159,29 @@ class TestSearchEndpoint:
 
     def test_search_success(self, client, mock_search_engine, dependency_override):
         """测试成功搜索"""
-        # 创建专门用于搜索测试的 mock config，包含 /test 路径
+        # 创建专门用于搜索测试的 mock config，使用系统临时目录（跨平台）
+        import tempfile
         from tests.factories import MockConfigFactory
-        search_config = MockConfigFactory.create_config({
-            "file_scanner": {"scan_paths": ["/test"]}
-        })
+
+        temp_dir = tempfile.gettempdir()
+        search_config = MockConfigFactory.create_config(
+            {"file_scanner": {"scan_paths": [temp_dir]}}
+        )
+
+        # 配置 mock 返回临时目录下的路径（通过 is_path_allowed 检查）
+        import os
+
+        tmp_file = os.path.join(temp_dir, "doc1.txt")
+        mock_search_engine.search.return_value = [
+            {
+                "path": tmp_file,
+                "filename": "doc1.txt",
+                "content": "Test content",
+                "score": 0.9,
+                "file_type": "txt",
+                "highlights": ["Test"],
+            }
+        ]
 
         dependency_override[dependencies.get_search_engine] = lambda: mock_search_engine
         dependency_override[dependencies.get_config_loader] = lambda: search_config
@@ -459,11 +475,11 @@ class TestPreviewEndpoint:
         # Override all dependencies
         dependency_override[dependencies.get_index_manager] = lambda: mock_index_manager
         dependency_override[dependencies.get_config_loader] = lambda: mock_config
-        dependency_override[dependencies.get_is_path_allowed] = (
-            lambda: lambda path, config: True
+        dependency_override[dependencies.get_is_path_allowed] = lambda: (
+            lambda path, config: True
         )
-        dependency_override[dependencies.get_resolve_path_if_allowed] = (
-            lambda: mock_resolve_path
+        dependency_override[dependencies.get_resolve_path_if_allowed] = lambda: (
+            mock_resolve_path
         )
 
         # Patch Path in the search module and safe_read_file
@@ -496,11 +512,11 @@ class TestPreviewEndpoint:
 
         dependency_override[dependencies.get_index_manager] = lambda: mock_index_manager
         dependency_override[dependencies.get_config_loader] = lambda: mock_config
-        dependency_override[dependencies.get_is_path_allowed] = (
-            lambda: lambda path, config: False
+        dependency_override[dependencies.get_is_path_allowed] = lambda: (
+            lambda path, config: False
         )
-        dependency_override[dependencies.get_resolve_path_if_allowed] = (
-            lambda: mock_resolve_path_none
+        dependency_override[dependencies.get_resolve_path_if_allowed] = lambda: (
+            mock_resolve_path_none
         )
 
         response = client.post("/api/preview", json={"path": "/etc/passwd"})
@@ -522,16 +538,14 @@ class TestPreviewEndpoint:
 
         dependency_override[dependencies.get_index_manager] = lambda: mock_index_manager
         dependency_override[dependencies.get_config_loader] = lambda: mock_config
-        dependency_override[dependencies.get_is_path_allowed] = (
-            lambda: lambda path, config: True
+        dependency_override[dependencies.get_is_path_allowed] = lambda: (
+            lambda path, config: True
         )
-        dependency_override[dependencies.get_resolve_path_if_allowed] = (
-            lambda: mock_resolve_path
+        dependency_override[dependencies.get_resolve_path_if_allowed] = lambda: (
+            mock_resolve_path
         )
 
-        response = client.post(
-            "/api/preview", json={"path": "/test/nonexistent.txt"}
-        )
+        response = client.post("/api/preview", json={"path": "/test/nonexistent.txt"})
         assert response.status_code == 404, "文件不存在应返回 HTTP 404"
 
 
@@ -600,10 +614,13 @@ class TestDirectoryEndpoints:
     def mock_config_loader(self):
         """创建模拟配置加载器 - 使用工厂创建以支持 set/add_scan_path/remove_scan_path 方法"""
         from tests.factories import MockConfigFactory
-        return MockConfigFactory.create_config({
-            "file_scanner": {"scan_paths": ["/test/path1", "/test/path2"]},
-            "monitor": {"directories": ["/test/path1", "/test/path2"]}
-        })
+
+        return MockConfigFactory.create_config(
+            {
+                "file_scanner": {"scan_paths": ["/test/path1", "/test/path2"]},
+                "monitor": {"directories": ["/test/path1", "/test/path2"]},
+            }
+        )
 
     @pytest.fixture
     def mock_file_monitor(self):
@@ -678,9 +695,7 @@ class TestDirectoryEndpoints:
             response = client.post("/api/directories", json={"path": "/test/file.txt"})
             assert response.status_code == 400, "添加非目录路径应返回 HTTP 400"
 
-    def test_remove_directory_success(
-        self, client, dependency_override
-    ):
+    def test_remove_directory_success(self, client, dependency_override):
         """测试删除目录"""
         mock_file_scanner = Mock()
         mock_file_scanner.scan_paths = ["/test/path"]  # 设置 scan_paths 属性
@@ -690,10 +705,13 @@ class TestDirectoryEndpoints:
 
         # 创建包含 /test/path 路径的配置
         from tests.factories import MockConfigFactory
-        test_config = MockConfigFactory.create_config({
-            "file_scanner": {"scan_paths": ["/test/path"]},
-            "monitor": {"directories": ["/test/path"]}
-        })
+
+        test_config = MockConfigFactory.create_config(
+            {
+                "file_scanner": {"scan_paths": ["/test/path"]},
+                "monitor": {"directories": ["/test/path"]},
+            }
+        )
 
         dependency_override[dependencies.get_config_loader] = lambda: test_config
         dependency_override[dependencies.get_file_monitor] = lambda: mock_file_monitor
