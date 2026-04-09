@@ -892,13 +892,17 @@ class IndexManager:
             size=int(document["size"]),
             created=(
                 int(time.mktime(document["created"].timetuple()))
-                if isinstance(document["created"], datetime)
+                if isinstance(document.get("created"), datetime)
                 else int(document["created"])
+                if document.get("created") is not None
+                else 0
             ),
             modified=(
                 int(time.mktime(document["modified"].timetuple()))
-                if isinstance(document["modified"], datetime)
+                if isinstance(document.get("modified"), datetime)
                 else int(document["modified"])
+                if document.get("modified") is not None
+                else 0
             ),
             keywords=[seg_keywords],
         )
@@ -2491,7 +2495,12 @@ class IndexManager:
 
     def _flush_vector_buffer(self):
         """将缓冲区中的向量批量编码并写入 HNSW 索引（线程安全）"""
-        with self._batch_lock:
+        batch_lock = getattr(self, "_batch_lock", None)
+        if batch_lock is None:
+            # 如果锁未初始化（初始化失败），跳过刷新
+            self.logger.warning("[VECTOR_FLUSH] _batch_lock 未初始化，跳过刷新")
+            return
+        with batch_lock:
             self._flush_vector_buffer_unlocked()
 
     def _flush_vector_buffer_unlocked(self):

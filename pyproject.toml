@@ -84,6 +84,7 @@ dev = [
     "mypy>=1.0.0",
     "bandit>=1.7.0",
     "pyinstaller>=6.0.0",
+    "httpx>=0.25.0,<1.0.0",
 ]
 
 # 可选依赖（向后兼容，pip 用户可用 pip install -e ".[dev]"）
@@ -99,6 +100,7 @@ dev = [
     "black>=23.0.0",
     "mypy>=1.0.0",
     "bandit>=1.7.0",
+    "httpx>=0.25.0,<1.0.0",
 ]
 # 快速扫描（使用 Rust 加速）
 fast-scan = [
