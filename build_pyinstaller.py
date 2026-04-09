@@ -90,10 +90,10 @@ def check_dependencies():
             missing.append(package_name)
 
     if missing:
-        print(f"缺少依赖: {', '.join(missing)}")
-        print("运行: uv sync 或 pip install -e .")
+        print(f"Missing dependencies: {', '.join(missing)}")
+        print("Run: uv sync or pip install -e .")
         return False
-    print("依赖检查通过")
+    print("Dependencies check passed")
     return True
 
 
@@ -109,8 +109,8 @@ def build_backend():
     # 检查是否已存在（跳过重建）
     if output_path.exists() and output_path.stat().st_size > 100_000_000:  # > 100MB
         size_mb = output_path.stat().st_size / 1024 / 1024
-        print(f"后端文件已存在 ({size_mb:.1f} MB)，跳过构建")
-        print(f"如需重新构建，请删除: {output_path}")
+        print(f"Backend binary exists ({size_mb:.1f} MB), skipping build")
+        print(f"To rebuild, delete: {output_path}")
         return 0
 
     print("=" * 60)
@@ -261,8 +261,8 @@ def build_backend():
     # 入口文件
     args.append(str(PROJECT_ROOT / "main.py"))
 
-    print(f"\n命令: {' '.join(args)}\n")
-    print("开始构建（这可能需要 5-10 分钟）...")
+    print(f"\nCommand: {' '.join(args)}\n")
+    print("Starting build (this may take 5-10 minutes)...")
 
     result = subprocess.run(args, cwd=PROJECT_ROOT)
 
@@ -283,17 +283,17 @@ def build_backend():
 
             size_mb = actual_output.stat().st_size / 1024 / 1024
             print(f"\n{'=' * 60}")
-            print(f"构建成功!")
+            print(f"Build successful!")
             print(f"{'=' * 60}")
-            print(f"输出: {actual_output}")
-            print(f"大小: {size_mb:.1f} MB")
+            print(f"Output: {actual_output}")
+            print(f"Size: {size_mb:.1f} MB")
             return 0
         else:
-            print("\n警告: 输出文件未找到")
-            print(f"目录内容: {list(SRC_TAURI_BIN.glob('*'))}")
+            print("\nWarning: Output file not found")
+            print(f"Directory contents: {list(SRC_TAURI_BIN.glob('*'))}")
             return 1
     else:
-        print(f"\n构建失败，返回码: {result.returncode}")
+        print(f"\nBuild failed with return code: {result.returncode}")
         return result.returncode
 
 
