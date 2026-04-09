@@ -55,7 +55,7 @@ dependencies = [
     "pycryptodome>=3.23.0,<4.0.0",
     "cryptography>=41.0.0,<46.0.0",
     "diskcache>=5.6.0,<6.0.0",
-    "cachetools>=5.0.0,<6.0.0",
+    "cachetools>=5.0.0,<7.0.0",
     # 配置和日志
     "pyyaml>=6.0,<7.0",
     "packaging>=20.0",
