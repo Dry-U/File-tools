@@ -145,10 +145,10 @@ def build_backend():
             break
 
     if not python:
-        print("错误: 找不到 Python 解释器")
+        print("Error: Python interpreter not found")
         return 1
 
-    print(f"使用 Python: {python}")
+    print(f"Using Python: {python}")
 
     workdir = PROJECT_ROOT / "build" / "pyinstaller"
     workdir.mkdir(parents=True, exist_ok=True)
@@ -267,10 +267,13 @@ def build_backend():
     result = subprocess.run(args, cwd=PROJECT_ROOT)
 
     if result.returncode == 0:
-        # PyInstaller 输出的是基础名称.exe
-        # 但我们需要检查 triple 版本（因为 Tauri externalBin 会添加 triple）
-        # 实际上 Tauri 会自动添加 triple，所以我们只需要 PyInstaller 输出基础版本
-        actual_output = SRC_TAURI_BIN / f"{pyinstaller_name}.exe"
+        # PyInstaller 输出的是基础名称
+        # Windows: {pyinstaller_name}.exe
+        # Linux/macOS: {pyinstaller_name} (无扩展名)
+        if is_windows:
+            actual_output = SRC_TAURI_BIN / f"{pyinstaller_name}.exe"
+        else:
+            actual_output = SRC_TAURI_BIN / pyinstaller_name
 
         if actual_output.exists():
             # 重命名为 Tauri 期望的 triple 名称
