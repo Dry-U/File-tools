@@ -486,7 +486,7 @@ class TestUISettings:
 
         # 检查模态框是否可见 - 使用 Bootstrap 的 show 类选择器
         modal_visible = page.locator(
-            '#rebuildIndexModal.modal.show, #rebuildIndexModal.modal.fade.show'
+            "#rebuildIndexModal.modal.show, #rebuildIndexModal.modal.fade.show"
         ).first
 
         # 验证模态框可见（使用更可靠的方法）

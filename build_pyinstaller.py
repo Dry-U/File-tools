@@ -279,7 +279,8 @@ def build_backend():
             # Tauri v2 externalBin 机制要求：
             # 1. externalBin 配置的路径必须在构建时存在
             # 2. 路径必须与 tauri.conf.json 中配置的完全一致
-            # externalBin = "bin/filetools_backend" (Unix) 或 "bin/filetools_backend.exe" (Windows)
+            # Unix: "bin/filetools_backend"
+            # Windows: "bin/filetools_backend.exe"
 
             import shutil as sh
 

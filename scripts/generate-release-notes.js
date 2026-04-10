@@ -128,7 +128,7 @@ function formatReleaseBody(sections, version) {
   lines.push('### Windows (不再支持 Win7)');
   lines.push('');
   lines.push('**正常版本（推荐）**');
-  lines.push(`- [64位](${REPO_URL}/releases/download/v${version}/FileTools_${version}_x64-setup.exe) | [ARM64](${REPO_URL}/releases/download/v${version}/FileTools_${version}_aarch64-setup.exe)`);
+  lines.push(`- [64位](${REPO_URL}/releases/download/v${version}/FileTools_${version}_x64-setup.exe)`);
   lines.push('');
   lines.push('**便携版（免安装）**');
   lines.push(`- [64位](${REPO_URL}/releases/download/v${version}/FileTools_${version}_x64-portable.zip)`);
