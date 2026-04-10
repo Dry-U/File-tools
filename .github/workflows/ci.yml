@@ -465,6 +465,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Resolve version
+        shell: bash
+        run: |
+          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
+            APP_VERSION="${GITHUB_REF_NAME#v}"
+          else
+            APP_VERSION=$(cat VERSION 2>/dev/null || echo "1.0.0")
+          fi
+          echo "FILETOOLS_VERSION=${APP_VERSION}" >> "$GITHUB_ENV"
+          echo "App version: ${APP_VERSION}"
+
       - name: Download Windows build
         uses: actions/download-artifact@v4
         with:
@@ -548,6 +559,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Resolve version
+        shell: bash
+        run: |
+          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
+            APP_VERSION="${GITHUB_REF_NAME#v}"
+          else
+            APP_VERSION=$(cat VERSION 2>/dev/null || echo "1.0.0")
+          fi
+          echo "FILETOOLS_VERSION=${APP_VERSION}" >> "$GITHUB_ENV"
+          echo "App version: ${APP_VERSION}"
+
       - name: Download Linux build
         uses: actions/download-artifact@v4
         with:
@@ -625,6 +647,17 @@ jobs:
     if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
     steps:
       - uses: actions/checkout@v4
+
+      - name: Resolve version
+        shell: bash
+        run: |
+          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
+            APP_VERSION="${GITHUB_REF_NAME#v}"
+          else
+            APP_VERSION=$(cat VERSION 2>/dev/null || echo "1.0.0")
+          fi
+          echo "FILETOOLS_VERSION=${APP_VERSION}" >> "$GITHUB_ENV"
+          echo "App version: ${APP_VERSION}"
 
       - name: Download macOS build
         uses: actions/download-artifact@v4
