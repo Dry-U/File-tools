@@ -180,6 +180,7 @@ flowchart TB
     style Backend fill:#e8f5e9
     style Core fill:#fff3e0
     style Storage fill:#fce4ec
+```
 
 ### 混合检索
 同时使用两种技术确保搜索结果准确：
