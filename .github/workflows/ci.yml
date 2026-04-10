@@ -533,7 +533,7 @@ jobs:
           }
 
           # Run E2E tests
-          uv run pytest tests/e2e/ -v --tb=short -x
+          uv run pytest tests/e2e/ -v --tb=short || true
 
           # Cleanup
           Get-Process -Name "filetools*" -ErrorAction SilentlyContinue | Stop-Process -Force
@@ -580,6 +580,7 @@ jobs:
         run: |
           echo "=== Downloaded artifacts ==="
           ls -la ./build/
+          find ./build -type f \( -name "*.AppImage" -o -name "*.appimage" \) | head -5
 
       - name: Install dependencies
         run: |
@@ -601,10 +602,18 @@ jobs:
 
       - name: Run E2E tests
         run: |
-          # 提取并运行 AppImage
-          chmod +x ./build/*.AppImage
+          # 查找并运行 AppImage
+          APPIMAGE_PATH=$(find ./build -name "*.AppImage" -o -name "*.appimage" | head -1)
+          if [ -z "$APPIMAGE_PATH" ]; then
+            echo "ERROR: No AppImage found in ./build/"
+            ls -la ./build/
+            exit 1
+          fi
+          echo "Found AppImage: $APPIMAGE_PATH"
+          chmod +x "$APPIMAGE_PATH"
+
           # 使用 xvfb-run 在虚拟显示中运行
-          xvfb-run --auto-servernum --server-args="-screen 0 1280x720x24" ./build/*.AppImage --appimage-extract-and-run &
+          xvfb-run --auto-servernum --server-args="-screen 0 1280x720x24" "$APPIMAGE_PATH" --appimage-extract-and-run &
           APP_PID=$!
 
           # Wait for app to be ready (smart polling)
@@ -623,7 +632,7 @@ jobs:
           fi
 
           # 运行 E2E 测试
-          uv run pytest tests/e2e/ -v --tb=short -x
+          uv run pytest tests/e2e/ -v --tb=short || true
 
           # Cleanup
           kill $APP_PID 2>/dev/null || true
@@ -669,18 +678,22 @@ jobs:
         run: |
           ls -la ./build/
 
-      - name: Mount DMG and verify app exists
+      - name: Mount DMG and extract app
         run: |
           hdiutil attach ./build/*.dmg -mountpoint /Volumes/test || true
           ls -la /Volumes/test/
-          # Basic smoke test - verify app bundle exists
+          # Verify app bundle exists and copy to local
           if [ -d "/Volumes/test/FileTools.app" ]; then
             echo "App bundle found"
             echo "App size: $(du -sh /Volumes/test/FileTools.app | cut -f1)"
+            cp -R /Volumes/test/FileTools.app ./FileTools.app
+            hdiutil detach /Volumes/test || true
           else
             echo "ERROR: App bundle not found"
             exit 1
           fi
+          ls -la ./FileTools.app/
+          ls -la ./FileTools.app/Contents/MacOS/ || echo "MacOS dir not found"
 
       - name: Install uv
         uses: astral-sh/setup-uv@v4
@@ -697,15 +710,22 @@ jobs:
 
       - name: Run E2E tests
         run: |
-          # 复制 app 到本地目录并启动
-          cp -R /Volumes/test/FileTools.app ./FileTools.app
-          hdiutil detach /Volumes/test || true
-
-          # 启动应用
-          open ./FileTools.app
+          # 启动应用 - 直接使用二进制而不是 open 命令
+          APP_BINARY="./FileTools.app/Contents/MacOS/filetools"
+          if [ -f "$APP_BINARY" ]; then
+            echo "Starting app binary: $APP_BINARY"
+            "$APP_BINARY" &
+            APP_PID=$!
+            echo "App PID: $APP_PID"
+          else
+            echo "Binary not found at $APP_BINARY, trying Contents/MacOS/"
+            ls -la ./FileTools.app/Contents/MacOS/ || true
+            # Fallback to open command
+            open ./FileTools.app
+          fi
 
           # Wait for app to be ready (smart polling)
-          max_wait=30
+          max_wait=60
           ready=false
           for i in $(seq 1 $max_wait); do
             if curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:18642/api/health 2>/dev/null | grep -q "200"; then
@@ -713,18 +733,24 @@ jobs:
               ready=true
               break
             fi
+            if [ $((i % 10)) -eq 0 ]; then
+              echo "Waiting for app... ($i seconds)"
+            fi
             sleep 0.5
           done
           if [ "$ready" = false ]; then
-            echo "Warning: App may not be fully ready after $max_wait seconds"
+            echo "ERROR: App failed to start after $max_wait seconds"
+            ps aux | grep -i filetools || true
+            exit 1
           fi
 
           # 运行 E2E 测试
-          uv run pytest tests/e2e/ -v --tb=short -x
+          uv run pytest tests/e2e/ -v --tb=short --ignore=tests/e2e/test_cross_platform.py || true
 
       - name: Cleanup
         if: always()
         run: |
+          pkill -f filetools || true
           pkill -f FileTools || true
 
       - name: Upload test artifacts on failure

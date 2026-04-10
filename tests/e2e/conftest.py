@@ -73,14 +73,20 @@ def viewport_size():
 
 @pytest.fixture(autouse=True)
 def _setup_test_environment(page, base_url):
-    """每个测试用例的通用设置"""
+    """每个测试用例的通用设置 - 智能导航
+
+    如果当前不在目标URL上，则自动导航到 base_url。
+    这允许测试在需要时自己控制导航，同时提供默认行为。
+    """
     # 设置默认超时
     page.set_default_timeout(30000)
     page.set_default_navigation_timeout(30000)
 
-    # 导航到基础 URL
-    page.goto(base_url)
-    page.wait_for_load_state("domcontentloaded")
+    # 检查当前URL，如果不在目标页面上则导航
+    current_url = page.url
+    if not current_url.startswith(base_url):
+        page.goto(base_url)
+        page.wait_for_load_state("domcontentloaded")
 
     yield
 

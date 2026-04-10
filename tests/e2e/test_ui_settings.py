@@ -16,36 +16,29 @@ class TestUISettings:
 
     def open_settings(self, page):
         """打开设置面板"""
-        # 先尝试简单访问，缩短超时
-        try:
-            page.goto(
-                "http://127.0.0.1:18642", timeout=30000, wait_until="domcontentloaded"
-            )
-        except Exception:
-            # 如果超时，再试一次
-            page.goto("http://127.0.0.1:18642", timeout=30000)
-
-        # 等待页面加载完成
+        # 导航到页面
+        page.goto("http://127.0.0.1:18642", timeout=30000)
+        page.wait_for_load_state("domcontentloaded")
         page.wait_for_load_state("networkidle")
 
-        # 查找设置按钮
+        # 查找设置按钮 (使用更精确的选择器)
         settings_button = page.locator(
-            '.settings-btn, button[aria-label="设置"], .top-nav-bar button:last-child'
+            'button.settings-btn, button[aria-label="设置"], .top-nav-bar button:last-child'
         ).first
 
         # 等待按钮可见
         try:
-            settings_button.wait_for(state="visible", timeout=5000)
+            settings_button.wait_for(state="visible", timeout=10000)
         except Exception:
             # 如果找不到，尝试其他选择器
             settings_button = page.locator(".top-nav-bar button").last
 
         if settings_button.is_visible():
             settings_button.click()
-            # 等待设置模态框出现
-            page.locator(
-                '#settingsModal, .modal.show, [class*="settings"]'
-            ).first.wait_for(state="visible", timeout=5000)
+            # 等待设置模态框出现 - 使用更精确的选择器
+            # 必须同时满足：是settingsModal 且 有show类（Bootstrap显示状态）
+            modal = page.locator('#settingsModal.modal.show, #settingsModal.modal.fade.show').first
+            modal.wait_for(state="visible", timeout=10000)
 
     def test_settings_panel_open(self, page):
         """测试设置面板打开"""
@@ -54,34 +47,14 @@ class TestUISettings:
         # 验证页面已加载
         assert page.url.startswith("http://127.0.0.1:18642"), "页面应正常加载"
 
-        # 查找设置面板（Bootstrap modal）
-        settings_panel = page.locator(
-            '#settingsModal, .modal.show, .modal.fade.show, [class*="settings"]'
-        ).first
+        # 使用精确的选择器查找Bootstrap模态框（必须有show类）
+        settings_panel = page.locator('#settingsModal.modal.show, #settingsModal.modal.fade.show').first
 
         # 等待模态框动画完成并可见
-        try:
-            settings_panel.wait_for(state="visible", timeout=3000)
-        except Exception:
-            # 如果特定选择器失败，检查是否有任何模态框显示
-            any_modal = page.locator(".modal:visible, .modal.show").first
-            if not any_modal.is_visible():
-                # 检查设置按钮是否被点击，如果没有找到面板可能是面板已经存在
-                settings_btn = page.locator(
-                    '.settings-btn, button[aria-label="设置"]'
-                ).first
-                if settings_btn.is_visible():
-                    settings_btn.click()
-                    # 等待模态框出现
-                    page.locator("#settingsModal, .modal.show").first.wait_for(
-                        state="visible", timeout=5000
-                    )
+        settings_panel.wait_for(state="visible", timeout=10000)
 
-        # 验证设置模态框存在（可能不可见但存在于DOM中）
-        settings_modal = page.locator("#settingsModal").first
-        assert settings_modal.count() > 0 or settings_panel.is_visible(), (
-            "设置面板应该存在或可见"
-        )
+        # 验证模态框确实可见
+        assert settings_panel.is_visible(), "设置面板应该可见"
 
     def test_settings_panel_close(self, page):
         """测试设置面板关闭"""
