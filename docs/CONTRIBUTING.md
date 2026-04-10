@@ -267,31 +267,41 @@ src-tauri/target/release/bundle/msi/*.msi           # MSI 安装包
 src-tauri/bin/filetools-backend.exe                 # PyInstaller 打包的后端
 ```
 
-### 项目架构说明
+ 项目架构说明
 
+```mermaid
+flowchart TB
+    subgraph Desktop["Tauri 桌面应用"]
+        direction TB
+        Window["Rust 原生窗口<br/>系统托盘/窗口管理"]
+        WebView["WebView2 前端<br/>HTML + JavaScript"]
+    end
+
+    subgraph Backend["Python 后端"]
+        direction TB
+        API["FastAPI<br/>Port 18642"]
+
+        subgraph Core["核心模块"]
+            direction LR
+            SE["搜索引擎<br/>Tantivy + HNSWLib"]
+            RAG["RAG 管道<br/>上下文管理"]
+            FS["文件扫描<br/>增量索引"]
+            DP["文档解析<br/>PyMuPDF"]
+        end
+    end
+
+    Window <-->|Tauri API| WebView
+    WebView <-->|HTTP| API
+    API --> SE & RAG & FS
+    FS --> DP
+    SE --> RAG
+
+    style Desktop fill:#e3f2fd
+    style Backend fill:#e8f5e9
+    style Core fill:#fff8e1
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                    Tauri Desktop App                       │
-│  ┌─────────────────┐    ┌─────────────────────────────┐     │
-│  │   Rust Native   │    │      WebView2 (Frontend)   │     │
-│  │   Window/Frame  │    │      HTML + JavaScript     │     │
-│  └────────┬────────┘    └──────────────┬──────────────┘     │
-│           │                             │                  │
-│           │    ┌────────────────────────┴────────────┐    │
-│           └────│      Python FastAPI Backend          │    │
-│                │         (Port 18642)                 │    │
-│                └────────────────────────┬────────────┘     │
-└─────────────────────────────────────────┼──────────────────┘
-                                          │
-              ┌───────────────────────────┼───────────────────┐
-              │                    Core Layer                  │
-              ├───────────┬───────────┬───────────┬──────────────┤
-              │  Search   │    RAG   │  File    │ Document    │
-              │  Engine   │ Pipeline │  Scanner │  Parser     │
-              │ Tantivy   │          │          │ PyMuPDF     │
-              │ + HNSWLib│          │          │             │
-              └───────────┴───────────┴───────────┴────────────┘
-```
+
+**前后端分离说明：**
 
 **前后端分离说明：**
 
