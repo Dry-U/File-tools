@@ -23,7 +23,8 @@ class TestUISettings:
 
         # 查找设置按钮 (使用更精确的选择器)
         settings_button = page.locator(
-            'button.settings-btn, button[aria-label="设置"], .top-nav-bar button:last-child'
+            'button.settings-btn, button[aria-label="设置"], '
+            ".top-nav-bar button:last-child"
         ).first
 
         # 等待按钮可见
@@ -36,8 +37,10 @@ class TestUISettings:
         if settings_button.is_visible():
             settings_button.click()
             # 等待设置模态框出现 - 使用更精确的选择器
-            # 必须同时满足：是settingsModal 且 有show类（Bootstrap显示状态）
-            modal = page.locator('#settingsModal.modal.show, #settingsModal.modal.fade.show').first
+            # 必须同时满足：是settingsModal 且 有show类
+            modal = page.locator(
+                "#settingsModal.modal.show, #settingsModal.modal.fade.show"
+            ).first
             modal.wait_for(state="visible", timeout=10000)
 
     def test_settings_panel_open(self, page):
@@ -48,7 +51,9 @@ class TestUISettings:
         assert page.url.startswith("http://127.0.0.1:18642"), "页面应正常加载"
 
         # 使用精确的选择器查找Bootstrap模态框（必须有show类）
-        settings_panel = page.locator('#settingsModal.modal.show, #settingsModal.modal.fade.show').first
+        settings_panel = page.locator(
+            "#settingsModal.modal.show, #settingsModal.modal.fade.show"
+        ).first
 
         # 等待模态框动画完成并可见
         settings_panel.wait_for(state="visible", timeout=10000)
