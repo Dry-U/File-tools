@@ -259,14 +259,20 @@ jobs:
           if-no-files-found: warn
           retention-days: 30
 
+      - name: Prepare portable artifact directory
+        shell: bash
+        run: |
+          mkdir -p release-portable
+          cp src-tauri/target/release/filetools.exe release-portable/
+          cp src-tauri/bin/filetools_backend.exe release-portable/ 2>/dev/null || \
+            cp src-tauri/bin/filetools_backend-x86_64-pc-windows-msvc.exe release-portable/filetools_backend.exe
+          ls -la release-portable/
+
       - name: Upload portable components
         uses: actions/upload-artifact@v4
         with:
           name: filetools-windows-portable-v${{ env.FILETOOLS_VERSION }}
-          path: |
-            src-tauri/target/release/filetools.exe
-            src-tauri/bin/filetools_backend.exe
-            src-tauri/bin/filetools_backend-x86_64-pc-windows-msvc.exe
+          path: release-portable/
           if-no-files-found: warn
           retention-days: 30
 

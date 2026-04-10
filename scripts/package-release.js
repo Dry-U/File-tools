@@ -23,26 +23,37 @@ if (!fs.existsSync(OUTPUT_DIR)) {
   fs.mkdirSync(OUTPUT_DIR, { recursive: true });
 }
 
-// 读取所有产物
-const files = fs.readdirSync(ARTIFACTS_DIR);
-console.log(`Found ${files.length} artifacts:`);
-files.forEach(f => console.log(`  - ${f}`));
-console.log('');
-
-// 收集需要打包的文件
+// 递归收集需要打包的文件
 const portableFiles = []; // filetools.exe 和 backend
 const installers = [];    // NSIS, MSI, DMG, etc.
 
-for (const file of files) {
-  const filePath = path.join(ARTIFACTS_DIR, file);
-
-  // 识别便携版组件
-  if (file === 'filetools.exe' || file.includes('backend')) {
-    portableFiles.push({ name: file, path: filePath });
-  } else {
-    installers.push({ name: file, path: filePath });
+function collectFiles(dir) {
+  const entries = fs.readdirSync(dir, { withFileTypes: true });
+  for (const entry of entries) {
+    const fullPath = path.join(dir, entry.name);
+    if (entry.isDirectory()) {
+      collectFiles(fullPath);
+    } else {
+      // 识别便携版组件
+      if (entry.name === 'filetools.exe' || entry.name.includes('backend')) {
+        portableFiles.push({ name: entry.name, path: fullPath });
+      } else {
+        installers.push({ name: entry.name, path: fullPath });
+      }
+    }
   }
 }
+
+collectFiles(ARTIFACTS_DIR);
+
+console.log(`Found ${installers.length} installers and ${portableFiles.length} portable files:`);
+for (const f of installers) {
+  console.log(`  - ${f.name}`);
+}
+for (const f of portableFiles) {
+  console.log(`  - ${f.name}`);
+}
+console.log('');
 
 console.log(`Portable components: ${portableFiles.length}`);
 console.log(`Installers: ${installers.length}\n`);
