@@ -204,6 +204,25 @@ jobs:
           echo "FILETOOLS_VERSION=${APP_VERSION}" >> "$GITHUB_ENV"
           echo "App version: ${APP_VERSION}"
 
+      - name: Sync version to all config files
+        run: node scripts/sync-version.js
+        env:
+          FILETOOLS_VERSION: ${{ env.FILETOOLS_VERSION }}
+
+      - name: Configure externalBin for Windows
+        run: node -e "
+          const fs = require('fs');
+          const conf = JSON.parse(fs.readFileSync('src-tauri/tauri.conf.json', 'utf8'));
+          conf.bundle.externalBin = ['bin/filetools_backend-x86_64-pc-windows-msvc.exe'];
+          fs.writeFileSync('src-tauri/tauri.conf.json', JSON.stringify(conf, null, 2) + '\n');
+          console.log('Updated externalBin for Windows x64');
+        "
+
+      - name: Verify version consistency
+        run: node scripts/verify-version.js
+        env:
+          FILETOOLS_VERSION: ${{ env.FILETOOLS_VERSION }}
+
       - name: Build Python backend with PyInstaller
         run: |
           uv run python build_pyinstaller.py
@@ -249,11 +268,14 @@ jobs:
           if-no-files-found: warn
           retention-days: 30
 
-      - name: Upload portable exe
+      - name: Upload portable components
         uses: actions/upload-artifact@v4
         with:
           name: filetools-windows-portable-v${{ env.FILETOOLS_VERSION }}
-          path: src-tauri/target/release/*.exe
+          path: |
+            src-tauri/target/release/filetools.exe
+            src-tauri/bin/filetools_backend.exe
+            src-tauri/bin/filetools_backend-x86_64-pc-windows-msvc.exe
           if-no-files-found: warn
           retention-days: 30
 
@@ -329,6 +351,25 @@ jobs:
             APP_VERSION=$(cat VERSION 2>/dev/null || echo "1.0.0")
           fi
           echo "FILETOOLS_VERSION=${APP_VERSION}" >> "$GITHUB_ENV"
+
+      - name: Sync version to all config files
+        run: node scripts/sync-version.js
+        env:
+          FILETOOLS_VERSION: ${{ env.FILETOOLS_VERSION }}
+
+      - name: Configure externalBin for Linux
+        run: node -e "
+          const fs = require('fs');
+          const conf = JSON.parse(fs.readFileSync('src-tauri/tauri.conf.json', 'utf8'));
+          conf.bundle.externalBin = ['bin/filetools_backend-x86_64-unknown-linux-gnu'];
+          fs.writeFileSync('src-tauri/tauri.conf.json', JSON.stringify(conf, null, 2) + '\n');
+          console.log('Updated externalBin for Linux x64');
+        "
+
+      - name: Verify version consistency
+        run: node scripts/verify-version.js
+        env:
+          FILETOOLS_VERSION: ${{ env.FILETOOLS_VERSION }}
 
       - name: Build Python backend with PyInstaller
         run: |
@@ -418,6 +459,25 @@ jobs:
             APP_VERSION=$(cat VERSION 2>/dev/null || echo "1.0.0")
           fi
           echo "FILETOOLS_VERSION=${APP_VERSION}" >> "$GITHUB_ENV"
+
+      - name: Sync version to all config files
+        run: node scripts/sync-version.js
+        env:
+          FILETOOLS_VERSION: ${{ env.FILETOOLS_VERSION }}
+
+      - name: Configure externalBin for macOS
+        run: node -e "
+          const fs = require('fs');
+          const conf = JSON.parse(fs.readFileSync('src-tauri/tauri.conf.json', 'utf8'));
+          conf.bundle.externalBin = ['bin/filetools_backend-aarch64-apple-darwin'];
+          fs.writeFileSync('src-tauri/tauri.conf.json', JSON.stringify(conf, null, 2) + '\n');
+          console.log('Updated externalBin for macOS ARM64');
+        "
+
+      - name: Verify version consistency
+        run: node scripts/verify-version.js
+        env:
+          FILETOOLS_VERSION: ${{ env.FILETOOLS_VERSION }}
 
       - name: Build Python backend with PyInstaller
         run: |
@@ -773,6 +833,17 @@ jobs:
       contents: write
 
     steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Resolve version
+        id: version
+        run: |
+          APP_VERSION="${GITHUB_REF_NAME#v}"
+          echo "version=${APP_VERSION}" >> $GITHUB_OUTPUT
+          echo "App version: ${APP_VERSION}"
+
       - name: Download all artifacts
         uses: actions/download-artifact@v4
         with:
@@ -781,41 +852,34 @@ jobs:
 
       - name: Display artifacts
         run: |
-          echo "=== All artifacts ==="
+          echo "=== Original artifacts ==="
           find release-artifacts -type f | while read f; do
             echo "$f - $(du -h "$f" | cut -f1)"
           done
 
+      - name: Rename and package artifacts
+        run: node scripts/package-release.js
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          ARTIFACTS_DIR: release-artifacts
+          OUTPUT_DIR: release-files
+
+      - name: Generate Release Notes
+        id: release-notes
+        run: node scripts/generate-release-notes.js
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          CHANGELOG_PATH: CHANGELOG.md
+          OUTPUT_PATH: release-body.md
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          files: release-artifacts/*
-          generate_release_notes: true
+          files: release-files/*
           draft: false
           prerelease: false
-          body: |
-            ## FileTools ${{ github.ref_name }}
-
-            ### 下载说明
-
-            | 平台 | 文件类型 | 说明 |
-            |------|----------|------|
-            | Windows | NSIS (.exe) | 安装程序 - 推荐 Windows 用户 |
-            | Windows | MSI (.msi) | Microsoft Installer - 企业部署 |
-            | Linux | DEB (.deb) | Debian/Ubuntu 包 |
-            | Linux | AppImage (.AppImage) | 通用 Linux 包 |
-            | macOS | DMG (.dmg) | macOS 安装包 |
-
-            ### 安装要求
-
-            - **Windows**: Windows 10/11 64位
-            - **Linux**: Ubuntu 20.04+ / Debian 11+ (64位)
-            - **macOS**: macOS 10.15+ (Apple Silicon 或 Intel)
-
-            ### 快速开始
-
-            1. 下载对应平台的安装包
-            2. 运行安装程序或解压 AppImage
-            3. 启动 FileTools，浏览器将自动打开
+          body_path: release-body.md
+          name: "FileTools v${{ steps.version.outputs.version }}"
+          tag_name: ${{ github.ref_name }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

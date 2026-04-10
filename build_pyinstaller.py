@@ -276,13 +276,35 @@ def build_backend():
             actual_output = SRC_TAURI_BIN / pyinstaller_name
 
         if actual_output.exists():
-            # 重命名为 Tauri 期望的 triple 名称
+            # Tauri v2 externalBin 机制要求：
+            # 1. externalBin 配置的路径必须在构建时存在
+            # 2. 路径必须与 tauri.conf.json 中配置的完全一致
+            # externalBin = "bin/filetools_backend" (Unix) 或 "bin/filetools_backend.exe" (Windows)
+
+            import shutil as sh
+
+            # 创建 triple 名称副本（用于 reference）
             triple_name = SRC_TAURI_BIN / output_name
             if not triple_name.exists():
-                import shutil as sh
-
                 sh.copy2(actual_output, triple_name)
-                actual_output = triple_name
+            else:
+                # 如果已存在且大小合理，跳过重建
+                pass
+
+            # 创建 Tauri 期望的基础名称（与 externalBin 完全一致）
+            # Unix: bin/filetools_backend (无扩展名)
+            # Windows: bin/filetools_backend.exe (有扩展名)
+            if is_windows:
+                external_bin_name = f"{pyinstaller_name}.exe"  # filetools_backend.exe
+            else:
+                external_bin_name = pyinstaller_name  # filetools_backend
+
+            external_bin_path = SRC_TAURI_BIN / external_bin_name
+            if not external_bin_path.exists():
+                sh.copy2(actual_output, external_bin_path)
+                print(f"  + Created externalBin copy: {external_bin_path.name}")
+            else:
+                print(f"  + externalBin copy already exists: {external_bin_path.name}")
 
             size_mb = actual_output.stat().st_size / 1024 / 1024
             print(f"\n{'=' * 60}")

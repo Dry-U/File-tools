@@ -268,15 +268,19 @@ class TestUISettings:
         """测试设置标签页"""
         self.open_settings(page)
 
-        # 查找标签页
-        tabs = page.locator('.settings-tab, [role="tab"]').all()
+        # 查找设置模态框内的标签页（使用更精确的选择器）
+        # 只选择模态框内的 nav-pills 按钮
+        tabs = page.locator(
+            '#settingsModal .nav-pills button, #settingsModal [role="tab"]'
+        ).all()
 
         if len(tabs) > 0:
             # 点击每个标签页
             for tab in tabs[:3]:  # 最多测试前3个
                 if tab.is_visible():
                     tab.click()
-                    # NOTE: Removed fixed wait - Playwright auto-waits
+                    # 等待对应的内容面板显示
+                    # NOTE: Playwright auto-waits for actionability
 
         assert page.url.startswith("http://127.0.0.1:18642")
 
@@ -480,17 +484,13 @@ class TestUISettings:
         modal = page.locator("#rebuildIndexModal")
         assert modal.count() > 0, "重建索引模态框未打开"
 
-        # 检查模态框是否可见
+        # 检查模态框是否可见 - 使用 Bootstrap 的 show 类选择器
         modal_visible = page.locator(
-            "#rebuildIndexModal.show, #rebuildIndexModal.fade.show"
+            '#rebuildIndexModal.modal.show, #rebuildIndexModal.modal.fade.show'
         ).first
-        if not modal_visible.is_visible():
-            # 检查 display 样式
-            modal_element = page.locator("#rebuildIndexModal").first
-            is_displayed = modal_element.evaluate(
-                'el => window.getComputedStyle(el).display !== "none"'
-            )
-            assert is_displayed, "重建索引模态框应该可见"
+
+        # 验证模态框可见（使用更可靠的方法）
+        assert modal_visible.is_visible(), "重建索引模态框应该可见"
 
         # 关闭模态框
         rebuild_cancel_selectors = (
