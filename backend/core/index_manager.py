@@ -2376,6 +2376,8 @@ class IndexManager:
             labels, distances = self.hnsw.knn_query(v, k=k)
             results = []
             seen_docs = set()
+            # 缓存已读取的文件内容，避免同一文件多次 I/O
+            content_cache = {}
 
             for i, idx in enumerate(labels[0]):
                 # 在锁内读取共享数据，避免与删除操作产生竞态
@@ -2413,9 +2415,12 @@ class IndexManager:
                         seen_docs.add(path.lower())
 
                 # 锁外执行耗时操作（I/O操作不应在锁内）
+                # 使用缓存避免同一文件多次读取
                 if is_chunk:
                     if len(content_preview) < 300:
-                        full_content = self.get_document_content(path)
+                        if path not in content_cache:
+                            content_cache[path] = self.get_document_content(path)
+                        full_content = content_cache.get(path)
                         if full_content and len(full_content) > chunk_start:
                             content = full_content[chunk_start:chunk_end]
                         else:
@@ -2423,7 +2428,9 @@ class IndexManager:
                     else:
                         content = content_preview + "..."
                 else:
-                    content = self.get_document_content(path)
+                    if path not in content_cache:
+                        content_cache[path] = self.get_document_content(path)
+                    content = content_cache.get(path)
 
                 # 构建结果
                 result = self._format_result(
