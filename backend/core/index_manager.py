@@ -1060,7 +1060,7 @@ class IndexManager:
             self._vector_buffer.append((content_to_encode, metadata))
             if len(self._vector_buffer) >= self._vector_batch_size:
                 # 释放锁后刷新缓冲区
-                self._flush_vector_buffer_unlocked()
+                self._do_flush_vector_buffer()
 
         return True
 
@@ -1120,7 +1120,7 @@ class IndexManager:
                 self._vector_buffer.append((chunk_content, metadata))
 
             if len(self._vector_buffer) >= self._vector_batch_size:
-                self._flush_vector_buffer_unlocked()
+                self._do_flush_vector_buffer()
 
         return True
 
@@ -2533,9 +2533,9 @@ class IndexManager:
             self.logger.warning("[VECTOR_FLUSH] _batch_lock 未初始化，跳过刷新")
             return
         with batch_lock:
-            self._flush_vector_buffer_unlocked()
+            self._do_flush_vector_buffer()
 
-    def _flush_vector_buffer_unlocked(self):
+    def _do_flush_vector_buffer(self):
         """将缓冲区中的向量批量编码并写入 HNSW 索引（调用时必须持有 _batch_lock）"""
         if not self._vector_buffer:
             return
@@ -2590,8 +2590,8 @@ class IndexManager:
                 f"(累计 {elapsed:.3f}s)"
             )
             t3 = time.time()  # 调试：HNSW写入开始时间
-            with self._batch_lock:
-                self.hnsw.add_items(vectors, ids)
+            # 注意：调用者已持有 _batch_lock，无需再次获取
+            self.hnsw.add_items(vectors, ids)
             t4 = time.time()  # 调试：HNSW写入完成时间
             hnsw_time = t4 - t3
             total_time = t4 - t0
