@@ -18,6 +18,13 @@ logger = get_logger(__name__)
 router = APIRouter()
 
 
+def mask_key(key: str) -> str:
+    """掩码 API key，保留前4位和后4位，中间用 *** 代替"""
+    if not key or len(key) <= 8:
+        return "***"
+    return f"{key[:4]}***{key[-4:]}"
+
+
 def _migrate_old_config(config_loader: ConfigLoader):
     """向后兼容：将旧配置迁移到新结构"""
     # 检查是否有旧配置
@@ -187,18 +194,18 @@ async def get_config(config_loader: ConfigLoader = Depends(get_config_loader)):
         mode = config_loader.get("ai_model", "mode", "local")
         provider = config_loader.get("ai_model", "api.provider", "siliconflow")
 
-        # 获取多provider keys
+        # 获取多provider keys (已掩码)
         keys = {
-            "siliconflow": config_loader.get("ai_model", "api.keys.siliconflow", ""),
-            "deepseek": config_loader.get("ai_model", "api.keys.deepseek", ""),
-            "custom": config_loader.get("ai_model", "api.keys.custom", ""),
+            "siliconflow": mask_key(config_loader.get("ai_model", "api.keys.siliconflow", "")),
+            "deepseek": mask_key(config_loader.get("ai_model", "api.keys.deepseek", "")),
+            "custom": mask_key(config_loader.get("ai_model", "api.keys.custom", "")),
         }
 
         # 向后兼容：如果没有新结构，从旧配置加载
         if not any(keys.values()):
             old_key = config_loader.get("ai_model", "api.api_key", "")
             if old_key:
-                keys[provider] = old_key
+                keys[provider] = mask_key(old_key)
 
         config = {
             "ai_model": {

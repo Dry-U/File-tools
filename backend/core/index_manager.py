@@ -1393,6 +1393,7 @@ class IndexManager:
             self.logger.warning("批量模式仍在运行，删除操作可能失败")
 
         # 添加重试机制处理锁冲突
+        delete_success = False
         max_retries = 8
         for retry in range(max_retries):
             try:
@@ -1413,6 +1414,7 @@ class IndexManager:
                         self.logger.warning(
                             "Tantivy writer不支持删除操作，跳过文本索引删除"
                         )
+                delete_success = True
                 break  # 成功则退出重试循环
             except Exception as e:
                 if "LockBusy" in str(e) and retry < max_retries - 1:

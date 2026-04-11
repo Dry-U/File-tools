@@ -220,9 +220,6 @@ class SearchEngine:
                 )
                 return cached_result
 
-        # 保存当前查询以供后续使用
-        self.current_query = query
-
         # 确保 filters 不为 None
         if filters is None:
             filters = {}
@@ -642,11 +639,11 @@ class SearchEngine:
         if self.result_boost and result.get("search_type") == "hybrid":
             result["score"] *= self.hybrid_boost
 
-    def _apply_filename_boost(self, result: Dict) -> None:
+    def _apply_filename_boost(self, result: Dict, query: str) -> None:
         """
         应用文件名匹配增强
         """
-        query_words = self._get_query_words()
+        query_words = self._get_query_words(query)
         if not query_words:
             return
 
@@ -654,7 +651,7 @@ class SearchEngine:
         query_match_count = 0
 
         # 完整查询匹配（最高优先级）
-        if self.current_query and self.current_query.lower() in filename:
+        if query and query.lower() in filename:
             result["score"] = max(result["score"], 95.0)
             return
 
@@ -667,14 +664,14 @@ class SearchEngine:
             filename_bonus = query_match_count * 15.0
             result["score"] = min(result["score"] + filename_bonus, 100.0)
 
-    def _apply_boosts(self, combined: Dict) -> None:
+    def _apply_boosts(self, combined: Dict, query: str) -> None:
         """
         应用所有boost因子
         """
         for result in combined.values():
             self._apply_snippet_boost(result)
             self._apply_hybrid_boost(result)
-            self._apply_filename_boost(result)
+            self._apply_filename_boost(result, query)
 
             # 确保分数在合理范围内
             result["score"] = min(max(result["score"], 0.0), 100.0)

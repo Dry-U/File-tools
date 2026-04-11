@@ -44,5 +44,6 @@
       "mcp__Chrome_DevTools_MCP__navigate_page",
       "mcp__Chrome_DevTools_MCP__list_console_messages"
     ]
-  }
+  },
+  "outputStyle": "Learning"
 }

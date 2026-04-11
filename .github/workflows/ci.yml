@@ -572,7 +572,7 @@ jobs:
           }
 
           # Run E2E tests
-          uv run pytest tests/e2e/ -v --tb=short || true
+          uv run pytest tests/e2e/ -v --tb=short
 
           # Cleanup
           Get-Process -Name "filetools*" -ErrorAction SilentlyContinue | Stop-Process -Force
@@ -671,7 +671,7 @@ jobs:
           fi
 
           # 运行 E2E 测试
-          uv run pytest tests/e2e/ -v --tb=short || true
+          uv run pytest tests/e2e/ -v --tb=short
 
           # Cleanup
           kill $APP_PID 2>/dev/null || true
@@ -784,7 +784,7 @@ jobs:
           fi
 
           # 运行 E2E 测试
-          uv run pytest tests/e2e/ -v --tb=short --ignore=tests/e2e/test_cross_platform.py || true
+          uv run pytest tests/e2e/ -v --tb=short --ignore=tests/e2e/test_cross_platform.py
 
       - name: Cleanup
         if: always()

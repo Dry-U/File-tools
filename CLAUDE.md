@@ -20,6 +20,11 @@ uv remove <package>
 
 # 重建环境（依赖损坏时）
 uv venv .venv --python 3.12 && uv sync
+
+# 代码检查/格式化（始终使用 uv run）
+uv run ruff check .          # lint 检查
+uv run black .               # 代码格式化
+uv run mypy backend/         # 类型检查
 ```
 
 **禁止使用 pip/conda 等其他方式管理依赖**
@@ -79,6 +84,9 @@ pytest tests/unit/ -v          # 单元测试
 pytest tests/integration/ -v   # 集成测试
 pytest tests/api/ -v           # API 测试
 pytest tests/e2e/ -v          # E2E 测试
+
+# 运行单个测试
+pytest tests/unit/test_search.py::test_basic_search -v
 
 # 性能测试
 pytest tests/integration/test_performance.py -v
@@ -222,6 +230,18 @@ python scripts/allure_report.py open
 python scripts/allure_report.py serve
 python scripts/allure_report.py clean
 ```
+
+## CI/CD
+
+CI 工作流：`.github/workflows/ci.yml`
+
+发布产物命名：`FileTools_{version}_{arch}-{type}.{ext}`
+
+**发布流程：**
+1. 更新 `VERSION` 文件版本号
+2. 创建 tag：`git tag v{x.y.z}`
+3. 推送 tag：`git push origin v{x.y.z}`
+4. CI 自动构建所有平台安装包
 
 ## 配置说明
 
