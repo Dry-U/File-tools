@@ -202,9 +202,7 @@ async def get_config(config_loader: ConfigLoader = Depends(get_config_loader)):
             "deepseek": mask_key(
                 config_loader.get("ai_model", "api.keys.deepseek", "")
             ),
-            "custom": mask_key(
-                config_loader.get("ai_model", "api.keys.custom", "")
-            ),
+            "custom": mask_key(config_loader.get("ai_model", "api.keys.custom", "")),
         }
 
         # 向后兼容：如果没有新结构，从旧配置加载
