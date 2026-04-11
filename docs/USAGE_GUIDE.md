@@ -43,13 +43,13 @@ pip install -e .
 ```yaml
 ai_model:
   enabled: true  # 启用 AI 问答功能
-  mode: "api"  # 模式: "local" 或 "api"
+  interface_type: "api"  # 模式: "wsl" (本地) 或 "api" (远程)
   api:
     provider: "siliconflow"  # 或 "deepseek", "custom"
     api_url: "https://api.siliconflow.cn/v1/chat/completions"
     api_key: "your-api-key"
     model_name: "deepseek-ai/DeepSeek-V2.5"
-    keys:  # 多提供商 API Keys
+    keys:  # 多提供商 API Keys (已掩码返回)
       siliconflow: ""
       deepseek: ""
       custom: ""
@@ -315,11 +315,11 @@ POST /api/directories/browse
 
 ### AI模型配置 (ai_model)
 - `enabled`: 是否启用AI功能
-- `mode`: 运行模式 ("local" 或 "api")
+- `interface_type`: 运行模式 ("wsl" 本地 或 "api" 远程)
 - `api.provider`: API 提供商 ("siliconflow"/"deepseek"/"custom")
 - `api.api_url`: API 地址
-- `api.api_key`: 当前提供商的 API Key
-- `api.keys`: 各提供商的 API Keys 集合
+- `api.api_key`: 当前提供商的 API Key (返回时已掩码)
+- `api.keys`: 各提供商的 API Keys 集合 (返回时已掩码)
 - `sampling.temperature`: 生成温度
 - `sampling.max_tokens`: 最大生成 token 数
 - `security.timeout`: 请求超时时间
