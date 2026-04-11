@@ -1456,7 +1456,7 @@ class IndexManager:
                     f"从向量元数据删除文档失败 {file_path}: {type(e).__name__}: {e}"
                 )
 
-        return True
+        return delete_success
 
     def delete_documents_by_directory(self, directory_path: str) -> int:
         """

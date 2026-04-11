@@ -346,7 +346,9 @@ class SearchEngine:
             处理后的搜索结果列表
         """
         # 合并和排序结果
-        combined_results = self._combine_results(all_text_results, all_vector_results)
+        combined_results = self._combine_results(
+            query, all_text_results, all_vector_results
+        )
         self.logger.info(f"合并后 {len(combined_results)} 条结果")
 
         # 重排序优化
@@ -677,7 +679,7 @@ class SearchEngine:
             result["score"] = min(max(result["score"], 0.0), 100.0)
 
     def _combine_results(
-        self, text_results: List[Dict], vector_results: List[Dict]
+        self, query: str, text_results: List[Dict], vector_results: List[Dict]
     ) -> List[Dict]:
         """
         合并文本搜索和向量搜索结果
@@ -704,7 +706,7 @@ class SearchEngine:
         self._calculate_rrf_scores(combined)
 
         # 步骤4: 应用boost因子
-        self._apply_boosts(combined)
+        self._apply_boosts(combined, query)
 
         # 步骤5: 排序并返回
         return sorted(combined.values(), key=lambda x: x["score"], reverse=True)
@@ -874,11 +876,11 @@ class SearchEngine:
 
         return stats
 
-    def _get_query_words(self) -> list[str]:
-        """从当前的搜索查询中提取查询词"""
-        if hasattr(self, "current_query") and self.current_query:
+    def _get_query_words(self, query: str) -> list[str]:
+        """从搜索查询中提取查询词"""
+        if query:
             # 简单的分词处理，按空格和常见分隔符分割
-            words = re.findall(r"\w+", self.current_query)
+            words = re.findall(r"\w+", query)
             return words
         return []
 
