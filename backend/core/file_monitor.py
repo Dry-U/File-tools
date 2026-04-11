@@ -393,15 +393,15 @@ class FileMonitor:
             }
             self._event_buffer.setdefault(event_path, []).append(event_info)
 
-            # 缓冲区大小限制，防止内存溢出（最多 10000 条事件）
+            # 缓冲区大小限制，防止内存溢出（最多 5000 条事件）
             total_events = sum(len(events) for events in self._event_buffer.values())
-            if total_events > 10000:
-                # 清空最旧的事件（按时间戳排序，保留最新的 5000 条）
+            if total_events > 5000:
+                # 清空最旧的事件（按时间戳排序，保留最新的 3000 条）
                 all_events = []
                 for path, path_events in self._event_buffer.items():
                     all_events.extend(path_events)
                 all_events.sort(key=lambda x: x["timestamp"])
-                kept_events = all_events[-5000:]
+                kept_events = all_events[-3000:]
                 self._event_buffer.clear()
                 for event in kept_events:
                     self._event_buffer.setdefault(event["path"], []).append(event)

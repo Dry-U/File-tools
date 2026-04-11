@@ -242,7 +242,7 @@ async def get_config(config_loader: ConfigLoader = Depends(get_config_loader)):
                     "max_tokens": config_loader.getint(
                         "ai_model", "api.max_tokens", 2048
                     ),
-                    "keys": keys,  # 所有provider的keys
+                    "keys": {},  # 不返回 keys 以保护隐私
                 },
                 "security": {
                     "verify_ssl": config_loader.getboolean(
