@@ -196,9 +196,15 @@ async def get_config(config_loader: ConfigLoader = Depends(get_config_loader)):
 
         # 获取多provider keys (已掩码)
         keys = {
-            "siliconflow": mask_key(config_loader.get("ai_model", "api.keys.siliconflow", "")),
-            "deepseek": mask_key(config_loader.get("ai_model", "api.keys.deepseek", "")),
-            "custom": mask_key(config_loader.get("ai_model", "api.keys.custom", "")),
+            "siliconflow": mask_key(
+                config_loader.get("ai_model", "api.keys.siliconflow", "")
+            ),
+            "deepseek": mask_key(
+                config_loader.get("ai_model", "api.keys.deepseek", "")
+            ),
+            "custom": mask_key(
+                config_loader.get("ai_model", "api.keys.custom", "")
+            ),
         }
 
         # 向后兼容：如果没有新结构，从旧配置加载

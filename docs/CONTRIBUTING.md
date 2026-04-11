@@ -339,9 +339,9 @@ uv add <package>           # 添加依赖
 uv tree                    # 查看依赖树
 
 # 代码质量
-ruff check .              # 代码检查
-ruff format .             # 代码格式化
-mypy backend/              # 类型检查
+uv run ruff check .       # 代码检查
+uv run ruff format .      # 代码格式化
+uv run mypy backend/      # 类型检查
 
 # 测试
 pytest tests/ -v          # 运行所有测试
