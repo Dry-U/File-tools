@@ -255,7 +255,7 @@ jobs:
           }
 
       - name: Upload Windows installers
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: filetools-windows-installers-v${{ env.FILETOOLS_VERSION }}
           path: |
@@ -274,7 +274,7 @@ jobs:
           ls -la release-portable/
 
       - name: Upload portable components
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: filetools-windows-portable-v${{ env.FILETOOLS_VERSION }}
           path: release-portable/
@@ -283,7 +283,7 @@ jobs:
 
       - name: Upload build logs on failure
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: windows-build-logs
           path: |
@@ -382,7 +382,7 @@ jobs:
           done
 
       - name: Upload Linux installers
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: filetools-linux-installers-v${{ env.FILETOOLS_VERSION }}
           path: |
@@ -393,7 +393,7 @@ jobs:
 
       - name: Upload build logs on failure
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: linux-build-logs
           path: |
@@ -481,7 +481,7 @@ jobs:
           # APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
 
       - name: Upload macOS ARM64 installer
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: filetools-macos-arm64-dmg-v${{ env.FILETOOLS_VERSION }}
           path: |
@@ -491,7 +491,7 @@ jobs:
 
       - name: Upload build logs on failure
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: macos-arm64-build-logs
           path: |
@@ -585,7 +585,7 @@ jobs:
 
       - name: Upload test artifacts on failure
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: windows-e2e-failure-artifacts
           path: |
@@ -683,7 +683,7 @@ jobs:
 
       - name: Upload test artifacts on failure
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: linux-e2e-failure-artifacts
           path: |
@@ -797,7 +797,7 @@ jobs:
 
       - name: Upload test artifacts on failure
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: macos-e2e-failure-artifacts
           path: |
