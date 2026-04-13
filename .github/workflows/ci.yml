@@ -846,13 +846,16 @@ jobs:
           ARTIFACTS_DIR: release-artifacts
           OUTPUT_DIR: release-files
 
-      - name: Generate Release Notes
-        id: release-notes
-        run: node scripts/generate-release-notes.js
-        env:
-          VERSION: ${{ steps.version.outputs.version }}
-          CHANGELOG_PATH: CHANGELOG.md
-          OUTPUT_PATH: release-body.md
+      - name: Install Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install changelogen
+        run: npm install -D changelogen
+
+      - name: Generate changelog
+        run: npx changelogen --output CHANGELOG.md --dir .
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
@@ -860,7 +863,7 @@ jobs:
           files: release-files/*
           draft: true
           prerelease: false
-          body_path: release-body.md
+          body_path: CHANGELOG.md
           name: "FileTools v${{ steps.version.outputs.version }}"
           tag_name: ${{ github.ref_name }}
         env:
