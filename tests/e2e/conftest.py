@@ -7,7 +7,9 @@
 """
 
 import os
+import subprocess
 import sys
+import time
 
 import pytest
 
@@ -71,12 +73,106 @@ def viewport_size():
     return {"width": 1280, "height": 720}
 
 
+@pytest.fixture(scope="session")
+def _ensure_server_running(base_url):
+    """确保测试服务器已启动（session级别，只执行一次）
+
+    如果服务器未运行：
+    - 在 CI 环境中：等待 30 秒后超时（CI 应自行启动服务器）
+    - 在本地环境中：自动启动服务器进程
+    """
+    import urllib.error
+    import urllib.request
+
+    health_url = f"{base_url}/api/health"
+    start_time = time.time()
+
+    # 先检查服务器是否已运行
+    for i in range(6):  # 最多等待 3 秒
+        try:
+            req = urllib.request.Request(health_url)
+            with urllib.request.urlopen(req, timeout=2) as response:
+                if response.status == 200:
+                    elapsed = time.time() - start_time
+                    print(f"\n[E2E] 服务器已就绪 (耗时 {elapsed:.1f}s)")
+                    return True
+        except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError, OSError):
+            pass
+        time.sleep(0.5)
+
+    # 服务器未运行，尝试本地启动
+    if os.environ.get("CI"):
+        # CI 环境：等待服务器启动（由 CI workflow 负责启动）
+        print("\n[E2E] CI 环境：等待外部启动的服务器...")
+        for i in range(60):  # 最多等待 30 秒
+            try:
+                req = urllib.request.Request(health_url)
+                with urllib.request.urlopen(req, timeout=2) as response:
+                    if response.status == 200:
+                        elapsed = time.time() - start_time
+                        print(f"[E2E] CI 服务器就绪 (耗时 {elapsed:.1f}s)")
+                        return True
+            except (
+                urllib.error.URLError,
+                urllib.error.HTTPError,
+                TimeoutError,
+                OSError,
+            ):
+                pass
+            time.sleep(0.5)
+        pytest.exit("[E2E] CI 环境中服务器未启动，请确保 workflow 中已启动服务器")
+
+    # 本地环境：自动启动服务器
+    print("\n[E2E] 本地环境：自动启动服务器...")
+    server_process = None
+    try:
+        # 查找项目根目录的 main.py
+        project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        main_py = os.path.join(project_root, "main.py")
+
+        if not os.path.exists(main_py):
+            pytest.exit(f"[E2E] 未找到 main.py: {main_py}")
+
+        # 在后台启动服务器
+        server_process = subprocess.Popen(
+            [sys.executable, main_py],
+            cwd=project_root,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+
+        # 等待服务器就绪
+        for i in range(60):  # 最多等待 30 秒
+            try:
+                req = urllib.request.Request(health_url)
+                with urllib.request.urlopen(req, timeout=2) as response:
+                    if response.status == 200:
+                        elapsed = time.time() - start_time
+                        print(f"[E2E] 本地服务器启动成功 (耗时 {elapsed:.1f}s)")
+                        return True
+            except (
+                urllib.error.URLError,
+                urllib.error.HTTPError,
+                TimeoutError,
+                OSError,
+            ):
+                pass
+            time.sleep(0.5)
+
+        pytest.exit(f"[E2E] 服务器启动超时（30秒）")
+
+    except Exception as e:
+        if server_process:
+            server_process.terminate()
+        pytest.exit(f"[E2E] 启动服务器失败: {e}")
+
+
 @pytest.fixture(autouse=True)
-def _setup_test_environment(page, base_url):
+def _setup_test_environment(page, base_url, _ensure_server_running):
     """每个测试用例的通用设置 - 智能导航
 
+    依赖 _ensure_server_running 确保服务器已就绪后再导航。
     如果当前不在目标URL上，则自动导航到 base_url。
-    这允许测试在需要时自己控制导航，同时提供默认行为。
     """
     # 设置默认超时
     page.set_default_timeout(30000)

@@ -1,0 +1,141 @@
+# Release Drafter 配置
+# https://github.com/release-drafter/release-drafter
+
+name-template: "v$RESOLVED_VERSION"
+tag-template: "v$RESOLVED_VERSION"
+
+# 当推送正式 tag 时不触发（避免与正式发布冲突）
+exclude-tags:
+  - v*-prerelease
+
+# 从 CHANGELOG.md 提取（可选，配合本项目的 changelog 维护方式）
+# changelog:
+#  阠ling-exclude-authored-with:dependabot[bot]
+#   categories:
+#     - title: 🛠️ 构建 & CI
+#       label: ci
+#     - title: 📦 依赖更新
+#       label: dependencies
+#     - title: 🌟 新功能
+#       labels:
+#         - feat
+#         - feature
+#     - title: 🐛 Bug 修复
+#       labels:
+#         - fix
+#         - bugfix
+#     - title: 📚 文档
+#       labels:
+#         - docs
+#         - documentation
+#     - title: ⚡ 性能优化
+#       labels:
+#         - perf
+#     - title: 🎨 代码重构
+#       labels:
+#         - refactor
+#     - title: 🔒 安全
+#       labels:
+#         - security
+#     - title: 🔧 其他变更
+#       label: chore
+#       exclude:
+#         - ci
+#         - dependencies
+
+# 备选：从 git commits 自动解析（不依赖 CHANGELOG.md）
+categories:
+  - title: 🌟 新功能
+    labels:
+      - feat
+      - feature
+  - title: 🐛 Bug 修复
+    labels:
+      - fix
+      - bugfix
+  - title: 📚 文档更新
+    labels:
+      - docs
+      - documentation
+  - title: ⚡ 性能优化
+    labels:
+      - perf
+  - title: 🎨 代码重构
+    labels:
+      - refactor
+  - title: 🔒 安全更新
+    labels:
+      - security
+  - title: 🛠️ 构建 & CI
+    labels:
+      - ci
+      - build
+  - title: 🔧 其他变更
+    label: chore
+
+# 变更日志头部模板
+header: |
+  ## FileTools v$RESOLVED_VERSION
+
+  <!-- 此版本变更由 release-drafter 自动生成 -->
+
+  ### 重要提示
+  ⚠️ **升级前请备份数据目录**（默认位于：
+  - Windows: `%APPDATA%/com.filetools.app`
+  - macOS: `~/Library/Application Support/com.filetools.app`
+  - Linux: `~/.local/share/com.filetools.app`
+
+# 变更日志脚注模板
+footer: |
+  <!-- 保留此链接以便用户获取完整信息 -->
+
+  **完整变更日志**: [CHANGELOG.md](https://github.com/Dry-U/File-tools/blob/main/CHANGELOG.md)
+
+  **问题反馈**: [GitHub Issues](https://github.com/Dry-U/File-tools/issues)
+
+  ---
+  *由 [Release Drafter](https://github.com/release-drafter/release-drafter) 自动生成*
+
+# 发布说明模板
+template: |
+  $CHANGES
+
+# 语义化版本
+version-resolver:
+  major:
+    - breaking
+  minor:
+    - feature
+  patch:
+    - fix
+    - perf
+    - refactor
+    - docs
+    - ci
+    - chore
+    - build
+    - security
+
+# PR 合并时自动标签
+autolabeler:
+  - branch:
+      - '/^feat\/.+$/'
+        label: feat
+  - branch:
+      - '/^fix\/.+$/'
+        label: fix
+  - branch:
+      - '/^docs\/.+$/'
+        label: docs
+  - branch:
+      - '/^perf\/.+$/'
+        label: perf
+  - branch:
+      - '/^refactor\/.+$/'
+        label: refactor
+  - branch:
+      - '/^ci\/.+$/'
+        label: ci
+  - branch:
+      - '/^chore\/.+$/'
+        label: chore

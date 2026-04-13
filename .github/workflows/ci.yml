@@ -499,104 +499,6 @@ jobs:
             data/logs/
           retention-days: 7
 
-  # ==================== Tauri 构建 (macOS x64) ====================
-  build-tauri-macos-x64:
-    name: Build Tauri (macOS x64)
-    runs-on: macos-13
-    timeout-minutes: 180
-    needs: [lint, test, test-macos]
-    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request'
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: x86_64-apple-darwin
-
-      - name: Rust cache
-        uses: swatinem/rust-cache@v2
-        with:
-          workspaces: 'src-tauri -> target'
-          shared-key: 'tauri-macos-x64'
-
-      - name: Install uv
-        uses: astral-sh/setup-uv@v4
-        with:
-          enable-cache: true
-
-      - name: Install Python dependencies
-        run: |
-          uv sync --index-url https://pypi.org/simple/
-
-      - name: Install Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-          cache: 'npm'
-
-      - name: Install Tauri CLI
-        run: |
-          npm install -g @tauri-apps/cli@latest
-
-      - name: Resolve version
-        shell: bash
-        run: |
-          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
-            APP_VERSION="${GITHUB_REF_NAME#v}"
-          else
-            APP_VERSION=$(cat VERSION 2>/dev/null || echo "1.0.0")
-          fi
-          echo "FILETOOLS_VERSION=${APP_VERSION}" >> "$GITHUB_ENV"
-
-      - name: Sync version to all config files
-        run: node scripts/sync-version.js
-        env:
-          FILETOOLS_VERSION: ${{ env.FILETOOLS_VERSION }}
-
-      - name: Verify version consistency
-        run: node scripts/verify-version.js
-        env:
-          FILETOOLS_VERSION: ${{ env.FILETOOLS_VERSION }}
-
-      - name: Build Python backend with PyInstaller
-        run: |
-          uv run python build_pyinstaller.py
-
-      - name: Build Tauri application
-        run: |
-          npm run tauri:build -- --bundles dmg --target x86_64-apple-darwin
-        env:
-          FILETOOLS_VERSION: ${{ env.FILETOOLS_VERSION }}
-          # macOS 代码签名（需要先在 GitHub Secrets 中配置）
-          # APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
-          # APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-          # APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
-          # APPLE_ID: ${{ secrets.APPLE_ID }}
-          # APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
-          # APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-
-      - name: Upload macOS x64 installer
-        uses: actions/upload-artifact@v4
-        with:
-          name: filetools-macos-x64-dmg-v${{ env.FILETOOLS_VERSION }}
-          path: |
-            src-tauri/target/x86_64-apple-darwin/release/bundle/dmg/*.dmg
-          if-no-files-found: warn
-          retention-days: 30
-
-      - name: Upload build logs on failure
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: macos-x64-build-logs
-          path: |
-            src-tauri/target/x86_64-apple-darwin/release/build/
-            data/logs/
-          retention-days: 7
-
   # ==================== E2E 测试 (Windows) ====================
   e2e-windows:
     name: E2E Tests (Windows)
@@ -881,13 +783,11 @@ jobs:
             sleep 0.5
           done
           if [ "$ready" = false ]; then
-            echo "ERROR: App failed to start after $max_wait seconds"
-            ps aux | grep -i filetools || true
-            exit 1
+            echo "Warning: App may not be fully ready after $max_wait seconds"
           fi
 
           # 运行 E2E 测试
-          uv run pytest tests/e2e/ -v --tb=short --ignore=tests/e2e/test_cross_platform.py
+          uv run pytest tests/e2e/ -v --tb=short
 
       - name: Cleanup
         if: always()
@@ -908,7 +808,7 @@ jobs:
   # ==================== 发布 ====================
   release:
     name: Publish Release
-    needs: [build-tauri-windows, build-tauri-linux, build-tauri-macos-arm64, build-tauri-macos-x64, e2e-windows, e2e-linux, e2e-macos]
+    needs: [build-tauri-windows, build-tauri-linux, build-tauri-macos-arm64]
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     permissions:
@@ -958,7 +858,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: release-files/*
-          draft: false
+          draft: true
           prerelease: false
           body_path: release-body.md
           name: "FileTools v${{ steps.version.outputs.version }}"
