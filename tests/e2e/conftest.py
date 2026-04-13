@@ -121,6 +121,7 @@ def _ensure_server_running(base_url):
                 pass
             time.sleep(0.5)
         import warnings
+
         warnings.warn("[E2E] CI 环境中服务器未启动，测试可能失败")
         return False
 
