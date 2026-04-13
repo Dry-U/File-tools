@@ -629,7 +629,7 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y libfuse2 xvfb
+          sudo apt-get install -y libfuse2 libegl1 libgl1 libgles2 xvfb
 
       - name: Install uv
         uses: astral-sh/setup-uv@v4
@@ -656,8 +656,17 @@ jobs:
           echo "Found AppImage: $APPIMAGE_PATH"
           chmod +x "$APPIMAGE_PATH"
 
+          # 提取 AppImage 到临时目录
+          TEMP_DIR=$(mktemp -d)
+          cd "$TEMP_DIR"
+          "$APPIMAGE_PATH" --appimage-extract > /dev/null 2>&1
+          EXTRACTED_DIR="$TEMP_DIR/squashfs-root"
+
+          # 设置库路径（包含系统图形库）
+          export LD_LIBRARY_PATH="$EXTRACTED_DIR/usr/lib:$LD_LIBRARY_PATH"
+
           # 使用 xvfb-run 在虚拟显示中运行
-          xvfb-run --auto-servernum --server-args="-screen 0 1280x720x24" "$APPIMAGE_PATH" --appimage-extract-and-run &
+          xvfb-run --auto-servernum --server-args="-screen 0 1280x720x24" "$EXTRACTED_DIR/AppRun" &
           APP_PID=$!
 
           # Wait for app to be ready (smart polling)
@@ -851,19 +860,21 @@ jobs:
         with:
           node-version: '20'
 
-      - name: Install changelogen
-        run: npm install -D changelogen
-
-      - name: Generate changelog
-        run: npx changelogen --output CHANGELOG.md --dir .
+      - name: Generate release notes
+        run: node scripts/generate-release-notes.js
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CHANGELOG_PATH: CHANGELOG.md
+          OUTPUT_PATH: release-body.md
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           files: release-files/*
-          draft: true
+          draft: false
           prerelease: false
-          body_path: CHANGELOG.md
+          body_path: release-body.md
           name: "FileTools v${{ steps.version.outputs.version }}"
           tag_name: ${{ github.ref_name }}
         env:

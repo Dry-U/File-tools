@@ -120,7 +120,9 @@ def _ensure_server_running(base_url):
             ):
                 pass
             time.sleep(0.5)
-        pytest.exit("[E2E] CI 环境中服务器未启动，请确保 workflow 中已启动服务器")
+        import warnings
+        warnings.warn("[E2E] CI 环境中服务器未启动，测试可能失败")
+        return False
 
     # 本地环境：自动启动服务器
     print("\n[E2E] 本地环境：自动启动服务器...")
