@@ -189,7 +189,7 @@ jobs:
           uv sync --index-url https://pypi.org/simple/
 
       - name: Install Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: '20'
           cache: 'npm'
@@ -335,7 +335,7 @@ jobs:
           uv sync --index-url https://pypi.org/simple/
 
       - name: Install Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: '20'
           cache: 'npm'
@@ -434,7 +434,7 @@ jobs:
           uv sync --index-url https://pypi.org/simple/
 
       - name: Install Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: '20'
           cache: 'npm'
@@ -847,7 +847,7 @@ jobs:
           OUTPUT_DIR: release-files
 
       - name: Install Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: '20'
 
