@@ -303,21 +303,18 @@ class ConfigLoader:
                 encrypted = f.encrypt(value.encode("utf-8"))
                 return f"enc:{encrypted.decode('utf-8')}"
             else:
-                # 降级方案：简单的 base64 混淆
-                # 警告：这不是真正的加密，只是防止明文存储。
-                # 敏感信息（如 API key）将使用可逆的 base64 编码存储，
-                # 在 cryptography 库安装后将自动升级为真正加密
-                logger.warning(
-                    "SECURITY WARNING: cryptography 库未安装，"
-                    "API密钥将使用 Base64 编码存储（非加密）。"
-                    "建议安装 cryptography 库以获得真正的加密保护："
-                    "pip install cryptography"
+                # 拒绝使用不安全的 base64 降级方案存储新值
+                # 这是一个安全硬性要求：cryptography 库必须安装才能存储敏感信息
+                logger.error(
+                    "CRITICAL SECURITY ERROR: cryptography 库未安装，"
+                    "无法安全存储敏感信息（API密钥等）。"
+                    "请安装 cryptography 库：uv add cryptography"
                 )
-                obfuscated = base64.b64encode(value.encode("utf-8")).decode("utf-8")
-                return f"enc:b64:{obfuscated}"
+                # 返回特殊标记，调用方应忽略此字段而不是使用不安全的 base64
+                return "enc:REQUIRE_CRYPTOGRAPHY"
         except Exception as e:
-            logger.warning(f"加密失败: {e}")
-            return value
+            logger.error(f"加密失败: {e}")
+            return None
 
     def _decrypt_value(self, value: str) -> str:
         """解密单个值"""
@@ -360,7 +357,14 @@ class ConfigLoader:
             if section in self.config and key in self.config[section]:
                 value = self.config[section][key]
                 if value and isinstance(value, str) and not value.startswith("enc:"):
-                    self.config[section][key] = self._encrypt_value(value)
+                    encrypted = self._encrypt_value(value)
+                    if encrypted == "enc:REQUIRE_CRYPTOGRAPHY":
+                        # cryptography 未安装，跳过存储此敏感字段
+                        logger.warning(
+                            f"跳过存储敏感字段 {section}.{key}：cryptography 库未安装"
+                        )
+                        continue
+                    self.config[section][key] = encrypted
                     logger.debug(f"已加密字段: {section}.{key}")
 
     def _decrypt_sensitive_fields(self) -> None:

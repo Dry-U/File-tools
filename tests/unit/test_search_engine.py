@@ -226,13 +226,11 @@ def test_search_method():
     mock_index_manager.search_text.return_value = []
     mock_index_manager.search_vector.return_value = []
 
-    # 测试搜索方法不抛出异常
-    try:
-        results = search_engine.search("test query")
-        assert isinstance(results, list), "搜索结果应为列表类型"
-    except Exception:
-        # 如果由于缺少依赖而失败，这也是可以接受的
-        pass
+    # 测试搜索方法返回正确类型的结果
+    results = search_engine.search("test query")
+    assert isinstance(results, list), "搜索结果应为列表类型"
+    # 验证结果为空（因为 mock 返回空列表）
+    assert len(results) == 0, "默认搜索结果应为空"
 
 
 if __name__ == "__main__":

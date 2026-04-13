@@ -122,6 +122,18 @@ const FileToolsEventBindings = (function() {
             });
         }
 
+        // 6.1 API提供商选择器 (onchange 处理器)
+        const apiProviderSelect = document.getElementById('apiProviderSelect');
+        if (apiProviderSelect) {
+            apiProviderSelect.addEventListener('change', function() {
+                if (typeof FileToolsSettings !== 'undefined' && FileToolsSettings.onProviderChange) {
+                    FileToolsSettings.onProviderChange();
+                } else if (typeof onProviderChange === 'function') {
+                    onProviderChange();
+                }
+            });
+        }
+
         // 6.5 历史记录列表事件委托
         const historyList = document.getElementById('historyList');
         if (historyList) {
@@ -429,14 +441,19 @@ const FileToolsEventBindings = (function() {
      * 移除所有内联事件处理器
      */
     function removeInlineEventHandlers() {
-        // 移除所有onclick属性
+        // 移除所有onclick属性 - 使用removeAttribute确保彻底移除
         document.querySelectorAll('[onclick]').forEach(element => {
-            element.onclick = null;
+            element.removeAttribute('onclick');
         });
 
         // 移除所有oninput属性
         document.querySelectorAll('[oninput]').forEach(element => {
-            element.oninput = null;
+            element.removeAttribute('oninput');
+        });
+
+        // 移除onchange属性
+        document.querySelectorAll('[onchange]').forEach(element => {
+            element.removeAttribute('onchange');
         });
 
         // 移除所有onerror属性（从script标签）

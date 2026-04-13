@@ -92,6 +92,11 @@ class IndexManager:
         # 已删除文件路径集合（用于在搜索时过滤已删除的文档，因为HNSW不支持真正删除）
         self._deleted_paths = set()  # {file_path, ...}
 
+        # 内容缓存（LRU），避免同一文件多次 I/O
+        self._content_cache = {}  # {path: content}
+        self._content_cache_order = []  # 记录访问顺序，用于 LRU 淘汰
+        self._content_cache_max_size = 500  # 最大缓存文件数
+
     def _init_config(self) -> None:
         """初始化配置参数"""
         try:
@@ -763,6 +768,7 @@ class IndexManager:
         # 先停止后台commit线程
         self._stop_commit_thread()
 
+        # 使用单个锁区域避免 TOCTOU 竞态
         with self._batch_lock:
             if not self._batch_mode:
                 self.logger.info("[BATCH] 批量模式未激活，直接返回")
@@ -785,28 +791,10 @@ class IndexManager:
                         self._add_doc_to_writer(doc)
                     self._batch_buffer = []
 
-                # 在锁内快速检查向量缓冲区
+                # 检查向量缓冲区大小
                 vector_buffer_size = len(getattr(self, "_vector_buffer", []))
                 self.logger.info(f"[BATCH] 向量缓冲区大小: {vector_buffer_size}")
 
-            except Exception as e:
-                self.logger.error(f"[BATCH] 处理缓冲区时出错: {e}")
-
-        # 在锁外刷新向量缓冲区（避免持有锁期间进行耗时操作）
-        if vector_buffer_size > 0:
-            self.logger.info("[BATCH] 在锁外刷新向量缓冲区...")
-            try:
-                self._flush_vector_buffer()
-                self.logger.info("[BATCH] 向量缓冲区刷新完成")
-            except Exception as e:
-                self.logger.error(f"[BATCH] 刷新向量缓冲区失败: {e}")
-
-        with self._batch_lock:
-            if not self._batch_mode:
-                self.logger.info("[BATCH] 批量模式已被其他线程结束")
-                return
-
-            try:
                 # 确保 writer 被正确释放
                 if self._writer is not None:
                     try:
@@ -825,6 +813,16 @@ class IndexManager:
                 self._batch_mode = False
                 self._batch_mode_start_time = None
                 self.logger.info("[BATCH] 批量添加模式已结束")
+
+                # 在锁内刷新向量缓冲区（向量缓冲区刷新是线程安全的）
+                if vector_buffer_size > 0:
+                    self.logger.info("[BATCH] 刷新向量缓冲区...")
+                    try:
+                        self._flush_vector_buffer()
+                        self.logger.info("[BATCH] 向量缓冲区刷新完成")
+                    except Exception as e:
+                        self.logger.error(f"[BATCH] 刷新向量缓冲区失败: {e}")
+
             except Exception as e:
                 self.logger.error(f"[BATCH] 结束批量模式时出错: {e}")
                 # 即使出错，也要强制重置状态
@@ -933,12 +931,20 @@ class IndexManager:
 
         try:
             # 批量模式处理：只追加到缓冲区，由后台线程统一提交
-            with self._batch_lock:
-                if self._batch_mode:
+            # 注意：刷新在锁外进行，避免三层嵌套锁导致的潜在死锁风险
+            if self._batch_mode:
+                with self._batch_lock:
                     self._batch_buffer.append(document)
-                    # 批量处理向量索引
+                    # 批量处理向量索引（不再触发刷新，避免嵌套锁）
                     self._add_vector_in_batch_mode(document)
-                    return True
+                # 锁外检查是否需要刷新缓冲区
+                # 使用 try_lock 避免与其他线程冲突
+                try:
+                    if len(self._vector_buffer) >= self._vector_batch_size:
+                        self._flush_vector_buffer()
+                except Exception as flush_err:
+                    self.logger.debug(f"后台刷新失败（不影响主流程）: {flush_err}")
+                return True
 
             # 非批量模式：直接提交
             with self._index_lock:
@@ -977,8 +983,8 @@ class IndexManager:
 
         try:
             # 批量模式处理
-            with self._batch_lock:
-                if self._batch_mode:
+            if self._batch_mode:
+                with self._batch_lock:
                     # 批量模式：直接追加到缓冲区
                     self._batch_buffer.extend(documents)
                     buffer_size = len(self._batch_buffer)
@@ -989,11 +995,18 @@ class IndexManager:
                             f"[BATCH_ADD] 缓冲区达到 {buffer_size} 文档，触发后台commit"
                         )
 
-                    # 批量处理向量索引
+                    # 批量处理向量索引（不再触发刷新，避免嵌套锁）
                     for doc in documents:
                         self._add_vector_in_batch_mode(doc)
 
-                    return len(documents)
+                # 锁外检查并刷新向量缓冲区，避免三层嵌套锁
+                try:
+                    if len(self._vector_buffer) >= self._vector_batch_size:
+                        self._flush_vector_buffer()
+                except Exception as flush_err:
+                    self.logger.debug(f"批量刷新失败（不影响主流程）: {flush_err}")
+
+                return len(documents)
 
             # 非批量模式：使用批量API
             with self._index_lock:
@@ -1035,7 +1048,11 @@ class IndexManager:
             return False
 
     def _add_document_single_batch(self, document):
-        """批量模式：缓冲单文档向量到批量编码队列"""
+        """批量模式：缓冲单文档向量到批量编码队列
+
+        注意：此方法只负责将文档追加到缓冲区，不触发刷新。
+        刷新由 add_document 在锁外调用 _flush_vector_buffer 处理。
+        """
         content_to_encode = (
             document["content"][:MAX_ENCODE_LENGTH] if document["content"] else ""
         )
@@ -1058,14 +1075,17 @@ class IndexManager:
 
         with self._batch_lock:
             self._vector_buffer.append((content_to_encode, metadata))
-            if len(self._vector_buffer) >= self._vector_batch_size:
-                # 释放锁后刷新缓冲区
-                self._do_flush_vector_buffer()
+            # 不再在此触发刷新，避免三层嵌套锁
+            # 刷新由 add_document 在锁外统一处理
 
         return True
 
     def _add_document_chunks_batch(self, document):
-        """批量模式：将文档分块后缓冲到向量批量编码队列"""
+        """批量模式：将文档分块后缓冲到向量批量编码队列
+
+        注意：此方法只负责将文档追加到缓冲区，不触发刷新。
+        刷新由 add_document 在锁外调用 _flush_vector_buffer 处理。
+        """
         from .text_chunker import TextChunker
 
         chunker = self.chunker or TextChunker(
@@ -1119,8 +1139,8 @@ class IndexManager:
                 }
                 self._vector_buffer.append((chunk_content, metadata))
 
-            if len(self._vector_buffer) >= self._vector_batch_size:
-                self._do_flush_vector_buffer()
+            # 不再在此触发刷新，避免三层嵌套锁
+            # 刷新由 add_document 在锁外统一处理
 
         return True
 
@@ -2376,8 +2396,11 @@ class IndexManager:
             labels, distances = self.hnsw.knn_query(v, k=k)
             results = []
             seen_docs = set()
-            # 缓存已读取的文件内容，避免同一文件多次 I/O
-            content_cache = {}
+            # 使用实例级内容缓存，避免同一文件多次 I/O
+            # LRU 淘汰策略通过 _content_cache_order 实现
+            cache = self._content_cache
+            cache_order = self._content_cache_order
+            max_cache_size = self._content_cache_max_size
 
             for i, idx in enumerate(labels[0]):
                 # 在锁内读取共享数据，避免与删除操作产生竞态
@@ -2415,12 +2438,23 @@ class IndexManager:
                         seen_docs.add(path.lower())
 
                 # 锁外执行耗时操作（I/O操作不应在锁内）
-                # 使用缓存避免同一文件多次读取
+                # 使用实例级缓存 + LRU 淘汰，避免同一文件多次读取
                 if is_chunk:
                     if len(content_preview) < 300:
-                        if path not in content_cache:
-                            content_cache[path] = self.get_document_content(path)
-                        full_content = content_cache.get(path)
+                        if path not in cache:
+                            # LRU 淘汰：当缓存满时移除最旧的条目
+                            if len(cache) >= max_cache_size:
+                                oldest = cache_order.pop(0)
+                                cache.pop(oldest, None)
+                            # 读取并缓存文件内容
+                            cache[path] = self.get_document_content(path)
+                            cache_order.append(path)
+                        else:
+                            # 缓存命中，更新 LRU 顺序（移到末尾表示最近使用）
+                            if path in cache_order:
+                                cache_order.remove(path)
+                            cache_order.append(path)
+                        full_content = cache.get(path)
                         if full_content and len(full_content) > chunk_start:
                             content = full_content[chunk_start:chunk_end]
                         else:
@@ -2428,9 +2462,18 @@ class IndexManager:
                     else:
                         content = content_preview + "..."
                 else:
-                    if path not in content_cache:
-                        content_cache[path] = self.get_document_content(path)
-                    content = content_cache.get(path)
+                    if path not in cache:
+                        if len(cache) >= max_cache_size:
+                            oldest = cache_order.pop(0)
+                            cache.pop(oldest, None)
+                        cache[path] = self.get_document_content(path)
+                        cache_order.append(path)
+                    else:
+                        # 缓存命中，更新 LRU 顺序（移到末尾表示最近使用）
+                        if path in cache_order:
+                            cache_order.remove(path)
+                        cache_order.append(path)
+                    content = cache.get(path)
 
                 # 构建结果
                 result = self._format_result(
@@ -2541,6 +2584,7 @@ class IndexManager:
             return
         with batch_lock:
             self._do_flush_vector_buffer()
+            # with 语句自动释放锁
 
     def _do_flush_vector_buffer(self):
         """将缓冲区中的向量批量编码并写入 HNSW 索引（调用时必须持有 _batch_lock）"""

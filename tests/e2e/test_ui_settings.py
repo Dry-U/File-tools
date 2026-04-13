@@ -459,7 +459,7 @@ class TestUISettings:
         """测试重建索引模态框"""
         # 访问首页（不打开设置）
         page.goto("http://127.0.0.1:18642", timeout=30000)
-        # NOTE: Use smart wait for async operations
+        page.wait_for_load_state("networkidle")
 
         # 查找重建索引按钮（在搜索侧边栏）
         rebuild_button = page.locator(

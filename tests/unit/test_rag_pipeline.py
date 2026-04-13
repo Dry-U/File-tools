@@ -655,13 +655,19 @@ class TestRAGPipelinePromptBuilding:
         assert "author" in result or "paper" in result
 
     def test_truncate_content_if_needed(self, rag_pipeline):
-        """测试内容截断"""
+        """测试内容截断（token预算）"""
         section = (
             "--- 文件: test.txt ---\n路径: /test.txt\n相关性: 0.9\n内容:\n" + "A" * 1000
         )
         content = "A" * 1000
+        # 500 tokens ≈ 2000 chars for ASCII, so 1000 chars should fit without truncation
         result = rag_pipeline._truncate_content_if_needed(section, content, 500, 0)
-        assert len(result) <= 500
+        # Token budget allows ~2000 chars for ASCII, content is 1000 chars, should fit
+        assert len(result) <= 2000
+        # But if we reduce budget significantly, truncation should happen
+        result2 = rag_pipeline._truncate_content_if_needed(section, content, 100, 0)
+        # With 100 tokens ≈ 400 chars budget, should truncate
+        assert len(result2) <= 500
 
     def test_truncate_content_no_truncate(self, rag_pipeline):
         """测试不需要截断"""

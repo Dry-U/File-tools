@@ -342,7 +342,8 @@ fn check_backend_health(process: tauri::State<BackendProcess>) -> HealthStatus {
     #[cfg(windows)]
     {
         let output = std::process::Command::new("tasklist")
-            .args(["/FI", &format!("PID eq {}", pid)])
+            .arg("/FI")
+            .arg(&format!("PID eq {}", pid))
             .output();
 
         if let Ok(out) = output {

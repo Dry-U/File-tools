@@ -6,8 +6,28 @@
 const FileToolsChat = (function() {
     'use strict';
 
-    // 当前会话 ID
-    let currentSessionId = generateSessionId();
+    // 当前会话 ID - 优先从 localStorage 加载，否则生成新的
+    // 使用严格验证防止会话固定攻击
+    let currentSessionId = (function() {
+        try {
+            const saved = localStorage.getItem('chat_session_id');
+            // 严格验证格式：session_ 后面必须是有效的 UUID 或随机字符串
+            if (saved && saved.startsWith('session_') && saved.length >= 10) {
+                const suffix = saved.substring(8);
+                // 允许 UUID 格式或短格式随机字符串
+                const isValidUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(suffix);
+                const isValidShort = /^[a-zA-Z0-9_]{2,}$/.test(suffix);
+                if (isValidUuid || isValidShort) {
+                    return saved;
+                }
+                // 格式无效，清除并生成新的
+                localStorage.removeItem('chat_session_id');
+            }
+        } catch (e) {
+            console.warn('localStorage not available:', e);
+        }
+        return generateSessionId();
+    })();
 
     // 待删除的会话 ID
     let sessionToDelete = null;
@@ -256,6 +276,19 @@ const FileToolsChat = (function() {
     async function switchToSession(sessionId) {
         if (!sessionId) {
             console.error('switchToSession: sessionId is empty');
+            return;
+        }
+
+        // 验证 sessionId 格式，防止会话固定攻击
+        if (!sessionId.startsWith('session_') || sessionId.length < 10) {
+            console.error('switchToSession: sessionId 格式无效');
+            return;
+        }
+        const suffix = sessionId.substring(8);
+        const isValidUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(suffix);
+        const isValidShort = /^[a-zA-Z0-9_]{2,}$/.test(suffix);
+        if (!isValidUuid && !isValidShort) {
+            console.error('switchToSession: sessionId 包含非法字符');
             return;
         }
 

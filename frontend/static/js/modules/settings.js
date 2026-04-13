@@ -1321,12 +1321,15 @@ const FileToolsSettings = (function() {
             }
 
             const latestVer = data.latest_version || data.current_version || '1.0.0';
+            // 使用 DOMPurify 消毒 release_notes 和 download_url 防止 XSS
+            const sanitizedNotes = DOMPurify.sanitize(data.release_notes || '', { ALLOWED_TAGS: ['b', 'i', 'br', 'p', 'ul', 'li', 'a'] });
+            const sanitizedUrl = DOMPurify.sanitize(data.download_url || '#', { ALLOWED_TAGS: [], ALLOWED_ATTR: [] });
             if (data.is_update_available) {
                 resultDiv.className = 'small text-center alert alert-success mt-3 mx-auto';
                 resultDiv.innerHTML = `
                     <div class="fw-bold mb-2"><i class="bi bi-check-circle me-1"></i>发现新版本: v${latestVer}</div>
-                    <div class="mb-2">${data.release_notes || ''}</div>
-                    <a href="${data.download_url}" target="_blank" class="btn btn-sm btn-success">
+                    <div class="mb-2">${sanitizedNotes}</div>
+                    <a href="${sanitizedUrl}" target="_blank" class="btn btn-sm btn-success">
                         <i class="bi bi-download me-1"></i>前往下载
                     </a>
                 `;

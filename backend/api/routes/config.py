@@ -236,7 +236,7 @@ async def get_config(config_loader: ConfigLoader = Depends(get_config_loader)):
                         "api.api_url",
                         "https://api.siliconflow.cn/v1/chat/completions",
                     ),
-                    "api_key": keys.get(provider, ""),  # 当前provider的key
+                    "api_key": "",  # 不返回 key 以保护隐私
                     "model_name": config_loader.get(
                         "ai_model", "api.model_name", "deepseek-ai/DeepSeek-V2.5"
                     ),

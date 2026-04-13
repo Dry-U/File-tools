@@ -67,8 +67,10 @@ class EmbeddingModelManager:
         self.embedding_normalize = self.config_loader.getboolean(
             "embedding", "normalize", True
         )
-        self.embedding_batch_size = self.config_loader.getint(
-            "embedding", "batch_size", 32
+        # 批处理大小上限验证，防止 GPU 显存耗尽
+        MAX_BATCH_SIZE = 256
+        self.embedding_batch_size = min(
+            self.config_loader.getint("embedding", "batch_size", 32), MAX_BATCH_SIZE
         )
 
         # Reranker 配置
@@ -81,7 +83,10 @@ class EmbeddingModelManager:
         self.reranker_cache_dir = self._resolve_cache_dir(
             self.config_loader.get("reranker", "cache_dir", "data/models")
         )
-        self.reranker_top_k = self.config_loader.getint("reranker", "top_k", 5)
+        # Reranker top_k 上限验证
+        self.reranker_top_k = min(
+            max(self.config_loader.getint("reranker", "top_k", 5), 1), 100
+        )
 
         # 确保缓存目录存在
         os.makedirs(self.embedding_cache_dir, exist_ok=True)

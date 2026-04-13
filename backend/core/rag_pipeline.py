@@ -316,7 +316,10 @@ class RAGPipeline:
             return ""
         query_text = (query or "").strip()
         try:
-            return template.replace("{query}", query_text)
+            # 支持多种模板变量名称
+            result = template.replace("{question}", query_text)
+            result = result.replace("{query}", query_text)
+            return result
         except Exception:
             return template
 
@@ -340,6 +343,25 @@ class RAGPipeline:
     def _strip_tags(text: str) -> str:
         clean = re.sub(r"<[^>]+>", "", text or "")
         return clean.replace("\xa0", " ").strip()
+
+    @staticmethod
+    def _estimate_tokens(text: str) -> int:
+        """估算文本的 token 数量
+
+        使用启发式方法：
+        - 中文/日文/韩文 (CJK)：每个字符约 1.5 tokens
+        - 其他字符：每个字符约 0.25 tokens（约 4 字符 per token）
+        """
+        if not text:
+            return 0
+        # 计算 CJK 字符数量
+        cjk_chars = len(
+            re.findall(r"[\u4e00-\u9fff\u3040-\u309f\u30a0-\u30ff\uac00-\ud7af]", text)
+        )
+        # 其他字符
+        other_chars = len(text) - cjk_chars
+        # 估算 tokens
+        return int(cjk_chars * 1.5 + other_chars * 0.25)
 
     def _build_history(self, session_id: str, budget: int) -> tuple[str, int]:
         # 从数据库获取会话历史
@@ -375,23 +397,24 @@ class RAGPipeline:
 
             # 改进：创建更结构化的对话历史表示
             block = f"【上文{idx}】用户: {q}\n助手: {a}"
+            block_tokens = RAGPipeline._estimate_tokens(block)
 
-            if used + len(block) > budget:
+            if used + block_tokens > budget:
                 # 如果块太大，尝试截断以保留更多上下文
                 remaining = budget - used
                 if remaining <= 0:
                     break
                 # 截断较长的对话内容，但保留结构
-                if len(block) > remaining:
+                if block_tokens > remaining:
                     # 优先保留问题部分，然后是答案
-                    question_len = len(q)
-                    if question_len >= remaining:
+                    question_tokens = RAGPipeline._estimate_tokens(q)
+                    if question_tokens >= remaining:
                         # 问题部分就占满了预算，只保留部分问题
                         block = f"【上文{idx}】用户: {q[: remaining - 10]}..."
                     else:
                         # 保留完整问题，部分答案
                         remaining_for_answer = (
-                            remaining - question_len - 20
+                            remaining - question_tokens - 20
                         )  # 预留空间给标记和格式
                         if remaining_for_answer > 0:
                             answer_snippet = (
@@ -402,16 +425,16 @@ class RAGPipeline:
                             block = f"【上文{idx}】用户: {q}\n助手: {answer_snippet}"
                         else:
                             remaining = remaining_for_answer
-                            block = (
-                                f"【上文{idx}】用户: {q[: question_len + remaining]}..."
-                            )
+                            q_truncated = q[: question_tokens + remaining]
+                            block = f"【上文{idx}】用户: {q_truncated}..."
 
                 # 确保最终块不超过预算
-                if len(block) > remaining:
+                block_tokens = RAGPipeline._estimate_tokens(block)
+                if block_tokens > remaining:
                     block = block[:remaining]
 
             parts.append(block)
-            used += len(block)
+            used += RAGPipeline._estimate_tokens(block)
             if used >= budget:
                 break
 
@@ -478,7 +501,7 @@ class RAGPipeline:
                         expanded_queries = self.query_processor.process(query)
                         # 添加扩展查询（限制数量避免性能问题）
                         search_queries.extend(expanded_queries[:2])
-                        logger.info(f"查询扩展: {query} -> {search_queries}")
+                        logger.debug(f"查询扩展: {query} -> {search_queries}")
                     except Exception as e:
                         logger.warning(f"查询扩展失败: {e}")
 
@@ -526,6 +549,25 @@ class RAGPipeline:
                             if path and path not in seen_paths:
                                 seen_paths.add(path)
                                 all_results.append(res)
+
+                # 对 RAG 结果应用 ColBERT Reranker 进行精排
+                if len(all_results) > 1 and hasattr(
+                    self.search_engine, "reranker_manager"
+                ):
+                    try:
+                        reranker = self.search_engine.reranker_manager
+                        if reranker and hasattr(reranker, "rerank"):
+                            # 只对 top 20 结果进行精排
+                            reranked = reranker.rerank(
+                                query, all_results[:20], top_k=10
+                            )
+                            if reranked:
+                                all_results = reranked
+                                logger.debug(
+                                    f"RAG结果应用Reranker，精排后保留{len(reranked)}个结果"
+                                )
+                    except Exception as e:
+                        logger.warning(f"RAG Rerank失败，使用原始排序: {e}")
 
                 results = all_results
                 if results:
@@ -792,12 +834,12 @@ class RAGPipeline:
                     position_score += 2.0  # 稍微提高一点
                     break
 
-        # 综合得分计算 - 调整权重，让文件名匹配更重要
+        # 综合得分计算 - 平衡文件名和内容相关性
         total_score = (
-            base_score * 0.2  # 原始搜索得分权重降低到20%
-            + keyword_score * 0.2  # 关键词匹配权重降低到20%
-            + position_score * 0.1  # 位置相关性权重降低到10%
-            + filename_relevance * 0.5  # 文件名相关性权重提高到50% !!
+            base_score * 0.25  # 原始搜索得分
+            + keyword_score * 0.25  # 关键词匹配
+            + position_score * 0.15  # 位置相关性
+            + filename_relevance * 0.25  # 文件名相关性 (从50%降低到25%)
         )
 
         return min(total_score, 100.0)  # 限制在合理范围内
@@ -820,19 +862,17 @@ class RAGPipeline:
                         content = content[:max_content_len] + "..."
 
                     # 缓存查询嵌入向量，避免同一查询对每个候选文档重复计算
-                    # 使用固定大小的 LRU 缓存防止内存泄漏（线程安全）
-                    # 缓存已在 __init__ 中初始化，这里直接使用
+                    # 使用固定大小的 LRU 缓存防止内存泄漏
                     MAX_QUERY_CACHE_SIZE = 100  # 最大缓存条目数
 
-                    # 先在锁外计算 embedding（避免长时间持有锁导致其他线程阻塞）
-                    query_embedding = list(embedding_model.embed([query]))[0]
-
+                    # 双重检查锁定模式：先检查缓存，缓存命中才计算
                     with self._embedding_cache_lock:
-                        # 检查缓存中是否有其他线程已经计算好的结果
-                        if query in self._query_embedding_cache:
-                            # 使用缓存（可能已经被其他线程更新）
-                            query_embedding = self._query_embedding_cache[query]
+                        cached = self._query_embedding_cache.get(query)
+                        if cached is not None:
+                            query_embedding = cached
                         else:
+                            # 缓存未命中，在锁内计算（确保线程安全）
+                            query_embedding = list(embedding_model.embed([query]))[0]
                             # LRU 淘汰
                             if len(self._query_embedding_cache) >= MAX_QUERY_CACHE_SIZE:
                                 oldest = self._query_embedding_cache_order.pop(0)
@@ -975,6 +1015,29 @@ class RAGPipeline:
                 score += 1
             if len(para) > 50:
                 score += 1
+
+            # 结论部分优先：靠近文档末尾的段落更可能是结论
+            conclusion_position = i / max(len(paragraphs) - 1, 1)
+            if conclusion_position > 0.7:  # 文档后30%的内容
+                score += 2
+
+            # 结论关键词检测
+            conclusion_keywords = [
+                "总结",
+                "结论",
+                "综上所述",
+                "总之",
+                "最后",
+                "本章小结",
+                "本文小结",
+                "summary",
+                "conclusion",
+                "in conclusion",
+            ]
+            for kw in conclusion_keywords:
+                if kw in para_lower:
+                    score += 3
+                    break
 
             paragraph_scores.append((score, i, para.strip()))
 
@@ -1150,25 +1213,27 @@ class RAGPipeline:
             context_sections.append(f"对话历史（最近）:\n{history_text}")
 
         context_budget = self._calculate_context_budget(doc_budget)
-        used_chars = len(history_text) if history_text else 0
+        used_tokens = RAGPipeline._estimate_tokens(history_text) if history_text else 0
 
         for doc in documents:
-            if used_chars >= context_budget:
+            if used_tokens >= context_budget:
                 break
 
             section = self._format_document_section(doc)
             section = self._truncate_content_if_needed(
-                section, doc.get("content", ""), context_budget, used_chars
+                section, doc.get("content", ""), context_budget, used_tokens
             )
 
             if not section:
                 continue
 
             context_sections.append(section)
-            used_chars += len(section)
+            used_tokens += RAGPipeline._estimate_tokens(section)
 
         context_text = "\n\n".join(context_sections)
-        logger.info(f"Constructed context length: {len(context_text)}")
+        logger.debug(
+            f"Constructed context: ~{RAGPipeline._estimate_tokens(context_text)} tokens"
+        )
         logger.debug(f"Context snippet: {context_text[:200]}...")
 
         if entity_instruction:
@@ -1240,29 +1305,34 @@ class RAGPipeline:
     def _truncate_content_if_needed(
         self, section: str, content: str, budget: int, used: int
     ) -> str:
-        """如果超出预算则截断文档内容"""
+        """如果超出预算则截断文档内容（预算和已用量以 tokens 计）"""
         if not content:
             return ""
 
-        overhead = len(section) - len(content)
+        section_tokens = RAGPipeline._estimate_tokens(section)
+        content_tokens = RAGPipeline._estimate_tokens(content)
+        overhead = section_tokens - content_tokens
         remaining = budget - used
 
         if remaining <= overhead + 3:
             return ""
 
-        available_content = remaining - overhead
-        if available_content >= len(content):
+        available_tokens = remaining - overhead
+        if available_tokens >= content_tokens:
             return section
 
-        if available_content > 300:
-            head_size = min(available_content // 2, 1000)
-            tail_size = available_content - head_size - 3
+        # 将 token 预算转换为字符数的近似值
+        # 使用启发式：假设平均每 token 约 2.5 字符
+        available_chars = int(available_tokens * 2.5)
+        if available_chars > 300:
+            head_size = min(available_chars // 2, 1000)
+            tail_size = available_chars - head_size - 3
             if tail_size > 0:
                 truncated = content[:head_size] + "..." + content[-tail_size:]
             else:
-                truncated = content[: available_content - 3] + "..."
+                truncated = content[: available_chars - 3] + "..."
         else:
-            truncated = content[: available_content - 3] + "..."
+            truncated = content[: available_chars - 3] + "..."
 
         # 返回 section，用截断后的内容替换原始内容
         return section[:overhead] + truncated

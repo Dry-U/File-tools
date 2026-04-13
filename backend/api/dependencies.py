@@ -223,31 +223,10 @@ def is_path_allowed(path: str, config_loader: ConfigLoader) -> bool:
 
     try:
         # 使用 resolve() 解析符号链接和相对路径，获取真实绝对路径
-        # resolve() 会跟随符号链接，所以我们可以直接检查是否为符号链接
+        # 注意：不再检查是否为符号链接，因为符号链接可能指向允许的目录
+        # 只要最终解析的路径在允许列表中，就允许访问
         original_path = Path(path)
-
-        # 检查是否为符号链接（在 resolve 之前检查）
-        try:
-            if original_path.is_symlink():
-                logger.warning(f"路径是符号链接，拒绝访问: {path[:50]}...")
-                return False
-        except (OSError, ValueError):
-            # 如果无法检查符号链接状态，继续处理
-            pass
-
         file_path = original_path.resolve()
-
-        # 再次检查 resolve 后的路径是否为符号链接
-        # 这可以捕获指向符号链接的快捷方式
-        try:
-            if file_path.is_symlink():
-                logger.warning(f"解析后的路径是符号链接，拒绝访问: {file_path}")
-                return False
-        except (OSError, ValueError):
-            pass
-
-        # 注意：不在这里检查 exists() 以避免 TOCTOU 竞态条件
-        # 让后续的文件操作自己处理不存在的情况
     except (OSError, ValueError) as e:
         logger.warning(f"路径解析失败: {path[:50]}... - {e}")
         return False

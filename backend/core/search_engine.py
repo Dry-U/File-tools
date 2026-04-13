@@ -67,7 +67,7 @@ class SearchEngine:
 
         self.text_weight: float = get_config_float("text_weight", 0.6)
         self.vector_weight: float = get_config_float("vector_weight", 0.4)
-        self.max_results: int = get_config_int("max_results", 50)
+        self.max_results: int = min(max(get_config_int("max_results", 50), 1), 500)
 
         # 高级搜索配置参数
         self.result_boost = get_config_bool("result_boost", True)
@@ -205,7 +205,7 @@ class SearchEngine:
             搜索结果列表，每个结果包含 path, filename, score, snippet 等字段
         """
         start_time = time.time()
-        self.logger.info(f"执行搜索: {query}, 过滤器: {filters}")
+        self.logger.debug(f"执行搜索: {query}, 过滤器: {filters}")
 
         # 准备搜索：检查缓存、处理查询
         cache_key, expanded_queries, filters = self._prepare_search(query, filters)
@@ -390,14 +390,14 @@ class SearchEngine:
                 ]
                 limited_results = primary_hits + supplemental_semantic
             else:
-                # 如果没有精确匹配，则只展示语义匹配结果，但需要更严格地过滤
-                # 仅保留分数较高的语义结果，避免低相关性文档干扰用户
-                high_quality_semantic = [
-                    item
-                    for item in semantic_hits
-                    if item["score"] > self.semantic_score_high_threshold
+                # 如果没有精确匹配，则只展示语义匹配结果
+                # 使用中等阈值(40)作为兜底，避免用户看不到任何结果
+                # 注：如果语义结果在30-60分之间仍可能被过滤，但至少40分以上的会显示
+                fallback_threshold = 40.0
+                fallback_semantic = [
+                    item for item in semantic_hits if item["score"] > fallback_threshold
                 ]
-                limited_results = high_quality_semantic
+                limited_results = fallback_semantic
 
         # 限制结果数量
         limited_results = limited_results[: self.max_results]
@@ -586,22 +586,25 @@ class SearchEngine:
         """
         k = self.rrf_k  # RRF 常数，默认 60
 
-        # 预计算最大可能的 RRF 分数（rank=0 for both sources）
-        # 标准 RRF：每个来源最大贡献 1/k
-        max_rrf = 2.0 / k  # 两个来源，rank=0 时各贡献 1/k
-
         for result in combined.values():
             text_rank = result.get("text_rank", -1)
             vector_rank = result.get("vector_rank", -1)
 
             rrf_score = 0.0
+            num_sources = 0  # 实际有多少个来源
 
             # 标准 RRF：不使用权重因子
             if text_rank >= 0:
                 rrf_score += 1.0 / (k + text_rank)
+                num_sources += 1
 
             if vector_rank >= 0:
                 rrf_score += 1.0 / (k + vector_rank)
+                num_sources += 1
+
+            # 动态计算 max_rrf，基于实际来源数量
+            # 单源 (rank=0): max = 1/k; 双源 (rank=0,0): max = 2/k
+            max_rrf = num_sources / k if num_sources > 0 else 0.0
 
             # 归一化到 0-100 范围，使用线性插值使分数更分散
             if max_rrf > 0:

@@ -48,6 +48,11 @@ jobs:
           uvx ruff format --check backend/ tests/
         continue-on-error: false
 
+      - name: Type check with mypy
+        run: |
+          uvx mypy backend/ --ignore-missing-imports --pretty
+        continue-on-error: true
+
   # ==================== 单元测试 ====================
   test:
     name: Unit Tests (Python ${{ matrix.python-version }} on ${{ matrix.os }})
@@ -157,7 +162,7 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 180
     needs: [lint, test, test-macos]
-    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request'
     steps:
       - uses: actions/checkout@v4
         with:
@@ -292,7 +297,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 180
     needs: [lint, test, test-macos]
-    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request'
     steps:
       - uses: actions/checkout@v4
         with:
@@ -402,7 +407,7 @@ jobs:
     runs-on: macos-14
     timeout-minutes: 180
     needs: [lint, test, test-macos]
-    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request'
     steps:
       - uses: actions/checkout@v4
         with:
@@ -500,7 +505,7 @@ jobs:
     runs-on: macos-13
     timeout-minutes: 180
     needs: [lint, test, test-macos]
-    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request'
     steps:
       - uses: actions/checkout@v4
         with:
@@ -598,7 +603,7 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 30
     needs: [build-tauri-windows]
-    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request'
     steps:
       - uses: actions/checkout@v4
 
@@ -692,7 +697,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     needs: [build-tauri-linux]
-    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request'
     steps:
       - uses: actions/checkout@v4
 
@@ -790,7 +795,7 @@ jobs:
     runs-on: macos-14
     timeout-minutes: 30
     needs: [build-tauri-macos-arm64]
-    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request'
     steps:
       - uses: actions/checkout@v4
 

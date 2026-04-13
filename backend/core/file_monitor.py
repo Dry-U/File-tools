@@ -393,19 +393,25 @@ class FileMonitor:
             }
             self._event_buffer.setdefault(event_path, []).append(event_info)
 
-            # 缓冲区大小限制，防止内存溢出（最多 5000 条事件）
+            # 缓冲区大小限制，防止内存溢出（最多 3000 条事件）
+            # 在达到 3000 条时开始清理，保留最新的 2000 条
             total_events = sum(len(events) for events in self._event_buffer.values())
-            if total_events > 5000:
-                # 清空最旧的事件（按时间戳排序，保留最新的 3000 条）
+            if total_events > 3000:
+                # 清空最旧的事件（按时间戳排序，保留最新的 2000 条）
                 all_events = []
                 for path, path_events in self._event_buffer.items():
                     all_events.extend(path_events)
                 all_events.sort(key=lambda x: x["timestamp"])
-                kept_events = all_events[-3000:]
+                kept_events = all_events[-2000:]
                 self._event_buffer.clear()
                 for event in kept_events:
                     self._event_buffer.setdefault(event["path"], []).append(event)
-                self.logger.warning(f"缓冲区超限，已清理至 5000 条事件")
+                dropped = total_events - len(kept_events)
+                self._dropped_count += dropped
+                self.logger.warning(
+                    f"事件缓冲区超限，已清理 {dropped} 条旧事件，"
+                    f"保留 {len(kept_events)} 条"
+                )
 
             # 定期处理缓冲区中的事件（防抖）
             current_time = time.time()
