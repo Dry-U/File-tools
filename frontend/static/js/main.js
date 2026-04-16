@@ -21,6 +21,9 @@
         'modules/event-bindings.js'
     ];
 
+    // 仅加载 tauri-api.js（供 waitForBackend 使用）
+    const tauriModule = 'modules/tauri-api.js';
+
     /**
      * 动态加载 JavaScript 文件
      * @param {string} src - 脚本路径
@@ -48,10 +51,16 @@
      */
     async function loadModules() {
         try {
-            for (const module of modules) {
+            // 注意：tauri-api.js 已在 bootstrap 中单独加载，这里跳过
+            const modulesToLoad = modules.filter(m => m !== 'modules/tauri-api.js');
+            for (const module of modulesToLoad) {
                 await loadScript('static/js/' + module);
             }
             console.log('All modules loaded successfully');
+
+            // 端口同步：确保前端连接到后端实际端口
+            await syncBackendPort();
+
             initializeApp();
         } catch (error) {
             console.error('Module loading failed:', error);
@@ -60,19 +69,43 @@
     }
 
     /**
+     * 同步后端端口：若当前窗口端口与后端不一致，则跳转
+     */
+    async function syncBackendPort() {
+        const currentPort = window.location.port;
+        try {
+            const backendPort = await TauriAPI.getBackendPort();
+            if (backendPort && String(backendPort) !== currentPort) {
+                const protocol = window.location.protocol;
+                const hostname = window.location.hostname;
+                const newUrl = `${protocol}//${hostname}:${backendPort}${window.location.pathname}`;
+                console.log(`[PortSync] 后端端口 ${backendPort} 与当前 ${currentPort} 不符，跳转至: ${newUrl}`);
+                window.location.href = newUrl;
+            } else {
+                console.log(`[PortSync] 端口一致 (${currentPort})，无需跳转`);
+            }
+        } catch (e) {
+            console.warn('[PortSync] 端口同步跳过:', e);
+        }
+    }
+
+    /**
      * 显示致命错误
      * @param {string} message - 错误消息
      */
     function showFatalError(message) {
-        const container = document.getElementById('app') || document.body;
-        container.innerHTML = `
-            <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100vh;padding:20px;text-align:center;">
-                <div style="font-size:48px;margin-bottom:20px;">⚠️</div>
-                <h2 style="color:#dc3545;margin-bottom:10px;">出错了</h2>
-                <p style="color:#6c757d;">${message}</p>
-                <button id="fatalErrorReloadBtn" style="margin-top:20px;padding:10px 20px;background:#007bff;color:white;border:none;border-radius:4px;cursor:pointer;">
+        console.error('[App] Fatal error:', message);
+
+        // 直接操作 document.body 完全替换内容
+        document.body.innerHTML = `
+            <div style="position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;background:#1a1a2e;padding:20px;text-align:center;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;">
+                <div style="font-size:64px;margin-bottom:24px;">⚠️</div>
+                <h2 style="color:#e74c3c;margin-bottom:12px;font-size:24px;">出错了</h2>
+                <p style="color:#a0a0a0;max-width:400px;line-height:1.6;">${message}</p>
+                <div style="margin-top:24px;padding:12px 24px;background:#3498db;color:white;border:none;border-radius:6px;cursor:pointer;font-size:14px;" id="fatalErrorReloadBtn">
                     刷新页面
-                </button>
+                </div>
+                <p style="color:#666;margin-top:16px;font-size:12px;">如果问题持续存在，请检查后端服务是否正常运行</p>
             </div>
         `;
         // 添加事件绑定
@@ -85,10 +118,94 @@
     }
 
     /**
+     * 等待后端就绪
+     * @returns {Promise<boolean>} 后端是否就绪
+     */
+    async function waitForBackend() {
+        const maxWait = 60; // 60秒超时
+        const checkInterval = 1000; // 1秒轮询间隔
+
+        console.log('[App] 等待后端启动...');
+
+        // 显示"正在启动后端服务..."提示
+        const loadingTip = document.getElementById('backend-loading-tip');
+        const loadingBar = document.getElementById('loading-bar');
+
+        // 初始等待 2 秒，让页面和 Tauri API 完全初始化
+        console.log('[App] 等待 Tauri API 初始化...');
+        await new Promise(r => setTimeout(r, 2000));
+
+        for (let i = 0; i < maxWait; i++) {
+            let isReady = false;
+
+            // 方法1: Tauri IPC 状态检测
+            if (typeof TauriAPI !== 'undefined' && TauriAPI.getBackendStatus) {
+                try {
+                    const statusResult = await TauriAPI.getBackendStatus();
+                    // Rust 返回字符串：'starting' | 'running' | 'stopped' | 'timeout' | 'error'
+                    const status = typeof statusResult === 'string' ? statusResult : statusResult.status;
+                    console.log(`[App] 后端状态 (IPC): ${status}`);
+                    if (status === 'running') {
+                        isReady = true;
+                    }
+                } catch (e) {
+                    console.warn(`[App] IPC 状态检测失败 (${i + 1}/${maxWait}):`, e.message);
+                }
+            }
+
+            // 方法2: HTTP 健康检查（同时尝试，双重保险）
+            if (!isReady) {
+                try {
+                    const res = await fetch('/api/health', {
+                        cache: 'no-cache',
+                        signal: AbortSignal.timeout(3000)
+                    });
+                    if (res.ok) {
+                        const data = await res.json();
+                        console.log(`[App] 后端状态 (HTTP): ${data.status}`);
+                        if (data.status === 'healthy') {
+                            isReady = true;
+                        }
+                    } else {
+                        console.warn(`[App] HTTP 健康检查失败: ${res.status}`);
+                    }
+                } catch (e) {
+                    console.warn(`[App] HTTP 健康检测失败 (${i + 1}/${maxWait}):`, e.message);
+                }
+            }
+
+            if (isReady) {
+                console.log('[App] 后端已就绪');
+                return true;
+            }
+
+            // 更新进度条和提示文字
+            if (loadingBar) {
+                loadingBar.style.width = Math.min((i / maxWait) * 100, 90) + '%';
+            }
+            if (loadingTip) {
+                const secs = maxWait - i;
+                loadingTip.textContent = `请稍候（${secs}秒）`;
+            }
+
+            await new Promise(r => setTimeout(r, checkInterval));
+        }
+
+        console.warn('[App] 后端启动超时（60秒）');
+        return false;
+    }
+
+    /**
      * 初始化应用
      */
     function initializeApp() {
         console.log('Initializing application...');
+
+        // 显示主界面（后端已就绪）
+        const loadingEl = document.getElementById('backend-loading');
+        const appEl = document.getElementById('app-container');
+        if (loadingEl) loadingEl.style.display = 'none';
+        if (appEl) appEl.style.display = '';
 
         // 检查核心模块是否可用
         if (typeof FileToolsUtils === 'undefined') {
@@ -235,6 +352,32 @@
         console.log('Application initialized');
     }
 
-    // 启动应用
-    loadModules();
+    // 启动应用：先加载 tauri-api，等待后端就绪，再加载所有模块
+    (async function bootstrap() {
+        // 1. 先加载 tauri-api.js（供后端检测使用）
+        try {
+            await loadScript('static/js/' + tauriModule);
+        } catch (e) {
+            console.error('[App] tauri-api.js 加载失败:', e);
+            showFatalError('核心模块加载失败，请刷新页面重试');
+            return;
+        }
+
+        // 2. 显示 loading 指示器
+        const loadingEl = document.getElementById('backend-loading');
+        if (loadingEl) loadingEl.style.display = '';
+
+        // 3. 等待后端就绪（最多60秒）
+        const backendReady = await waitForBackend();
+
+        if (!backendReady) {
+            // 超时后显示错误
+            if (loadingEl) loadingEl.style.display = 'none';
+            showFatalError('后端启动超时（60秒），请检查配置或重启应用');
+            return;
+        }
+
+        // 4. 后端就绪后，加载所有模块
+        await loadModules();
+    })();
 })();

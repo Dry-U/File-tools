@@ -27,29 +27,50 @@
     const TauriAPI = {
         // 打开外部链接
         openExternal: async function(url) {
-            // Tauri v2 API
-            if (window.__TAURI__ && window.__TAURI__.shell) {
-                return await window.__TAURI__.shell.open(url);
+            console.log('[TauriAPI] openExternal 被调用, URL:', url, 'isTauri:', isTauri);
+            // 优先使用自定义 Rust 命令打开外部链接
+            if (isTauri && window.__TAURI__) {
+                try {
+                    console.log('[TauriAPI] 使用 open_external_url 命令打开:', url);
+                    await window.__TAURI__.core.invoke('open_external_url', { url });
+                    console.log('[TauriAPI] open_external_url 完成');
+                    return true;
+                } catch (err) {
+                    console.error('[TauriAPI] open_external_url 失败:', err);
+                    // 降级到 window.open
+                    console.log('[TauriAPI] 降级到 window.open');
+                    window.open(url, '_blank', 'noopener,noreferrer');
+                    return true;
+                }
             }
-            // Tauri v1 API (fallback)
-            if (window.__TAURI__ && window.__TAURI__.plugin && window.__TAURI__.plugin.shell) {
-                const { open } = window.__TAURI__.plugin.shell;
-                return await open(url);
-            }
-            throw new Error('Tauri shell API not available');
+            // 非 Tauri 环境，使用 window.open
+            console.log('[TauriAPI] 使用 window.open 打开:', url);
+            window.open(url, '_blank', 'noopener,noreferrer');
+            return true;
         },
 
-        // 选择目录
+        // 选择目录（直接调用 Rust 命令，返回选择的路径）
         selectDirectory: async function() {
-            const { open } = window.__TAURI__.dialog;
-            const result = await open({
-                directory: true,
-                multiple: false
-            });
-            if (result) {
-                return { success: true, path: result, canceled: false };
+            if (!isTauri) {
+                console.warn('[TauriAPI] 非 Tauri 环境');
+                throw new Error('非 Tauri 环境');
             }
-            return { success: true, canceled: true };
+
+            try {
+                // 直接调用 Rust 命令，blocking_pick_folder 在后台线程运行
+                // 返回 Option<String>：Some(path) 或 None（取消）
+                const path = await window.__TAURI__.core.invoke('pick_directory');
+                if (path) {
+                    console.log('[TauriAPI] 目录已选择:', path);
+                    return { success: true, path: path, canceled: false };
+                } else {
+                    console.log('[TauriAPI] 目录选择已取消');
+                    return { success: true, canceled: true };
+                }
+            } catch (e) {
+                console.error('[TauriAPI] pick_directory 失败:', e);
+                throw e;
+            }
         },
 
         // 调用 Rust IPC 命令
@@ -78,6 +99,19 @@
             }
         },
 
+        // 获取后端实际端口
+        getBackendPort: async function() {
+            if (!isTauri) {
+                return 18642; // 非 Tauri 环境返回默认端口
+            }
+            try {
+                return await window.__TAURI__.core.invoke('get_backend_port');
+            } catch (error) {
+                console.error('[TauriAPI] 获取后端端口失败:', error);
+                return 18642;
+            }
+        },
+
         // 后端状态事件监听
         backendEvents: {
             _listeners: {},
@@ -94,26 +128,15 @@
                     return () => {};
                 }
 
-                const unlisten = window.__TAURI__.event.listen(eventName, (event) => {
+                window.__TAURI__.event.listen(eventName, (event) => {
                     console.log(`[TauriAPI] 后端事件: ${eventName}`, event.payload);
                     callback(event.payload);
+                }).catch((err) => {
+                    console.warn(`[TauriAPI] 事件监听失败 (${eventName}):`, err.message);
                 });
 
-                // 存储取消函数
-                if (!this._listeners[eventName]) {
-                    this._listeners[eventName] = [];
-                }
-                this._listeners[eventName].push(unlisten);
-
-                // 返回取消监听函数
-                return () => {
-                    const listeners = this._listeners[eventName] || [];
-                    const index = listeners.indexOf(unlisten);
-                    if (index > -1) {
-                        listeners.splice(index, 1);
-                    }
-                    unlisten();
-                };
+                // 返回空函数（监听失败时无可需取消）
+                return () => {};
             },
 
             /**

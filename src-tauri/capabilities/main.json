@@ -14,6 +14,10 @@
         }
       ]
     },
+    {
+      "identifier": "shell:allow-open",
+      "allow": [{ "url": "http://**" }, { "url": "https://**" }]
+    },
     "core:window:allow-close",
     "core:window:allow-minimize",
     "core:window:allow-toggle-maximize",
@@ -21,7 +25,6 @@
     "core:window:allow-unmaximize",
     "core:window:allow-is-maximized",
     "core:window:allow-start-dragging",
-    "shell:allow-open",
     "dialog:allow-open",
     "core:event:default",
     "core:app:default"

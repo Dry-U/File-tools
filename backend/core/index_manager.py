@@ -82,6 +82,9 @@ class IndexManager:
         self._index_lock = threading.RLock()  # 保护非批量模式的索引操作（可重入）
         self._writer = None
         self._BATCH_MODE_TIMEOUT = 120  # 批量模式超时时间（秒），超过此时间强制结束
+        # 批量模式结束事件，用于替代 busy-wait 轮询
+        self._batch_mode_done_event = threading.Event()
+        self._batch_mode_done_event.set()  # 初始状态：未在批量模式
 
         # Vector batch encoding buffer - 跨文档缓冲，批量编码提升 40-60% 速度
         self._vector_buffer = []  # [(text, metadata_dict), ...]
@@ -640,6 +643,8 @@ class IndexManager:
             self._batch_buffer = []
             self._writer = self.tantivy_index.writer()
             self._last_commit_time = time.time()
+            # 重置批量模式结束事件（表示批量模式正在进行）
+            self._batch_mode_done_event.clear()
             # 启动后台定期commit线程
             self._start_commit_thread()
             self.logger.info("启动批量添加模式")
@@ -795,6 +800,15 @@ class IndexManager:
                 vector_buffer_size = len(getattr(self, "_vector_buffer", []))
                 self.logger.info(f"[BATCH] 向量缓冲区大小: {vector_buffer_size}")
 
+                # 在标记批量模式结束前先刷新向量缓冲区（避免 save_indexes 再次 flush）
+                if vector_buffer_size > 0:
+                    self.logger.info("[BATCH] 刷新向量缓冲区...")
+                    try:
+                        self._do_flush_vector_buffer()  # 已持有 _batch_lock，直接调用内部方法
+                        self.logger.info("[BATCH] 向量缓冲区刷新完成")
+                    except Exception as e:
+                        self.logger.error(f"[BATCH] 刷新向量缓冲区失败: {e}")
+
                 # 确保 writer 被正确释放
                 if self._writer is not None:
                     try:
@@ -812,16 +826,9 @@ class IndexManager:
 
                 self._batch_mode = False
                 self._batch_mode_start_time = None
+                # 通知等待批量模式结束的线程
+                self._batch_mode_done_event.set()
                 self.logger.info("[BATCH] 批量添加模式已结束")
-
-                # 在锁内刷新向量缓冲区（向量缓冲区刷新是线程安全的）
-                if vector_buffer_size > 0:
-                    self.logger.info("[BATCH] 刷新向量缓冲区...")
-                    try:
-                        self._flush_vector_buffer()
-                        self.logger.info("[BATCH] 向量缓冲区刷新完成")
-                    except Exception as e:
-                        self.logger.error(f"[BATCH] 刷新向量缓冲区失败: {e}")
 
             except Exception as e:
                 self.logger.error(f"[BATCH] 结束批量模式时出错: {e}")
@@ -829,6 +836,7 @@ class IndexManager:
                 self._writer = None
                 self._batch_mode = False
                 self._batch_mode_start_time = None
+                self._batch_mode_done_event.set()
 
     def _force_reset_batch_mode(self):
         """强制重置批量模式状态（用于打破死锁）
@@ -844,7 +852,55 @@ class IndexManager:
         self._batch_mode = False
         self._batch_mode_start_time = None
         self._batch_buffer = []
+        # 通知等待的线程
+        self._batch_mode_done_event.set()
         self.logger.warning("[BATCH_FORCE] 批量模式已强制重置")
+
+    def wait_for_batch_mode(self, timeout=90, force_if_timeout=True):
+        """等待批量模式结束（使用 Event 替代 busy-wait 轮询）
+
+        Args:
+            timeout: 等待超时时间（秒）
+            force_if_timeout: 超时后是否强制结束批量模式
+
+        Returns:
+            True: 批量模式已结束或被强制结束
+            False: 批量模式仍在运行但未强制结束
+        """
+        if not self._batch_mode:
+            return True
+
+        batch_start = self._batch_mode_start_time or time.time()
+
+        # 使用 Event.wait 替代 busy-wait，更高效
+        # 每次最多等 1 秒，定期检查超时和强制结束条件
+        remaining = timeout
+        while remaining > 0 and self._batch_mode:
+            elapsed = time.time() - batch_start
+            if elapsed > self._BATCH_MODE_TIMEOUT:
+                self.logger.warning(
+                    f"批量模式已运行 {elapsed:.1f} 秒，"
+                    f"超过上限 {self._BATCH_MODE_TIMEOUT} 秒"
+                )
+                if force_if_timeout:
+                    self.logger.warning("强制结束卡住的批量模式（避免死锁）...")
+                    self._force_reset_batch_mode()
+                    return True
+
+            # 等待事件，最多1秒
+            wait_time = min(1.0, remaining)
+            signaled = self._batch_mode_done_event.wait(timeout=wait_time)
+            if signaled:
+                return True
+            remaining -= wait_time
+
+        if self._batch_mode:
+            if force_if_timeout:
+                self.logger.warning("等待批量模式超时，强制结束（避免死锁）...")
+                self._force_reset_batch_mode()
+                return True
+            return False
+        return True
 
     def _stop_commit_thread(self):
         """停止后台commit线程"""
@@ -1368,48 +1424,8 @@ class IndexManager:
         except Exception:
             pass
 
-        # 辅助函数：检查并等待批量模式结束（避免死锁）
-        def wait_for_batch_mode(timeout=90, force_if_timeout=True):
-            """等待批量模式结束
-
-            Args:
-                timeout: 等待超时时间（秒）
-                force_if_timeout: 超时后是否强制结束批量模式
-
-            Returns:
-                True: 批量模式已结束或被强制结束
-                False: 批量模式仍在运行但未强制结束
-            """
-            if not self._batch_mode:
-                return True
-
-            batch_start = self._batch_mode_start_time or time.time()
-            wait_start = time.time()
-
-            while self._batch_mode and time.time() - wait_start < timeout:
-                elapsed = time.time() - batch_start
-                if elapsed > self._BATCH_MODE_TIMEOUT:
-                    self.logger.warning(
-                        f"批量模式已运行 {elapsed:.1f} 秒，"
-                        f"超过上限 {self._BATCH_MODE_TIMEOUT} 秒"
-                    )
-                    if force_if_timeout:
-                        self.logger.warning("强制结束卡住的批量模式（避免死锁）...")
-                        # 使用强制重置避免死锁
-                        self._force_reset_batch_mode()
-                        return True
-                time.sleep(0.2)
-
-            if self._batch_mode:
-                if force_if_timeout:
-                    self.logger.warning("等待批量模式超时，强制结束（避免死锁）...")
-                    self._force_reset_batch_mode()
-                    return True
-                return False
-            return True
-
         # 等待批量模式结束（如果正在进行）
-        if not wait_for_batch_mode(timeout=90, force_if_timeout=True):
+        if not self.wait_for_batch_mode(timeout=90, force_if_timeout=True):
             self.logger.warning("批量模式仍在运行，删除操作可能失败")
 
         # 添加重试机制处理锁冲突
@@ -1419,7 +1435,7 @@ class IndexManager:
             try:
                 # 再次检查批量模式状态
                 if self._batch_mode:
-                    if not wait_for_batch_mode(timeout=15, force_if_timeout=True):
+                    if not self.wait_for_batch_mode(timeout=15, force_if_timeout=True):
                         self.logger.warning("批量模式仍在运行，继续尝试删除...")
 
                 query = self.tantivy_index.parse_query(f'"{file_path}"', ["path"])
@@ -1494,46 +1510,6 @@ class IndexManager:
         deleted_count = 0
         directory_path_lower = directory_path.lower()
 
-        # 辅助函数：检查并等待批量模式结束（避免死锁）
-        def wait_for_batch_mode(timeout=90, force_if_timeout=True):
-            """等待批量模式结束
-
-            Args:
-                timeout: 等待超时时间（秒）
-                force_if_timeout: 超时后是否强制结束批量模式
-
-            Returns:
-                True: 批量模式已结束或被强制结束
-                False: 批量模式仍在运行但未强制结束
-            """
-            if not self._batch_mode:
-                return True
-
-            batch_start = self._batch_mode_start_time or time.time()
-            wait_start = time.time()
-
-            while self._batch_mode and time.time() - wait_start < timeout:
-                elapsed = time.time() - batch_start
-                if elapsed > self._BATCH_MODE_TIMEOUT:
-                    self.logger.warning(
-                        f"批量模式已运行 {elapsed:.1f} 秒，"
-                        f"超过上限 {self._BATCH_MODE_TIMEOUT} 秒"
-                    )
-                    if force_if_timeout:
-                        self.logger.warning("强制结束卡住的批量模式（避免死锁）...")
-                        # 使用强制重置避免死锁
-                        self._force_reset_batch_mode()
-                        return True
-                time.sleep(0.2)
-
-            if self._batch_mode:
-                if force_if_timeout:
-                    self.logger.warning("等待批量模式超时，强制结束（避免死锁）...")
-                    self._force_reset_batch_mode()
-                    return True
-                return False
-            return True
-
         # 1. 从Tantivy索引中删除（扫描并删除匹配目录的文档）
         try:
             # 先清理可能存在的锁文件
@@ -1547,7 +1523,7 @@ class IndexManager:
 
             # 如果批量模式正在进行，等待批量模式结束
             # 因为批量模式持有 writer 锁，直接获取会 LockBusy
-            if not wait_for_batch_mode(timeout=90, force_if_timeout=True):
+            if not self.wait_for_batch_mode(timeout=90, force_if_timeout=True):
                 self.logger.warning("批量模式仍在运行，删除操作可能失败")
 
             # 由于 path 字段使用 raw tokenizer，前缀查询不工作
@@ -1556,7 +1532,7 @@ class IndexManager:
             for retry in range(max_retries):
                 try:
                     # 再次检查并等待批量模式结束
-                    if not wait_for_batch_mode(timeout=20, force_if_timeout=True):
+                    if not self.wait_for_batch_mode(timeout=20, force_if_timeout=True):
                         self.logger.warning("批量模式仍在运行，继续尝试删除...")
 
                     # 刷新索引读取器以获取最新数据
@@ -1577,37 +1553,38 @@ class IndexManager:
                                 rf"{re.escape(directory_path_lower)}.*", "path"
                             )
                             result = searcher.search(regex_query, 1000)
-                            for hit in result.hits:
+                            for _, doc_addr in result.hits:
                                 try:
-                                    doc = searcher.doc(hit.doc)
-                                    path_value = doc.get_first("path", "")
+                                    doc = searcher.doc(doc_addr)
+                                    path_value = doc.get_first("path") or ""
                                     if path_value:
-                                        docs_to_delete.append((hit.doc, hit.doc))
+                                        docs_to_delete.append(doc_addr)
                                 except Exception:
                                     continue
                         except ImportError:
                             # 如果 RegexQuery 不可用，使用暴力遍历
-                            for doc_id in range(int(searcher.num_docs)):
+                            # searcher.doc() 接受 DocAddress，但 int 在运行时可工作
+                            for doc_id in range(int(searcher.num_docs)):  # type: ignore[arg-type]
                                 try:
-                                    doc = searcher.doc(doc_id)
-                                    path_value = doc.get_first("path", "")
+                                    doc = searcher.doc(doc_id)  # type: ignore[arg-type]
+                                    path_value = doc.get_first("path") or ""
                                     if path_value and path_value.lower().startswith(
                                         directory_path_lower
                                     ):
-                                        docs_to_delete.append((doc_id, doc_id))
+                                        docs_to_delete.append(doc_id)  # type: ignore[arg-type]
                                 except Exception:
                                     continue
                         except Exception as e:
                             # 降级：遍历所有文档
                             self.logger.debug(f"使用降级遍历方式: {e}")
-                            for doc_id in range(int(searcher.num_docs)):
+                            for doc_id in range(int(searcher.num_docs)):  # type: ignore[arg-type]
                                 try:
-                                    doc = searcher.doc(doc_id)
-                                    path_value = doc.get_first("path", "")
+                                    doc = searcher.doc(doc_id)  # type: ignore[arg-type]
+                                    path_value = doc.get_first("path") or ""
                                     if path_value and path_value.lower().startswith(
                                         directory_path_lower
                                     ):
-                                        docs_to_delete.append((doc_id, doc_id))
+                                        docs_to_delete.append(doc_id)  # type: ignore[arg-type]
                                 except Exception:
                                     continue
                     finally:
@@ -1615,23 +1592,23 @@ class IndexManager:
                         # Tantivy searcher 是轻量对象，不需要显式 release
                         if searcher is not None:
                             try:
-                                searcher.release()
+                                searcher.release()  # type: ignore[attr-defined]
                             except Exception:
                                 pass
 
                     if docs_to_delete:
                         # 分批删除，每批处理后释放锁，避免长时间持有索引锁
                         BATCH_SIZE = 50
+                        seen_docs = set()
                         for i in range(0, len(docs_to_delete), BATCH_SIZE):
                             batch = docs_to_delete[i : i + BATCH_SIZE]
                             try:
                                 with self.tantivy_index.writer() as writer:
-                                    seen_docs = set()
-                                    for doc_id, _ in batch:
+                                    for doc_id in batch:
                                         if doc_id not in seen_docs:
                                             seen_docs.add(doc_id)
                                             try:
-                                                writer.delete_document(doc_id)
+                                                writer.delete_document(doc_id)  # type: ignore[attr-defined]
                                                 deleted_count += 1
                                             except Exception:
                                                 pass
@@ -2495,7 +2472,7 @@ class IndexManager:
                     result["chunk_start"] = chunk_start
                     result["chunk_end"] = chunk_end
                     result["snippet"] = (
-                        content[:300] + "..." if len(content) > 300 else content
+                        content[:300] + "..." if content and len(content) > 300 else (content or "")
                     )
 
                 results.append(result)
@@ -2672,23 +2649,88 @@ class IndexManager:
         except Exception as e:
             t_err = time.time()
             elapsed = t_err - t0
+            err_msg = str(e)
+            is_corruption = "blank link list" in err_msg or "corrupt" in err_msg.lower()
             self.logger.error(
                 f"[VECTOR_FLUSH] 向量批量写入失败 "
                 f"(耗时 {elapsed:.3f}s)，回退到逐个写入: {e}"
             )
+
+            # 如果是 HNSW 索引损坏（blank link list），尝试重建索引
+            if is_corruption:
+                self.logger.warning(
+                    "[VECTOR_FLUSH] 检测到 HNSW 索引损坏，重建索引并从当前批次重新开始"
+                )
+                try:
+                    # 保存已有元数据用于日志
+                    old_metadata_count = len(self.vector_metadata)
+                    old_next_id = self.next_id
+                    self.logger.info(
+                        f"[VECTOR_FLUSH] 旧索引元数据: {old_metadata_count} 条, "
+                        f"next_id={old_next_id}"
+                    )
+                    # 重建索引：_create_new_hnsw_index 会清空 vector_metadata 和重置 next_id=0
+                    self._create_new_hnsw_index()
+                    # 注意：不恢复旧元数据！旧 HNSW 索引已损坏，旧向量不可恢复。
+                    # 恢复旧元数据会导致搜索时指向不存在的向量 ID（悬空引用）。
+                    # 当前批次将从 next_id=0 重新写入。
+                    self.logger.info(
+                        f"[VECTOR_FLUSH] HNSW 索引已重建（旧索引 {old_metadata_count} 条数据已丢失），"
+                        f"从 next_id=0 重新写入当前批次"
+                    )
+                    # 重建后重新尝试批量写入（仅当前批次）
+                    try:
+                        vectors = self._encode_texts_batch(texts)
+                        ids = np.arange(self.next_id, self.next_id + len(vectors))
+                        needed = self.next_id + len(vectors)
+                        max_elements = self.hnsw.get_max_elements()
+                        if needed > max_elements:
+                            self.hnsw.resize_index(needed + 1024)
+                        self.hnsw.add_items(vectors, ids)
+                        for i, metadata in enumerate(metadatas):
+                            self.vector_metadata[str(self.next_id + i)] = metadata
+                        self.next_id += len(vectors)
+                        self.logger.info(
+                            f"[VECTOR_FLUSH] 重建后批量写入成功: {len(vectors)} 个向量"
+                        )
+                        self._vector_buffer = []
+                        return
+                    except Exception as retry_e:
+                        self.logger.error(
+                            f"[VECTOR_FLUSH] 重建后批量写入仍然失败: {retry_e}，丢弃此批次"
+                        )
+                        self._vector_buffer = []
+                        return
+                except Exception as rebuild_e:
+                    self.logger.error(
+                        f"[VECTOR_FLUSH] 重建 HNSW 索引失败: {rebuild_e}，丢弃此批次"
+                    )
+                    self._vector_buffer = []
+                    return
+
+            # 非损坏错误，回退到逐个写入
             for text, metadata in self._vector_buffer:
                 try:
                     v = np.array([self._encode_text(text)], dtype=np.float32)
-                    with self._batch_lock:
-                        doc_id = self.next_id
-                        ids = np.array([doc_id])
+                    doc_id = self.next_id
+                    ids = np.array([doc_id])
+                    try:
+                        self.hnsw.add_items(v, ids)
+                    except Exception as add_err:
+                        # 如果逐个写入也出现 blank link list，停止尝试
+                        if "blank link list" in str(add_err):
+                            self.logger.error(
+                                f"[VECTOR_FLUSH] 逐个写入也检测到索引损坏，停止写入"
+                            )
+                            break
+                        self.hnsw.resize_index(self.hnsw.get_max_elements() + 1024)
                         try:
                             self.hnsw.add_items(v, ids)
                         except Exception:
-                            self.hnsw.resize_index(self.hnsw.get_max_elements() + 1024)
-                            self.hnsw.add_items(v, ids)
-                        self.vector_metadata[str(doc_id)] = metadata
-                        self.next_id += 1
+                            self.logger.warning(f"[VECTOR_FLUSH] resize后写入仍失败，跳过")
+                            continue
+                    self.vector_metadata[str(doc_id)] = metadata
+                    self.next_id += 1
                 except Exception as e2:
                     self.logger.warning(f"单个向量写入失败: {e2}")
 
@@ -2770,7 +2812,17 @@ class IndexManager:
             os.makedirs(self.hnsw_index_path, exist_ok=True)
             os.makedirs(self.metadata_path, exist_ok=True)
 
-            # 5. 重新初始化索引
+            # 5. 重置状态变量
+            self._deleted_paths.clear()
+            self._content_cache.clear()
+            self._content_cache_order.clear()
+            self._vector_buffer.clear()
+            self._batch_buffer.clear()
+            self._batch_mode = False
+            self._batch_mode_start_time = None
+            self._batch_mode_done_event.set()
+
+            # 6. 重新初始化索引
             self._init_tantivy_index()
             self._init_hnsw_index()
             return True

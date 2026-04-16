@@ -791,6 +791,46 @@ const FileToolsSettings = (function() {
     }
 
     /**
+     * 更新重建索引进度 UI
+     * 注意：此函数可能在 DOM 元素不存在时被调用（如 innerHTML 替换后）
+     * 因此所有 DOM 操作都需要空值检查
+     */
+    function updateRebuildUI(progress, statusText, fileCountText, iconState, barClass, statusClass) {
+        try {
+            const progressBar = document.getElementById('rebuildProgressBar');
+            const percentText = document.getElementById('rebuildPercent');
+            const statusEl = document.getElementById('rebuildStatus');
+            const countEl = document.getElementById('rebuildFileCount');
+            const spinner = document.getElementById('rebuildSpinner');
+            const successIcon = document.getElementById('rebuildSuccessIcon');
+            const cancelIcon = document.getElementById('rebuildCancelIcon');
+            const errorIcon = document.getElementById('rebuildErrorIcon');
+
+            if (progressBar) {
+                progressBar.style.width = progress + '%';
+                progressBar.className = 'rebuild-progress-bar ' + (barClass || '');
+                progressBar.setAttribute('aria-valuenow', progress);
+                progressBar.setAttribute('aria-valuemin', 0);
+                progressBar.setAttribute('aria-valuemax', 100);
+            }
+            if (percentText) percentText.textContent = progress + '%';
+            if (statusEl) {
+                statusEl.textContent = statusText || '处理中...';
+                statusEl.className = 'rebuild-status-text ' + (statusClass || '');
+            }
+            if (countEl) countEl.textContent = fileCountText || '';
+
+            // 图标状态切换
+            if (spinner) spinner.style.display = iconState === 'spinner' ? '' : 'none';
+            if (successIcon) successIcon.classList.toggle('d-none', iconState !== 'success');
+            if (cancelIcon) cancelIcon.classList.toggle('d-none', iconState !== 'cancel');
+            if (errorIcon) errorIcon.classList.toggle('d-none', iconState !== 'error');
+        } catch (e) {
+            console.warn('updateRebuildUI: DOM更新失败（元素可能已被替换）:', e);
+        }
+    }
+
+    /**
      * 显示重建索引确认弹窗
      */
     function showRebuildModal() {
@@ -819,6 +859,14 @@ const FileToolsSettings = (function() {
         if (confirmBtn) {
             confirmBtn.addEventListener('click', function() {
                 confirmRebuild();
+            });
+        }
+
+        // 绑定取消按钮点击事件 - 关闭时也取消后端任务
+        if (closeBtn) {
+            closeBtn.onclick = null; // 清除之前的绑定
+            closeBtn.addEventListener('click', function() {
+                cancelRebuild();
             });
         }
 
@@ -877,18 +925,42 @@ const FileToolsSettings = (function() {
         let eventSource = null;
         let sseFinished = false;
 
-        // 显示进度条UI
+        // 显示进度条UI - 现代化设计
         modalBody.innerHTML = `
-            <div class="text-center">
-                <div id="rebuildSpinner" class="spinner-border text-primary mb-3" role="status">
-                    <span class="visually-hidden">加载中...</span>
+            <div class="rebuild-progress-container">
+                <div class="rebuild-icon-wrapper" id="rebuildIconWrapper">
+                    <div id="rebuildSpinner" class="rebuild-spinner">
+                        <svg viewBox="0 0 50 50" class="spinner-svg">
+                            <circle cx="25" cy="25" r="20" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-dasharray="31.4 31.4" class="spinner-circle"/>
+                        </svg>
+                    </div>
+                    <div id="rebuildSuccessIcon" class="rebuild-status-icon d-none">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M20 6L9 17l-5-5"/>
+                        </svg>
+                    </div>
+                    <div id="rebuildCancelIcon" class="rebuild-status-icon rebuild-cancel-icon d-none">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M18 6L6 18M6 6l12 12"/>
+                        </svg>
+                    </div>
+                    <div id="rebuildErrorIcon" class="rebuild-status-icon rebuild-error-icon d-none">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <circle cx="12" cy="12" r="10"/>
+                            <path d="M12 8v4M12 16h.01"/>
+                        </svg>
+                    </div>
                 </div>
-                <div class="progress mb-2" style="height: 6px;">
-                    <div id="rebuildProgressBar" class="progress-bar progress-bar-striped progress-bar-animated"
-                         role="progressbar" style="width: 0%;" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100">0%</div>
+                <div class="rebuild-progress-info">
+                    <div id="rebuildStatus" class="rebuild-status-text">正在准备重建索引...</div>
+                    <div id="rebuildFileCount" class="rebuild-file-count"></div>
                 </div>
-                <p id="rebuildStatus" class="mb-0 small text-muted">正在准备重建索引...</p>
-                <p id="rebuildFileCount" class="small text-muted mt-1"></p>
+                <div class="rebuild-progress-bar-wrapper">
+                    <div id="rebuildProgressBar" class="rebuild-progress-bar" role="progressbar" style="width: 0%;">
+                        <div class="rebuild-progress-fill"></div>
+                    </div>
+                    <div id="rebuildPercent" class="rebuild-percent-text">0%</div>
+                </div>
             </div>
         `;
 
@@ -944,19 +1016,15 @@ const FileToolsSettings = (function() {
                         const spinner = document.getElementById('rebuildSpinner');
                         if (spinner) spinner.style.display = 'none';
 
-                        // 重建完成
-                        const progressBar = document.getElementById('rebuildProgressBar');
-                        if (progressBar) {
-                            progressBar.style.width = '100%';
-                            progressBar.textContent = '100%';
-                            progressBar.className = 'progress-bar bg-success';
-                        }
-
-                        const statusEl = document.getElementById('rebuildStatus');
-                        if (statusEl) statusEl.textContent = '索引重建完成！';
-                        const countEl = document.getElementById('rebuildFileCount');
-                        if (countEl) countEl.textContent =
-                            `扫描: ${data.files_scanned || 0} | 索引: ${data.files_indexed || 0}`;
+                        // 使用辅助函数更新 UI
+                        updateRebuildUI(
+                            100,
+                            '索引重建完成！',
+                            `扫描: ${data.files_scanned || 0} | 索引: ${data.files_indexed || 0}`,
+                            'success',
+                            'fill-success',
+                            'success'
+                        );
 
                         // 立即显示完成状态
                         modalFooter.style.display = 'flex';
@@ -979,13 +1047,14 @@ const FileToolsSettings = (function() {
                     } else if (data.status === 'progress') {
                         // 更新进度条
                         const progress = data.progress || 0;
-                        const progressBar = document.getElementById('rebuildProgressBar');
-                        if (progressBar) {
-                            progressBar.style.width = progress + '%';
-                            progressBar.textContent = progress + '%';
-                        }
-                        const statusEl = document.getElementById('rebuildStatus');
-                        if (statusEl) statusEl.textContent = '正在重建索引... ' + progress + '%';
+                        updateRebuildUI(
+                            progress,
+                            '正在重建索引...',
+                            '',
+                            'spinner',
+                            '',
+                            ''
+                        );
 
                     } else if (data.status === 'keepalive') {
                         // 保持连接活跃，不做处理（只更新最后活跃时间）
@@ -994,7 +1063,42 @@ const FileToolsSettings = (function() {
                     } else if (data.status === 'error') {
                         clearTimeout(sseTimeout);
                         finishSSE();
+                        updateRebuildUI(
+                            100,
+                            '索引重建失败',
+                            data.error || '',
+                            'error',
+                            'fill-error',
+                            'error'
+                        );
+                        modalFooter.style.display = 'flex';
+                        modalFooter.innerHTML = `
+                            <div class="text-danger fw-bold me-auto">
+                                <i class="bi bi-exclamation-circle-fill"></i> 失败
+                            </div>
+                            <button type="button" class="btn btn-sm btn-primary px-3" data-bs-dismiss="modal">关闭</button>
+                        `;
                         throw new Error(data.error || '重建索引失败');
+
+                    } else if (data.status === 'cancelled') {
+                        clearTimeout(sseTimeout);
+                        finishSSE();
+                        updateRebuildUI(
+                            100,
+                            '索引重建已取消',
+                            `扫描: ${data.files_scanned || 0} | 索引: ${data.files_indexed || 0}`,
+                            'cancel',
+                            'fill-warning',
+                            'warning'
+                        );
+                        modalFooter.style.display = 'flex';
+                        modalFooter.innerHTML = `
+                            <div class="text-warning fw-bold me-auto">
+                                <i class="bi bi-x-circle-fill"></i> 已取消
+                            </div>
+                            <button type="button" class="btn btn-sm btn-primary px-3" data-bs-dismiss="modal">关闭</button>
+                        `;
+                        FileToolsUtils.showToast('索引重建已取消', 'warning');
                     }
                 } catch (e) {
                     console.error('SSE解析错误:', e);
@@ -1008,32 +1112,62 @@ const FileToolsSettings = (function() {
                     console.log('SSE: 已完成，忽略错误');
                     return;
                 }
-                // EventSource CLOSED 是正常状态（连接完成或服务器关闭）
-                if (event.target.readyState === EventSource.CLOSED) {
-                    console.log('SSE: 连接已关闭, sseFinished:', sseFinished);
-                    // 如果连接关闭但任务未完成，先检查一下是否刚收到消息
-                    // 延迟 500ms 再检查，因为消息可能在关闭前刚收到
-                    setTimeout(() => {
-                        if (!sseFinished) {
-                            console.warn('SSE: 连接关闭且任务未完成，降级到轮询');
+                // 根据错误状态决定延迟时间
+                const isClosed = event.target.readyState === EventSource.CLOSED;
+                const checkDelay = isClosed ? 1000 : 3000;
+                const logMsg = isClosed ? 'SSE: 连接已关闭' : 'SSE连接错误';
+
+                if (isClosed) {
+                    console.log(logMsg + ', sseFinished:', sseFinished);
+                } else {
+                    console.warn(logMsg + '，3秒后检查是否需要降级到轮询模式...');
+                }
+
+                // 统一的降级检查逻辑
+                setTimeout(async () => {
+                    if (sseFinished) {
+                        console.log('SSE: 任务已完成，无需降级');
+                        return;
+                    }
+                    // 检查后端是否存活
+                    try {
+                        const healthRes = await fetchWithTimeout('/api/health', {}, 3000);
+                        if (healthRes.ok) {
+                            // 后端存活，降级到轮询继续跟踪进度
+                            console.warn('SSE: 后端存活，降级到轮询模式');
                             clearTimeout(sseTimeout);
                             finishSSE();
                             performPollingRebuild(modalBody, modalFooter, closeBtn);
                         } else {
-                            console.log('SSE: 任务已完成，无需降级');
+                            // 后端返回错误状态
+                            console.error('SSE: 后端健康检查返回错误');
+                            clearTimeout(sseTimeout);
+                            finishSSE();
+                            updateRebuildUI(100, '后端响应异常', '请检查后端日志', 'error', 'fill-error', 'error');
+                            modalFooter.style.display = 'flex';
+                            modalFooter.innerHTML = `
+                                <div class="text-danger fw-bold me-auto">
+                                    <i class="bi bi-exclamation-circle-fill"></i> 后端异常
+                                </div>
+                                <button type="button" class="btn btn-sm btn-primary px-3" data-bs-dismiss="modal">关闭</button>
+                            `;
                         }
-                    }, 500);
-                    return;
-                }
-                console.warn('SSE连接错误，2秒后降级到轮询模式...');
-                // 短暂延迟后检查是否仍未完成
-                setTimeout(() => {
-                    if (!sseFinished) {
+                    } catch (healthErr) {
+                        // 后端不可达
+                        console.error('SSE: 后端不可达:', healthErr);
                         clearTimeout(sseTimeout);
                         finishSSE();
-                        performPollingRebuild(modalBody, modalFooter, closeBtn);
+                        updateRebuildUI(100, '后端连接失败', '请重启应用', 'error', 'fill-error', 'error');
+                        modalFooter.style.display = 'flex';
+                        modalFooter.innerHTML = `
+                            <div class="text-danger fw-bold me-auto">
+                                <i class="bi bi-exclamation-circle-fill"></i> 连接失败
+                            </div>
+                            <button type="button" class="btn btn-sm btn-primary px-3" data-bs-dismiss="modal">关闭</button>
+                        `;
+                        FileToolsUtils.showToast('后端连接失败，请重启应用', 'error');
                     }
-                }, 2000);
+                }, checkDelay);
             };
 
         } catch (error) {
@@ -1109,6 +1243,8 @@ const FileToolsSettings = (function() {
     async function performPollingRebuild(modalBody, modalFooter, closeBtn) {
         let pollingInterval = null;
         let isCompleted = false;
+        let consecutiveFailures = 0;  // 连续失败计数
+        const MAX_CONSECUTIVE_FAILURES = 5;  // 连续5次失败才判定后端崩溃
 
         const stopPolling = () => {
             isCompleted = true;
@@ -1118,18 +1254,42 @@ const FileToolsSettings = (function() {
             }
         };
 
-        // 显示轮询模式 UI
+        // 显示轮询模式 UI - 使用相同的现代化设计
         modalBody.innerHTML = `
-            <div class="text-center">
-                <div class="spinner-border text-primary mb-3" role="status">
-                    <span class="visually-hidden">加载中...</span>
+            <div class="rebuild-progress-container">
+                <div class="rebuild-icon-wrapper" id="rebuildIconWrapper">
+                    <div id="rebuildSpinner" class="rebuild-spinner">
+                        <svg viewBox="0 0 50 50" class="spinner-svg">
+                            <circle cx="25" cy="25" r="20" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-dasharray="31.4 31.4" class="spinner-circle"/>
+                        </svg>
+                    </div>
+                    <div id="rebuildSuccessIcon" class="rebuild-status-icon d-none">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M20 6L9 17l-5-5"/>
+                        </svg>
+                    </div>
+                    <div id="rebuildCancelIcon" class="rebuild-status-icon rebuild-cancel-icon d-none">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M18 6L6 18M6 6l12 12"/>
+                        </svg>
+                    </div>
+                    <div id="rebuildErrorIcon" class="rebuild-status-icon rebuild-error-icon d-none">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <circle cx="12" cy="12" r="10"/>
+                            <path d="M12 8v4M12 16h.01"/>
+                        </svg>
+                    </div>
                 </div>
-                <div class="progress mb-2" style="height: 6px;">
-                    <div id="rebuildProgressBar" class="progress-bar progress-bar-striped progress-bar-animated"
-                         role="progressbar" style="width: 0%;" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100">0%</div>
+                <div class="rebuild-progress-info">
+                    <div id="rebuildStatus" class="rebuild-status-text">正在启动重建任务...</div>
+                    <div id="rebuildFileCount" class="rebuild-file-count"></div>
                 </div>
-                <p id="rebuildStatus" class="mb-0 small text-muted">正在启动重建任务...</p>
-                <p id="rebuildFileCount" class="small text-muted mt-1"></p>
+                <div class="rebuild-progress-bar-wrapper">
+                    <div id="rebuildProgressBar" class="rebuild-progress-bar" role="progressbar" style="width: 0%;">
+                        <div class="rebuild-progress-fill"></div>
+                    </div>
+                    <div id="rebuildPercent" class="rebuild-percent-text">0%</div>
+                </div>
             </div>
         `;
 
@@ -1141,15 +1301,14 @@ const FileToolsSettings = (function() {
                 if (progressRes.ok) {
                     existingProgress = await progressRes.json();
                     if (existingProgress.in_progress) {
-                        modalBody.innerHTML = `
-                            <div class="text-center">
-                                <div class="spinner-border text-primary mb-3" role="status">
-                                    <span class="visually-hidden">加载中...</span>
-                                </div>
-                                <p class="mb-0 small text-muted">正在重建索引...</p>
-                                <p class="small text-muted">扫描: ${existingProgress.files_scanned || 0} | 索引: ${existingProgress.files_indexed || 0}</p>
-                            </div>
-                        `;
+                        updateRebuildUI(
+                            existingProgress.progress || 0,
+                            '正在重建索引...',
+                            `扫描: ${existingProgress.files_scanned || 0} | 索引: ${existingProgress.files_indexed || 0}`,
+                            'spinner',
+                            '',
+                            ''
+                        );
                     }
                 }
             } catch (e) {
@@ -1181,34 +1340,47 @@ const FileToolsSettings = (function() {
                     }
 
                     const data = await resp.json();
+                    consecutiveFailures = 0;  // 成功获取，重置失败计数
 
-                    // 更新进度条
-                    const progressBar = document.getElementById('rebuildProgressBar');
-                    const statusEl = document.getElementById('rebuildStatus');
-                    const countEl = document.getElementById('rebuildFileCount');
+                    // 先检查是否被取消或出错
+                    if (data.error || (!data.in_progress && data.files_indexed === 0 && data.files_scanned === 0)) {
+                        const isCancelled = data.error && (data.error === '用户取消' || (typeof data.error === 'string' && data.error.includes('取消')));
+                        stopPolling();
 
-                    if (progressBar) {
-                        progressBar.style.width = data.progress + '%';
-                        progressBar.textContent = data.progress + '%';
-                    }
-                    if (statusEl) {
-                        statusEl.textContent = data.in_progress
-                            ? '正在重建索引... ' + data.progress + '%'
-                            : '索引重建完成';
-                    }
-                    if (countEl) {
-                        countEl.textContent = `扫描: ${data.files_scanned || 0} | 索引: ${data.files_indexed || 0}`;
+                        updateRebuildUI(
+                            100,
+                            isCancelled ? '索引重建已取消' : '索引重建失败',
+                            data.error || '',
+                            isCancelled ? 'cancel' : 'error',
+                            isCancelled ? 'fill-warning' : 'fill-error',
+                            isCancelled ? 'warning' : 'error'
+                        );
+
+                        modalFooter.style.display = 'flex';
+                        modalFooter.innerHTML = `
+                            <div class="${isCancelled ? 'text-warning' : 'text-danger'} fw-bold me-auto">
+                                <i class="bi ${isCancelled ? 'bi-x-circle-fill' : 'bi-exclamation-circle-fill'}"></i> ${isCancelled ? '已取消' : '失败'}
+                            </div>
+                            <button type="button" class="btn btn-sm btn-primary px-3" data-bs-dismiss="modal">关闭</button>
+                        `;
+
+                        FileToolsUtils.showToast(isCancelled ? '索引重建已取消' : '索引重建失败: ' + data.error, isCancelled ? 'warning' : 'error');
+                        return;
                     }
 
-                    // 检查是否完成
+                    // 检查是否完成（正常完成）
                     if (!data.in_progress) {
                         stopPolling();
 
-                        if (progressBar) {
-                            progressBar.className = 'progress-bar bg-success';
-                        }
+                        updateRebuildUI(
+                            100,
+                            '索引重建完成！',
+                            `扫描: ${data.files_scanned || 0} | 索引: ${data.files_indexed || 0}`,
+                            'success',
+                            'fill-success',
+                            'success'
+                        );
 
-                        // 立即显示完成状态
                         modalFooter.style.display = 'flex';
                         modalFooter.innerHTML = `
                             <div class="text-success fw-bold me-auto">
@@ -1225,35 +1397,76 @@ const FileToolsSettings = (function() {
                                 FileToolsUtils.showToast('索引重建完成！', 'success');
                             }
                         }, 1500);
+                        return;
                     }
 
-                    // 检查错误
-                    if (data.error) {
-                        stopPolling();
-                        throw new Error(data.error);
-                    }
-
+                    // 更新进度条
+                    const progress = data.progress || 0;
+                    updateRebuildUI(
+                        progress,
+                        '正在重建索引...',
+                        `扫描: ${data.files_scanned || 0} | 索引: ${data.files_indexed || 0}`,
+                        'spinner',
+                        '',
+                        ''
+                    );
                 } catch (e) {
-                    // 轮询超时不代表失败，后端可能正在处理中，继续重试
-                    console.warn('轮询进度错误（继续重试）:', e.message);
-                    // 不停止轮询，继续等待
-                }
-            }, 2000); // 每2秒轮询一次
+                    // 检查是否是连接被拒绝的错误（后端可能崩溃了）
+                    const isConnectionRefused = e.message && (
+                        e.message.includes('ERR_CONNECTION_REFUSED') ||
+                        e.message.includes('Failed to fetch') ||
+                        e.message.includes('net::ERR')
+                    );
 
+                    if (isConnectionRefused) {
+                        consecutiveFailures++;
+                        if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {
+                            // 连续多次失败，判定后端崩溃
+                            console.error('后端连续不可达，停止轮询:', e.message);
+                            stopPolling();
+                            updateRebuildUI(
+                                100,
+                                '后端连接失败',
+                                '请检查后端服务是否正常运行',
+                                'error',
+                                'fill-error',
+                                'error'
+                            );
+                            modalFooter.style.display = 'flex';
+                            modalFooter.innerHTML = `
+                                <div class="text-danger fw-bold me-auto">
+                                    <i class="bi bi-exclamation-circle-fill"></i> 连接失败
+                                </div>
+                                <button type="button" class="btn btn-sm btn-primary px-3" data-bs-dismiss="modal">关闭</button>
+                            `;
+                            FileToolsUtils.showToast('后端连接失败，请重启应用', 'error');
+                            return;
+                        }
+                        // 未达阈值，继续轮询
+                        console.warn(`后端暂时不可达 (${consecutiveFailures}/${MAX_CONSECUTIVE_FAILURES})，继续轮询...`);
+                    } else {
+                        // 其他错误，继续轮询
+                        console.warn('获取进度失败，继续轮询:', e.message);
+                    }
+                }
+            }, 1000);  // 每秒轮询一次
         } catch (error) {
             console.error('Error rebuilding index:', error);
             stopPolling();
-            const safeErrorMessage = FileToolsUtils.escapeHtml(error.message || '请求失败');
-            modalBody.innerHTML = `
-                <div class="text-center">
-                    <i class="bi bi-x-circle-fill text-danger display-4 mb-3"></i>
-                    <p class="mb-0 small">索引重建失败</p>
-                    <p class="small text-muted mt-1">${safeErrorMessage}</p>
-                </div>
-            `;
+            updateRebuildUI(
+                100,
+                '索引重建失败',
+                error.message || '请求失败',
+                'error',
+                'fill-error',
+                'error'
+            );
             closeBtn.style.display = 'block';
             modalFooter.style.display = 'flex';
             modalFooter.innerHTML = `
+                <div class="text-danger fw-bold me-auto">
+                    <i class="bi bi-exclamation-circle-fill"></i> 失败
+                </div>
                 <button type="button" class="btn btn-sm btn-primary px-3" data-bs-dismiss="modal">关闭</button>
             `;
         }
@@ -1361,44 +1574,59 @@ const FileToolsSettings = (function() {
      * 初始化关于 tab 按钮
      */
     function initAboutButtons() {
-        console.log('initAboutButtons called');
+        console.log('[initAboutButtons] START');
+        console.log('[initAboutButtons] document.readyState:', document.readyState);
+
+        // 检查 DOM 中所有按钮
+        const allButtons = document.querySelectorAll('#v-pills-about button');
+        console.log('[initAboutButtons] All buttons in #v-pills-about:', allButtons.length, allButtons);
 
         // 检查更新按钮
         const btn = document.getElementById('checkUpdateBtn');
+        console.log('[initAboutButtons] checkUpdateBtn:', !!btn, btn ? btn.id : 'null');
+
+        // GitHub 按钮
+        const githubBtn = document.getElementById('githubBtn');
+        console.log('[initAboutButtons] githubBtn:', !!githubBtn, githubBtn ? githubBtn.id : 'null');
+
+        // Issue 按钮
+        const issueBtn = document.getElementById('issueBtn');
+        console.log('[initAboutButtons] issueBtn:', !!issueBtn, issueBtn ? issueBtn.id : 'null');
+
         if (btn) {
             btn.onclick = null;
             btn.addEventListener('click', function() {
+                console.log('[initAboutButtons] checkUpdateBtn clicked!');
                 checkForUpdate();
             });
         }
 
-        // GitHub 按钮
-        const githubBtn = document.getElementById('githubBtn');
         if (githubBtn) {
             githubBtn.onclick = null;
             githubBtn.addEventListener('click', function(event) {
+                console.log('[initAboutButtons] githubBtn clicked!');
                 event.preventDefault();
-                if (window.TauriAPI) {
-                    window.TauriAPI.openExternal('https://github.com/Dry-U/File-tools');
-                } else {
-                    window.open('https://github.com/Dry-U/File-tools', '_blank');
-                }
+                window.TauriAPI.openExternal('https://github.com/Dry-U/File-tools')
+                    .catch(err => {
+                        console.warn('[initAboutButtons] openExternal failed:', err);
+                        window.open('https://github.com/Dry-U/File-tools', '_blank');
+                    });
             });
         }
 
-        // Issue 按钮
-        const issueBtn = document.getElementById('issueBtn');
         if (issueBtn) {
             issueBtn.onclick = null;
             issueBtn.addEventListener('click', function(event) {
+                console.log('[initAboutButtons] issueBtn clicked!');
                 event.preventDefault();
-                if (window.TauriAPI) {
-                    window.TauriAPI.openExternal('https://github.com/Dry-U/File-tools/issues');
-                } else {
-                    window.open('https://github.com/Dry-U/File-tools/issues', '_blank');
-                }
+                window.TauriAPI.openExternal('https://github.com/Dry-U/File-tools/issues')
+                    .catch(err => {
+                        console.warn('[initAboutButtons] openExternal failed:', err);
+                        window.open('https://github.com/Dry-U/File-tools/issues', '_blank');
+                    });
             });
         }
+        console.log('[initAboutButtons] END');
     }
 
     // 公共 API

@@ -1,12 +1,10 @@
 {
   "$schema": "https://v2.tauri.app/v2/schemas/config.schema.json",
   "productName": "FileTools",
-  "version": "1.1.1",
+  "version": "v1.1.2",
   "identifier": "com.filetools.app",
   "build": {
-    "beforeDevCommand": "python main.py",
     "beforeBuildCommand": "python build_pyinstaller.py",
-    "devUrl": "http://127.0.0.1:18642",
     "frontendDist": "../frontend"
   },
   "app": {
@@ -23,11 +21,12 @@
         "decorations": true,
         "transparent": false,
         "center": true,
-        "url": "http://127.0.0.1:18642"
+        "url": "http://localhost:18642",
+        "visible": false
       }
     ],
     "security": {
-      "csp": "default-src 'self'; script-src 'self' https://cdn.jsdelivr.net 'unsafe-inline' 'nonce-random'; style-src 'self' https://cdn.jsdelivr.net 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' https://cdn.jsdelivr.net; connect-src 'self' http://127.0.0.1:18642 ipc: http://ipc.localhost https://api.github.com; frame-src 'none'; object-src 'none'; base-uri 'self'; form-action 'self'; upgrade-insecure-requests",
+      "csp": "default-src 'self'; script-src 'self' https://cdn.jsdelivr.net 'unsafe-inline' 'nonce-random'; style-src 'self' https://cdn.jsdelivr.net 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' https://cdn.jsdelivr.net; connect-src 'self' http://127.0.0.1:* http://localhost:* http://ipc.localhost https://api.github.com; frame-src 'none'; object-src 'none'; base-uri 'self'; form-action 'self'; upgrade-insecure-requests",
       "freezePrototype": true
     }
   },

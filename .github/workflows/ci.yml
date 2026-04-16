@@ -1,5 +1,8 @@
 name: CI/CD (PyInstaller + Tauri)
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 on:
   push:
     branches: [main, develop]
@@ -653,6 +656,8 @@ jobs:
             ls -la ./build/
             exit 1
           fi
+          # 转为绝对路径（cd 会改变相对路径）
+          APPIMAGE_PATH="$(pwd)/$APPIMAGE_PATH"
           echo "Found AppImage: $APPIMAGE_PATH"
           chmod +x "$APPIMAGE_PATH"
 

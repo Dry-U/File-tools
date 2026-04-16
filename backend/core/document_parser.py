@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-'"""文档解析器模块 - 处理多种格式文档的内容提取"""'
+"""文档解析器模块 - 处理多种格式文档的内容提取"""
 
 import atexit
 import logging
@@ -97,7 +97,7 @@ class DocumentParser:
             for slide in prs.slides:
                 for shape in slide.shapes:
                     if hasattr(shape, "text"):
-                        text += shape.text + "\n"
+                        text += shape.text + "\n"  # type: ignore[reportAttributeAccessIssue]
             return text
         except ImportError:
             self.logger.warning(f"缺少 python-pptx 库，无法解析 PPTX 文件: {file_path}")
@@ -233,6 +233,23 @@ class DocumentParser:
         if file_ext in ["jpg", "jpeg", "png", "gif", "bmp", "tiff", "svg", "webp"]:
             return ""
 
+        # 明确拒绝二进制/压缩/媒体格式
+        if file_ext in [
+            "zip", "rar", "7z", "tar", "gz", "bz2", "xz", "cab",
+            "exe", "dll", "so", "dylib", "msi",
+            "db", "sqlite", "db3",
+            "iso", "dmg",
+            "mp3", "wav", "flac", "ogg", "m4a",
+            "mp4", "avi", "mov", "mkv", "wmv",
+            "pyc", "pyo", "lottie",
+        ]:
+            return ""
+
+        # 对于已知无用路径中的文件，直接跳过
+        file_path_lower = file_path.lower()
+        if "lottie" in file_path_lower or "emojisystermresource" in file_path_lower or "thumbtemp" in file_path_lower:
+            return ""
+
         try:
             text = ""
             # 尝试使用特定的解析器
@@ -349,7 +366,7 @@ class DocumentParser:
                             page = doc[page_num]
                             try:
                                 page_text = page.get_text("text", sort=True)
-                                if page_text and page_text.strip():
+                                if page_text and page_text.strip():  # type: ignore[reportAttributeAccessIssue]
                                     all_texts.append(page_text)
                                     # 实时检查长度，避免无限累积
                                     if sum(len(t) for t in all_texts) > max_text_length:
@@ -802,8 +819,23 @@ class DocumentParser:
     def _parse_generic(self, file_path):
         """通用解析器，用于处理不支持的文件格式"""
         file_ext = os.path.splitext(file_path)[1].lower()[1:]
-        # 再次检查防止图片进入
-        if file_ext in ["jpg", "jpeg", "png", "gif", "bmp", "tiff", "svg", "webp"]:
+        # 明确拒绝图片和二进制格式，防止进入通用解析器
+        if file_ext in [
+            "jpg", "jpeg", "png", "gif", "bmp", "tiff", "svg", "webp",  # 图片
+            "zip", "rar", "7z", "tar", "gz", "bz2", "xz", "cab",  # 压缩
+            "exe", "dll", "so", "dylib", "msi",  # 可执行
+            "db", "sqlite", "db3",  # 数据库
+            "iso", "dmg",  # 磁盘镜像
+            "mp3", "wav", "flac", "ogg", "m4a",  # 音频
+            "mp4", "avi", "mov", "mkv", "wmv",  # 视频
+            "pyc", "pyo",  # Python编译
+            "lottie",  # lottie动画
+        ]:
+            return ""
+
+        # 对于 lottie json 文件（路径中包含 lottie 或 EmojiSystermResource），直接跳过
+        file_path_lower = file_path.lower()
+        if "lottie" in file_path_lower or "emojisystermresource" in file_path_lower or "thumbtemp" in file_path_lower:
             return ""
 
         # 使用textract尝试提取内容

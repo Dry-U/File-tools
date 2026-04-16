@@ -139,12 +139,12 @@ const FileToolsUtils = (function() {
         toastEl.setAttribute('aria-live', 'assertive');
         toastEl.setAttribute('aria-atomic', 'true');
 
-        // 添加关闭按钮（使用简单的文本按钮确保可见）
+        // 添加关闭按钮
         const closeBtnId = 'toast-close-' + Date.now();
         toastEl.innerHTML = `
-            <div class="d-flex align-items-center">
-                <div class="toast-body flex-grow-1">${escapeHtml(message)}</div>
-                <button type="button" id="${closeBtnId}" class="toast-close-btn" aria-label="关闭">✕</button>
+            <div class="toast-body">
+                <span>${escapeHtml(message)}</span>
+                <button type="button" id="${closeBtnId}" class="toast-close-btn" aria-label="关闭">×</button>
             </div>
         `;
 
@@ -156,10 +156,18 @@ const FileToolsUtils = (function() {
         }
         container.appendChild(toastEl);
 
+        let bootstrapToast = null;
+
         // 绑定关闭按钮点击事件
-        const closeBtn = toastEl.querySelector('.toast-close-btn');
+        const closeBtn = document.getElementById(closeBtnId);
         if (closeBtn) {
-            closeBtn.addEventListener('click', function() {
+            closeBtn.addEventListener('click', function(e) {
+                e.preventDefault();
+                e.stopPropagation();
+                // 如果有 Bootstrap Toast 实例，先 hide
+                if (bootstrapToast) {
+                    bootstrapToast.hide();
+                }
                 removeToast();
             });
         }
@@ -171,13 +179,13 @@ const FileToolsUtils = (function() {
         };
 
         if (typeof bootstrap !== 'undefined' && bootstrap.Toast) {
-            const toast = new bootstrap.Toast(toastEl, { delay: 3000 });
-            toast.show();
+            bootstrapToast = new bootstrap.Toast(toastEl, { delay: 3000 });
+            bootstrapToast.show();
             toastEl.addEventListener('hidden.bs.toast', removeToast);
             setTimeout(removeToast, 3500);
         } else {
             // 后备方案：手动实现关闭功能
-            toastEl.style.cssText = 'position:fixed;top:20px;right:20px;z-index:9999;padding:10px 15px;border-radius:4px;min-width:250px;max-width:400px;';
+            toastEl.style.cssText = 'position:fixed;top:20px;right:20px;z-index:9999;padding:10px 15px;border-radius:4px;min-width:250px;max-width:400px;display:flex;opacity:1;visibility:visible;';
             toastEl.style.background = type === 'error' ? '#dc3545' : type === 'success' ? '#198754' : '#0d6efd';
 
             setTimeout(removeToast, 3000);
@@ -229,6 +237,17 @@ const FileToolsUtils = (function() {
      */
     function hideModal(modalEl) {
         if (!modalEl) return;
+
+        // 在隐藏模态框前，先移除焦点，避免 aria-hidden 焦点警告
+        // 如果当前焦点元素在即将被隐藏的模态框内，先 blur 它
+        try {
+            const activeEl = document.activeElement;
+            if (activeEl && modalEl.contains(activeEl)) {
+                activeEl.blur();
+            }
+        } catch (e) {
+            // 忽略 blur 错误
+        }
 
         try {
             if (typeof bootstrap !== 'undefined' && bootstrap.Modal) {

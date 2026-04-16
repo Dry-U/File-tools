@@ -81,7 +81,7 @@ const FileToolsDirectory = (function() {
             let selectedPath = null;
 
             // 优先使用 Tauri 原生文件对话框
-            if (window.TauriAPI) {
+            if (window.TauriAPI && window.TauriAPI.selectDirectory) {
                 try {
                     const result = await window.TauriAPI.selectDirectory();
                     if (result.canceled) {
@@ -97,6 +97,7 @@ const FileToolsDirectory = (function() {
                     }
                 } catch (e) {
                     console.warn('Tauri 对话框失败，降级到模态框:', e);
+                    // Tauri 对话框失败，继续使用模态框
                 }
             }
 

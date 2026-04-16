@@ -40,7 +40,17 @@ packageJson.version = VERSION;
 fs.writeFileSync(packagePath, JSON.stringify(packageJson, null, 2) + '\n');
 console.log('✓ Updated package.json');
 
-// 4. 更新 VERSION 文件
+// 4. 更新 pyproject.toml
+const pyprojectPath = path.join(__dirname, '../pyproject.toml');
+let pyprojectContent = fs.readFileSync(pyprojectPath, 'utf8');
+pyprojectContent = pyprojectContent.replace(
+  /^\s*version = "[^"]+"/m,
+  `version = "${VERSION}"`
+);
+fs.writeFileSync(pyprojectPath, pyprojectContent);
+console.log('✓ Updated pyproject.toml');
+
+// 5. 更新 VERSION 文件
 const versionPath = path.join(__dirname, '../VERSION');
 fs.writeFileSync(versionPath, VERSION + '\n');
 console.log('✓ Updated VERSION file');

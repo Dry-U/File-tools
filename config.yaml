@@ -36,9 +36,9 @@ ai_model:
     model_name: local
   mode: local
   penalties:
-    frequency_penalty: 0.0
+    frequency_penalty: 1.1
     presence_penalty: 0.0
-    repeat_penalty: 1.3
+    repeat_penalty: 1.1
   penalties.frequency_penalty: 0
   penalties.presence_penalty: 0
   penalties.repeat_penalty: 1.1
@@ -46,7 +46,7 @@ ai_model:
     max_tokens: 2048
     min_p: 0.05
     seed: -1
-    temperature: 0.9
+    temperature: 0.7
     top_k: 40
     top_p: 0.9
   sampling.max_tokens: 2048
@@ -61,7 +61,7 @@ ai_model:
     verify_ssl: true
   system_prompt: ''
 embedding:
-  batch_size: 64  # 从8提升到64，加速向量编码
+  batch_size: 64
   cache_dir: D:\Python_work\File-tools\data\models
   enabled: true
   model_name: BAAI/bge-small-zh-v1.5
@@ -76,11 +76,10 @@ file_scanner:
   hash_cache_size: 10000
   max_file_size: 100
   recursive: true
-  scan_paths:
-  - D:\Garbage\Career\Junior\2025上
-  scan_threads: 16  # 从4提升到16，充分利用多核并行扫描
+  scan_paths: []
+  scan_threads: 16
 index:
-  batch_size: 500  # 从100提升到500，减少commit次数
+  batch_size: 500
   chunk_enabled: true
   chunk_overlap: 100
   chunk_size: 800
@@ -106,8 +105,7 @@ local_model:
 monitor:
   auto_exclude_threshold: 20000
   debounce_time: 0.1
-  directories:
-  - D:\Garbage\Career\Junior\2025上
+  directories: []
   enabled: true
   ignored_patterns: .git;.svn;.hg;__pycache__;.idea;.vscode;node_modules;venv;env;.DS_Store;Thumbs.db
   max_workers: 2
@@ -234,16 +232,16 @@ security:
   trust_proxy: false
 system:
   app_name: 智能文件检索与问答系统
-  cache_dir: C:\Users\20840\AppData\Roaming\FileTools\cache
-  data_dir: C:\Users\20840\AppData\Roaming\FileTools\data
-  index_dir: C:\Users\20840\AppData\Roaming\FileTools\index
+  cache_dir: ./data/cache
+  data_dir: ./data
+  index_dir: ./data/index
   log_backup_count: 5
-  log_dir: C:\Users\20840\AppData\Roaming\FileTools\logs
+  log_dir: ./data/logs
   log_format: structured
   log_json: false
   log_level: INFO
   log_max_size: 10
   log_rotation: midnight
   log_sensitive_data: false
-  temp_dir: C:\Users\20840\AppData\Roaming\FileTools\temp
+  temp_dir: ./data/temp
   version: 1.1.0

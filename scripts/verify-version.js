@@ -32,6 +32,10 @@ const versions = {
     path.join(__dirname, '../package.json'),
     (c) => JSON.parse(c).version
   ),
+  'pyproject.toml': getVersion(
+    path.join(__dirname, '../pyproject.toml'),
+    (c) => c.match(/^\s*version = "([^"]+)"/m)?.[1]
+  ),
   'VERSION': getVersion(
     path.join(__dirname, '../VERSION'),
     (c) => c.trim()

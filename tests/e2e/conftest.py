@@ -14,6 +14,24 @@ import time
 import pytest
 
 
+def _get_dynamic_port():
+    """从端口文件读取后端实际端口，若读取失败返回默认 18642"""
+    try:
+        if sys.platform == "win32":
+            temp_dir = os.environ.get("TEMP", os.environ.get("TMP", ""))
+            port_file = os.path.join(temp_dir, "filetools_backend_port.txt")
+        else:
+            port_file = "/tmp/filetools_backend_port.txt"
+        if os.path.exists(port_file):
+            with open(port_file, "r") as f:
+                port = f.read().strip()
+                if port.isdigit():
+                    return int(port)
+    except Exception:
+        pass
+    return 18642
+
+
 def _is_linux_display_available():
     """检查 Linux 是否有可用的显示环境"""
     if sys.platform != "linux":
@@ -26,8 +44,9 @@ def _is_linux_display_available():
 
 @pytest.fixture(scope="session")
 def base_url():
-    """测试服务器基础URL"""
-    return "http://127.0.0.1:18642"
+    """测试服务器基础URL - 动态读取实际端口"""
+    port = _get_dynamic_port()
+    return f"http://127.0.0.1:{port}"
 
 
 @pytest.fixture(scope="session")

@@ -8,23 +8,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
-- Added cross-platform E2E testing support with Playwright
-- Added Rust cache for faster CI builds
-- Added dependabot configuration for automated dependency updates
-- Added code signing configuration placeholders for Windows and macOS
-- Added Linux E2E tests in CI pipeline
 
 ### Changed
-- Improved CI/CD pipeline with parallel testing across Windows, Linux, and macOS
-- Updated Ruff configuration to eliminate linting warnings
-- Enhanced E2E test stability by replacing fixed waits with smart polling
-- Refined documentation structure based on open source best practices
 
 ### Fixed
-- Fixed E501 line too long errors across backend codebase
-- Fixed artifact download issues in E2E tests by adding version resolution step
-- Fixed missing icon files for cross-platform builds
-- Fixed MSI language configuration for Chinese localization
+
+### Security
+
+## [1.1.2] - 2026-04-15
+
+### Added
+- Added changelogen script for automated changelog generation
+- Added macOS x64 build to CI pipeline
+- Added Rust cache for faster CI builds
+- Added Release Drafter configuration for automated releases
+
+### Changed
+- Improved CI/CD pipeline with parallel testing and optimized build caching
+- Enhanced embedding and search configurations
+- Improved memory management in vector operations
+- Refined documentation structure based on open source best practices
+- Updated Ruff configuration to eliminate linting warnings
+
+### Fixed
+- Fixed API keys exposure in /config response (security fix)
+- Fixed race condition in search by passing query as parameter
+- Fixed nested lock deadlock risk in index_manager
+- Fixed USAGE_GUIDE.md ai_model config example
+- Fixed E2E test stability by replacing fixed waits with smart polling
+
+### Performance
+- Cached file content in search_vector to avoid repeated I/O
 
 ## [1.1.1] - 2025-04-10
 

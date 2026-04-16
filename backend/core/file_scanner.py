@@ -108,7 +108,7 @@ class FileScanner:
             self._cache_max_size = 10000
 
         # 依赖组件
-        self.document_parser: DocumentParser = document_parser or DocumentParser(
+        self.document_parser: Optional[DocumentParser] = document_parser or DocumentParser(
             config_loader
         )
         self.index_manager: Optional[IndexManager] = index_manager
@@ -307,6 +307,38 @@ class FileScanner:
             "desktop.ini",  # Windows桌面配置
             "*.lnk",  # Windows快捷方式
             "*.doc",  # 旧版Word格式，解析经常超时失败
+            # 压缩/二进制格式（无解析器，走通用解析只会报错超时）
+            "*.zip",
+            "*.rar",
+            "*.7z",
+            "*.tar",
+            "*.gz",
+            "*.bz2",
+            "*.xz",
+            "*.cab",
+            "*.iso",
+            "*.dmg",
+            "*.msi",
+            "*.exe",
+            "*.dll",
+            "*.so",
+            "*.dylib",
+            # 应用数据/缓存目录
+            "node_modules",
+            ".cache",
+            "__pycache__",
+            "*.pyc",
+            # QQ/微信/浏览器缓存目录中的无用文件
+            "EmojiSystermResource",
+            "ThumbTemp",
+            "EBWebView",
+            "component_crx_cache",
+            "lottie",
+            "*.lottie",
+            # 大型二进制数据文件
+            "*.db",
+            "*.sqlite",
+            "*.db3",
         ]
 
         exclude_patterns_str = ""
@@ -359,6 +391,12 @@ class FileScanner:
                 ".ini",
                 ".cfg",
                 ".conf",
+                ".csv",
+                ".html",
+                ".css",
+                ".sql",
+                ".log",
+                ".rtf",
             ],
             # 移除图片
             # 'image': ['.jpg', '.jpeg', '.png', '.gif', '.bmp', '.tiff'],
@@ -584,6 +622,12 @@ class FileScanner:
         # 结束索引批量模式（提交所有剩余文档）
         if self.index_manager:
             try:
+                # 通知前端进入最终提交阶段
+                if self.progress_callback:
+                    try:
+                        self.progress_callback(96)
+                    except Exception:
+                        pass
                 self.index_manager.end_batch_mode(commit=True)
                 self.logger.info("批量模式结束，索引已提交")
             except Exception as e:
@@ -627,7 +671,7 @@ class FileScanner:
         return all_files
 
     def _collect_files_from_dir(
-        self, dir_path: Path, files_list: List[Path], progress_info: dict = None
+        self, dir_path: Path, files_list: List[Path], progress_info: Optional[dict] = None
     ):
         """从目录收集文件（递归）- 使用os.scandir优化性能"""
         if not dir_path.exists() or not dir_path.is_dir():
@@ -704,6 +748,9 @@ class FileScanner:
                                     continue
                             except OSError:
                                 continue
+                            # 排除模式检查文件名（如 ~$ 开头的 Office 临时文件）
+                            if any(self._match_exclude(pattern, entry.name) for pattern in self.exclude_patterns):
+                                continue
                             file_ext = Path(entry.name).suffix.lower()
                             if file_ext in self.all_extensions:
                                 yield Path(entry.path)
@@ -715,7 +762,7 @@ class FileScanner:
             self.logger.debug(f"扫描目录失败 {dir_path}: {e}")
 
     def _scan_dir_recursive(
-        self, dir_path: Path, files_list: List[Path], progress_info: dict = None
+        self, dir_path: Path, files_list: List[Path], progress_info: Optional[dict] = None
     ):
         """使用os.scandir递归扫描目录，比os.walk更快"""
         # 每处理 N 个条目检查一次停止标志，避免过于频繁的锁竞争
@@ -763,6 +810,9 @@ class FileScanner:
                                     continue  # 跳过特殊文件
                             except OSError:
                                 continue
+                            # 排除模式检查文件名（如 ~$ 开头的 Office 临时文件）
+                            if any(self._match_exclude(pattern, entry.name) for pattern in self.exclude_patterns):
+                                continue
                             # 快速扩展名检查（不调用stat）
                             file_ext = Path(entry.name).suffix.lower()
                             if file_ext in self.all_extensions:
@@ -788,7 +838,7 @@ class FileScanner:
         except Exception as e:
             self.logger.debug(f"扫描目录失败 {dir_path}: {e}")
 
-    def _collect_files_fast(self, progress_info: dict = None) -> List[Path]:
+    def _collect_files_fast(self, progress_info: Optional[dict] = None) -> List[Path]:
         """快速收集所有需要扫描的文件路径
 
         使用os.scandir进行高效目录遍历，配合排除模式过滤。
@@ -822,7 +872,7 @@ class FileScanner:
             # scandir-rs需要从目标目录运行以返回正确的相对路径
             os.chdir(dir_path)
 
-            walk = Walk(".", skip_hidden=False)
+            walk = Walk(".", skip_hidden=False)  # type: ignore[misc]
 
             for root, subdirs, files in walk:
                 if self._is_stop_requested():
@@ -849,6 +899,9 @@ class FileScanner:
                         if stat_result.st_mode & 0o170000 != 0o100000:
                             continue  # 跳过特殊文件
                     except OSError:
+                        continue
+                    # 排除模式检查文件名
+                    if any(self._match_exclude(pattern, file_name) for pattern in self.exclude_patterns):
                         continue
                     # 快速扩展名检查
                     file_ext = file_path.suffix.lower()
@@ -927,6 +980,10 @@ class FileScanner:
                                         if stat_result.st_mode & 0o170000 != 0o100000:
                                             continue
                                     except OSError:
+                                        continue
+
+                                    # 排除模式检查文件名（如 ~$ 开头的 Office 临时文件）
+                                    if any(self._match_exclude(pattern, entry.name) for pattern in self.exclude_patterns):
                                         continue
 
                                     self._process_file(Path(entry.path))
@@ -1194,6 +1251,28 @@ class FileScanner:
         ]
     )
 
+    # 二进制/压缩/数据库扩展名（无文本内容可提取）
+    _BINARY_EXTENSIONS = frozenset(
+        [
+            ".zip", ".rar", ".7z", ".tar", ".gz", ".bz2", ".xz", ".cab",
+            ".exe", ".dll", ".so", ".dylib", ".msi",
+            ".db", ".sqlite", ".db3",
+            ".iso", ".dmg",
+            ".pyc", ".pyo", ".lottie",
+        ]
+    )
+
+    # 无用路径片段（出现这些路径片段时直接跳过）
+    _SKIP_PATH_FRAGMENTS = frozenset(
+        [
+            "lottie",
+            "emojisystermresource",
+            "thumbtemp",
+            "ebwebview",
+            "component_crx_cache",
+        ]
+    )
+
     def _should_index(
         self, path: str, stat_result: Optional[os.stat_result] = None
     ) -> bool:
@@ -1208,6 +1287,15 @@ class FileScanner:
 
         # 强制拒绝媒体扩展名
         if file_ext in self._MEDIA_EXTENSIONS:
+            return False
+
+        # 强制拒绝二进制/压缩/数据库扩展名
+        if file_ext in self._BINARY_EXTENSIONS:
+            return False
+
+        # 快速路径片段检查（跳过已知无用路径如 lottie、emoji缓存等）
+        path_lower = path.lower()
+        if any(fragment in path_lower for fragment in self._SKIP_PATH_FRAGMENTS):
             return False
 
         # 快速扩展名检查（使用 set 的 O(1) 查找）
@@ -1236,7 +1324,7 @@ class FileScanner:
 
         # 检查是否为系统文件（只对可能可执行的扩展名进行检查）
         if file_ext in self._EXECUTABLE_EXTENSIONS:
-            if self._is_system_file(path, stat_result):
+            if self._is_system_file(path):
                 return False
 
         return True
@@ -1517,7 +1605,7 @@ class FileScanner:
         if self.document_parser is not None:
             try:
                 if hasattr(self.document_parser, "close"):
-                    self.document_parser.close()
+                    self.document_parser.close()  # type: ignore[attr-defined]
                     self.logger.info("文档解析器已关闭")
             except Exception as e:
                 self.logger.warning(f"关闭文档解析器时出错：{e}")

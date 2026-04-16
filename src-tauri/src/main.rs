@@ -259,6 +259,12 @@ fn read_backend_port() -> Option<u16> {
     None
 }
 
+/// 获取后端实际端口（供前端动态发现）
+#[tauri::command]
+fn get_backend_port() -> u16 {
+    read_backend_port().unwrap_or(18642)
+}
+
 /// 显示后端启动错误对话框
 fn show_backend_error_dialog(app: &AppHandle, error: &str) {
     warn!("准备显示后端启动错误对话框: {}", error);
@@ -482,6 +488,68 @@ fn restart_backend(
     Ok("后端进程已停止，请重启应用以启动新进程".to_string())
 }
 
+/// 打开外部 URL（在默认浏览器中）
+#[tauri::command]
+fn open_external_url(url: String) -> Result<(), String> {
+    // 使用 std::process::Command 打开默认浏览器
+    #[cfg(target_os = "windows")]
+    {
+        std::process::Command::new("cmd")
+            .args(["/C", "start", "", &url])
+            .spawn()
+            .map_err(|e| format!("打开URL失败: {}", e))?;
+    }
+    #[cfg(target_os = "macos")]
+    {
+        std::process::Command::new("open")
+            .arg(&url)
+            .spawn()
+            .map_err(|e| format!("打开URL失败: {}", e))?;
+    }
+    #[cfg(target_os = "linux")]
+    {
+        std::process::Command::new("xdg-open")
+            .arg(&url)
+            .spawn()
+            .map_err(|e| format!("打开URL失败: {}", e))?;
+    }
+    Ok(())
+}
+
+/// 选择目录（通过 Rust API 绕过 URL 限制）
+/// 使用 spawn_blocking 在后台线程执行 blocking_pick_folder
+#[tauri::command]
+async fn pick_directory(app_handle: tauri::AppHandle) -> Result<Option<String>, String> {
+    use tauri_plugin_dialog::DialogExt;
+    use std::sync::mpsc;
+
+    // 使用 channel 从后台线程获取结果
+    let (tx, rx) = mpsc::channel();
+
+    // 在后台线程运行 blocking_pick_folder（spawn_blocking 不会阻塞 Tauri 主线程）
+    let _ = tauri::async_runtime::spawn_blocking(move || {
+        let result = app_handle.dialog().file().blocking_pick_folder();
+        let path = match result {
+            Some(p) => {
+                let path_str = p.to_string();
+                if path_str.starts_with("file://") {
+                    Some(path_str[7..].to_string())
+                } else {
+                    Some(path_str)
+                }
+            }
+            None => None,
+        };
+        let _ = tx.send(path);
+    }).await;
+
+    // 等待后台线程发送结果
+    match rx.recv() {
+        Ok(path) => Ok(path),
+        Err(_) => Err("获取目录选择结果失败".to_string()),
+    }
+}
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // 初始化日志
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info"))
@@ -503,6 +571,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             get_backend_status,
             kill_backend,
             restart_backend,
+            get_backend_port,
+            open_external_url,
+            pick_directory,
         ])
         .setup(|app| {
             match start_python_backend(app) {
@@ -510,10 +581,52 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     let pid = process.0.lock().unwrap_or(0);
                     info!("后端进程已启动，PID: {:?}", pid);
 
-                    // 状态流转: Starting -> Running
-                    set_backend_status(BackendStatus::Running);
-                    let _ = app.emit("backend-status-changed", "running");
-                    let _ = app.emit("backend-started", ());
+                    // 先隐藏主窗口，等后端真正就绪后再显示
+                    if let Some(main_window) = app.get_webview_window("main") {
+                        let _ = main_window.hide();
+                    }
+
+                    // 启动后台任务：等待后端真正就绪后显示窗口
+                    let app_handle = app.handle().clone();
+                    tauri::async_runtime::spawn(async move {
+                        // 等待后端就绪（最多60秒）
+                        let max_wait = 60;
+                        let port = read_backend_port().unwrap_or(18642);
+
+                        info!("等待后端就绪于端口 {}...", port);
+
+                        for i in 0..max_wait {
+                            // 使用 TcpStream 检查端口是否可用
+                            if std::net::TcpStream::connect_timeout(
+                                &std::net::SocketAddr::from(([127, 0, 0, 1], port)),
+                                std::time::Duration::from_secs(1),
+                            ).is_ok() {
+                                info!("后端已就绪，耗时 {} 轮", i);
+
+                                // 短暂等待确保 FastAPI 完全初始化
+                                std::thread::sleep(std::time::Duration::from_millis(300));
+
+                                // 状态流转: Starting -> Running
+                                set_backend_status(BackendStatus::Running);
+                                let _ = app_handle.emit("backend-status-changed", "running");
+                                let _ = app_handle.emit("backend-started", ());
+
+                                // 显示主窗口
+                                if let Some(main_window) = app_handle.get_webview_window("main") {
+                                    let _ = main_window.show();
+                                    let _ = main_window.set_focus();
+                                }
+                                return;
+                            }
+                            std::thread::sleep(std::time::Duration::from_millis(500));
+                        }
+
+                        // 超时
+                        error!("后端启动超时（{}秒）", max_wait);
+                        set_backend_status(BackendStatus::Failed);
+                        let _ = app_handle.emit("backend-status-changed", "failed");
+                        show_backend_error_dialog(&app_handle, "后端启动超时，请检查配置");
+                    });
 
                     app.manage(process);
                 }

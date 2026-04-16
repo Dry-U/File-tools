@@ -113,8 +113,8 @@ _rebuild_progress_state = {
     "error": None,
 }
 
-# 保护 _rebuild_progress_state 的线程锁
-_rebuild_lock = threading.Lock()
+# 保护 _rebuild_progress_state 的线程锁（使用 RLock 防止回调中同线程重入死锁）
+_rebuild_lock = threading.RLock()
 
 
 @router.get("/rebuild-progress")
@@ -180,11 +180,21 @@ async def rebuild_index_stream(
             _rebuild_progress_state["error"] = None
 
         def progress_callback(progress):
-            """进度回调函数 - 发送进度到队列"""
+            """进度回调函数 - 发送进度到队列并更新全局状态"""
             try:
                 progress_queue.put_nowait(("progress", progress))
             except queue.Full:
                 pass
+            # 同步更新全局进度状态，以便轮询端点也能获取
+            with _rebuild_lock:
+                _rebuild_progress_state["progress"] = progress
+                # 从 file_scanner 的统计信息中获取已扫描/已索引数
+                try:
+                    if hasattr(file_scanner, 'scan_stats'):
+                        _rebuild_progress_state["files_scanned"] = file_scanner.scan_stats.get("total_files_scanned", 0)
+                        _rebuild_progress_state["files_indexed"] = file_scanner.scan_stats.get("total_files_indexed", 0)
+                except Exception:
+                    pass
 
         try:
             original_callback = file_scanner.progress_callback
@@ -256,20 +266,26 @@ async def rebuild_index_stream(
 
                 await asyncio.sleep(0.05)  # 减少等待时间，更快响应
 
+                # 检查是否被取消
+                with _rebuild_lock:
+                    if not _rebuild_progress_state["in_progress"]:
+                        if _rebuild_progress_state.get("error") == "用户取消":
+                            cancelled_data = {
+                                "status": "cancelled",
+                                "progress": _rebuild_progress_state["progress"],
+                                "files_scanned": _rebuild_progress_state.get("files_scanned", 0),
+                                "files_indexed": _rebuild_progress_state.get("files_indexed", 0),
+                            }
+                            yield f"data: {json.dumps(cancelled_data)}\n\n"
+                            logger.info("SSE: 发送取消消息到客户端")
+                            return
+
             # 获取扫描结果
             stats = None
             try:
                 logger.info("SSE: 准备获取扫描结果...")
                 stats = scan_task.result()
                 logger.info(f"SSE: 获取到扫描结果: {stats}")
-            except Exception as e:
-                logger.error(f"SSE: 获取扫描结果异常: {str(e)}")
-                # 发送错误消息后让异常继续传播到外层
-                with _rebuild_lock:
-                    _rebuild_progress_state["error"] = str(e)
-                    _rebuild_progress_state["in_progress"] = False
-                yield f"data: {json.dumps({'status': 'error', 'error': str(e)})}\n\n"
-                return  # 显式返回，避免继续执行
             except Exception as e:
                 logger.error(f"SSE: 获取扫描结果异常: {str(e)}")
                 # 发送错误消息后让异常继续传播到外层
@@ -452,14 +468,27 @@ async def version_check():
     }
 
 
+# 更新检查缓存（避免频繁调用 GitHub API）
+_update_cache: dict = {}
+_UPDATE_CACHE_TTL = 300  # 5 分钟缓存
+
+
 @router.get("/check-update")
 async def check_update():
     """检查 GitHub Releases 是否有新版本
 
-    返回最新版本信息及当前版本与最新版本的比较结果
+    返回最新版本信息及当前版本与最新版本的比较结果。
+    结果缓存5分钟以避免频繁调用 GitHub API 被限流。
     """
+    import time
+
     import requests
     from packaging import version as pkg_version
+
+    # 检查缓存
+    now = time.time()
+    if _update_cache and now - _update_cache.get("_timestamp", 0) < _UPDATE_CACHE_TTL:
+        return _update_cache.get("data", {})
 
     current = get_version()
     repo = "Dry-U/File-tools"
@@ -487,7 +516,7 @@ async def check_update():
             # 版本解析失败，简单比较字符串
             is_update_available = latest_version != current
 
-        return {
+        result = {
             "current_version": current,
             "latest_version": latest_version,
             "is_update_available": is_update_available,
@@ -495,6 +524,12 @@ async def check_update():
             "release_notes": release_notes,
             "repo": repo,
         }
+
+        # 更新缓存
+        _update_cache["_timestamp"] = now
+        _update_cache["data"] = result
+
+        return result
     except requests.RequestException as e:
         logger.warning(f"检查更新失败: {e}")
         raise HTTPException(status_code=503, detail="无法连接到更新服务器")
@@ -640,4 +675,14 @@ async def shutdown_app(request: Request):
 
     except Exception as e:
         logger.error(f"关闭时发生异常: {e}")
+        # 即使异常也尝试保存关键索引数据
+        try:
+            if (
+                hasattr(request.app.state, "index_manager")
+                and request.app.state.index_manager
+            ):
+                request.app.state.index_manager.close()
+                logger.info("紧急保存索引完成")
+        except Exception:
+            pass
         os._exit(1)

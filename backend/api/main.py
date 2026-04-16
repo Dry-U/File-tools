@@ -14,8 +14,6 @@ from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse, Response
-from fastapi.staticfiles import StaticFiles
-
 from backend.api.routes import chat, config, directory, search, system
 from backend.api.routes.system import get_version
 from backend.utils.logger import get_logger
@@ -251,8 +249,8 @@ async def add_security_headers(request, call_next):
     return response
 
 
-async def _cleanup_invalid_index_documents(index_manager, config_loader):
-    """清理不在允许路径范围内的索引文档
+def _cleanup_invalid_index_documents_sync(index_manager, config_loader) -> int:
+    """清理不在允许路径范围内的索引文档（同步版本，用于 run_in_executor）
 
     在应用启动时执行，删除那些已从扫描路径中移除的文件对应的索引条目，
     避免搜索时产生大量无效结果和警告日志。
@@ -260,7 +258,6 @@ async def _cleanup_invalid_index_documents(index_manager, config_loader):
     Returns:
         删除的文档数量
     """
-    import asyncio
     from pathlib import Path
 
     # 获取所有扫描路径
@@ -307,9 +304,9 @@ async def _cleanup_invalid_index_documents(index_manager, config_loader):
 
     try:
         # 遍历索引中的所有文档
-        for doc_id in range(int(num_docs)):
+        for doc_id in range(int(num_docs)):  # type: ignore[reportArgumentType]
             try:
-                doc = searcher.doc(doc_id)
+                doc = searcher.doc(doc_id)  # type: ignore[arg-type]
                 path_val = doc.get_first("path")
                 if not path_val:
                     continue
@@ -339,9 +336,6 @@ async def _cleanup_invalid_index_documents(index_manager, config_loader):
             try:
                 index_manager.delete_document(path)
                 deleted_count += 1
-                if deleted_count % 100 == 0:
-                    # 每100个文档让出事件循环，避免阻塞
-                    await asyncio.sleep(0)
             except Exception as e:
                 logger.debug(f"删除索引文档失败 {path}: {e}")
 
@@ -497,8 +491,9 @@ async def lifespan(app: FastAPI):
         # 清理不在允许路径范围内的索引文档
         try:
             logger.info("检查并清理无效索引文档...")
-            deleted_count = await _cleanup_invalid_index_documents(
-                index_manager, config_loader
+            loop = asyncio.get_event_loop()
+            deleted_count = await loop.run_in_executor(
+                None, _cleanup_invalid_index_documents_sync, index_manager, config_loader
             )
             if deleted_count > 0:
                 logger.info(f"已清理 {deleted_count} 个无效索引文档")
@@ -591,7 +586,7 @@ app.router.lifespan_context = lifespan
 
 # 错误处理
 @app.exception_handler(RequestValidationError)
-async def validation_exception_handler(request: Request, exc: RequestValidationError):
+async def validation_exception_handler(_request: Request, exc: RequestValidationError):
     """处理请求验证错误"""
     logger.error(f"请求验证错误：{exc.errors()}")
     return JSONResponse(
@@ -600,7 +595,7 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
 
 
 @app.exception_handler(Exception)
-async def global_exception_handler(request: Request, exc: Exception):
+async def global_exception_handler(_request: Request, exc: Exception):
     """全局异常处理器"""
     logger.error(f"未处理的异常：{str(exc)}", exc_info=True)
     return JSONResponse(status_code=500, content={"detail": "内部服务器错误"})
@@ -648,8 +643,16 @@ app.include_router(config.router, prefix="/api")
 app.include_router(directory.router, prefix="/api")
 app.include_router(system.router, prefix="/api")
 
-# 挂载静态文件目录
+# 挂载静态文件目录（禁用缓存以便开发时热重载）
+from starlette.staticfiles import StaticFiles as StarletteStaticFiles
 
 _static_dir = _get_frontend_dir() / "static"
 if _static_dir.exists():
-    app.mount("/static", StaticFiles(directory=str(_static_dir)), name="static")
+    class NoCacheStaticFiles(StarletteStaticFiles):
+        async def get_response(self, path, scope):
+            response = await super().get_response(path, scope)
+            response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+            response.headers["Pragma"] = "no-cache"
+            response.headers["Expires"] = "0"
+            return response
+    app.mount("/static", NoCacheStaticFiles(directory=str(_static_dir)), name="static")

@@ -110,6 +110,7 @@ class RAGPipeline:
         self._cleanup_interval = 3600  # 每小时检查一次
 
         # 启动后台会话清理线程
+        self._stop_cleanup = threading.Event()
         self._cleanup_thread = threading.Thread(
             target=self._background_session_cleanup, daemon=True, name="SessionCleanup"
         )
@@ -148,8 +149,10 @@ class RAGPipeline:
 
     def _background_session_cleanup(self) -> None:
         """后台线程：定期清理旧会话"""
-        while True:
-            time.sleep(self._cleanup_interval)
+        while not self._stop_cleanup.is_set():
+            self._stop_cleanup.wait(self._cleanup_interval)
+            if self._stop_cleanup.is_set():
+                break
             try:
                 self._cleanup_old_sessions_if_needed()
             except Exception as e:
@@ -1674,9 +1677,22 @@ class RAGPipeline:
         try:
             if hasattr(self, "chat_db") and self.chat_db:
                 self.chat_db.close()
-                logger.info("RAGPipeline 资源已清理")
         except Exception as e:
-            logger.warning(f"清理 RAGPipeline 资源时出错: {e}")
+            logger.warning(f"清理 RAGPipeline chat_db 时出错: {e}")
+
+        try:
+            if hasattr(self, "_generation_executor") and self._generation_executor:
+                self._generation_executor.shutdown(wait=False)
+        except Exception as e:
+            logger.warning(f"关闭生成线程池时出错: {e}")
+
+        try:
+            if hasattr(self, "_stop_cleanup") and self._stop_cleanup:
+                self._stop_cleanup.set()
+        except Exception as e:
+            logger.warning(f"停止会话清理线程时出错: {e}")
+
+        logger.info("RAGPipeline 资源已清理")
 
     def __del__(self):
         """析构时清理资源"""

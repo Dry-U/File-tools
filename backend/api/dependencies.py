@@ -43,27 +43,27 @@ def get_app():
 
 
 def get_config_loader():
-    """获取配置加载器（单例）"""
-    if _app is None:
-        # 如果_app未初始化，返回一个默认的ConfigLoader
-        return ConfigLoader()
-    if not hasattr(_app.state, "config_loader"):
-        _app.state.config_loader = ConfigLoader()
-    return _app.state.config_loader
+    """获取配置加载器（单例，线程安全）"""
+    with _app_lock:
+        if _app is None:
+            return ConfigLoader()
+        if not hasattr(_app.state, "config_loader"):
+            _app.state.config_loader = ConfigLoader()
+        return _app.state.config_loader
 
 
 def get_index_manager(config_loader: ConfigLoader = Depends(get_config_loader)):
     """获取索引管理器"""
-    if _app is None:
-        # 如果_app未初始化，创建一个新的IndexManager实例
-        from backend.core.index_manager import IndexManager
+    with _app_lock:
+        if _app is None:
+            from backend.core.index_manager import IndexManager
 
-        return IndexManager(config_loader)
-    if not hasattr(_app.state, "index_manager"):
-        from backend.core.index_manager import IndexManager
+            return IndexManager(config_loader)
+        if not hasattr(_app.state, "index_manager"):
+            from backend.core.index_manager import IndexManager
 
-        _app.state.index_manager = IndexManager(config_loader)
-    return _app.state.index_manager
+            _app.state.index_manager = IndexManager(config_loader)
+        return _app.state.index_manager
 
 
 def get_search_engine(
@@ -71,16 +71,16 @@ def get_search_engine(
     index_manager=Depends(get_index_manager),
 ):
     """获取搜索引擎"""
-    if _app is None:
-        # 如果_app未初始化，创建一个新的SearchEngine实例
-        from backend.core.search_engine import SearchEngine
+    with _app_lock:
+        if _app is None:
+            from backend.core.search_engine import SearchEngine
 
-        return SearchEngine(index_manager, config_loader)
-    if not hasattr(_app.state, "search_engine"):
-        from backend.core.search_engine import SearchEngine
+            return SearchEngine(index_manager, config_loader)
+        if not hasattr(_app.state, "search_engine"):
+            from backend.core.search_engine import SearchEngine
 
-        _app.state.search_engine = SearchEngine(index_manager, config_loader)
-    return _app.state.search_engine
+            _app.state.search_engine = SearchEngine(index_manager, config_loader)
+        return _app.state.search_engine
 
 
 def get_file_scanner(
@@ -88,16 +88,16 @@ def get_file_scanner(
     index_manager=Depends(get_index_manager),
 ):
     """获取文件扫描器"""
-    if _app is None:
-        # 如果_app未初始化，创建一个新的FileScanner实例
-        from backend.core.file_scanner import FileScanner
+    with _app_lock:
+        if _app is None:
+            from backend.core.file_scanner import FileScanner
 
-        return FileScanner(config_loader, None, index_manager)
-    if not hasattr(_app.state, "file_scanner"):
-        from backend.core.file_scanner import FileScanner
+            return FileScanner(config_loader, None, index_manager)
+        if not hasattr(_app.state, "file_scanner"):
+            from backend.core.file_scanner import FileScanner
 
-        _app.state.file_scanner = FileScanner(config_loader, None, index_manager)
-    return _app.state.file_scanner
+            _app.state.file_scanner = FileScanner(config_loader, None, index_manager)
+        return _app.state.file_scanner
 
 
 def get_rag_pipeline(
@@ -105,30 +105,30 @@ def get_rag_pipeline(
     search_engine=Depends(get_search_engine),
 ):
     """获取RAG管道（可选，禁用时返回None）"""
-    if _app is None:
-        # 如果_app未初始化，按需创建RAGPipeline实例
-        if config_loader.getboolean("ai_model", "enabled", False):
-            from backend.core.model_manager import ModelManager
-            from backend.core.rag_pipeline import RAGPipeline
+    with _app_lock:
+        if _app is None:
+            if config_loader.getboolean("ai_model", "enabled", False):
+                from backend.core.model_manager import ModelManager
+                from backend.core.rag_pipeline import RAGPipeline
 
-            model_manager = ModelManager(config_loader)
-            logger.info("RAG管道初始化完成")
-            return RAGPipeline(model_manager, config_loader, search_engine)
-        else:
-            return None
-    if not hasattr(_app.state, "rag_pipeline"):
-        if config_loader.getboolean("ai_model", "enabled", False):
-            from backend.core.model_manager import ModelManager
-            from backend.core.rag_pipeline import RAGPipeline
+                model_manager = ModelManager(config_loader)
+                logger.info("RAG管道初始化完成")
+                return RAGPipeline(model_manager, config_loader, search_engine)
+            else:
+                return None
+        if not hasattr(_app.state, "rag_pipeline"):
+            if config_loader.getboolean("ai_model", "enabled", False):
+                from backend.core.model_manager import ModelManager
+                from backend.core.rag_pipeline import RAGPipeline
 
-            model_manager = ModelManager(config_loader)
-            _app.state.rag_pipeline = RAGPipeline(
-                model_manager, config_loader, search_engine
-            )
-            logger.info("RAG管道初始化完成")
-        else:
-            _app.state.rag_pipeline = None
-    return _app.state.rag_pipeline
+                model_manager = ModelManager(config_loader)
+                _app.state.rag_pipeline = RAGPipeline(
+                    model_manager, config_loader, search_engine
+                )
+                logger.info("RAG管道初始化完成")
+            else:
+                _app.state.rag_pipeline = None
+        return _app.state.rag_pipeline
 
 
 def get_file_monitor(
@@ -137,25 +137,25 @@ def get_file_monitor(
     file_scanner=Depends(get_file_scanner),
 ):
     """获取文件监控器"""
-    if _app is None:
-        # 如果_app未初始化，创建一个新的FileMonitor实例
-        from backend.core.file_monitor import FileMonitor
+    with _app_lock:
+        if _app is None:
+            from backend.core.file_monitor import FileMonitor
 
-        file_monitor = FileMonitor(config_loader, index_manager, file_scanner)
-        if config_loader.getboolean("monitor", "enabled", False):
-            file_monitor.start_monitoring()
-            logger.info("文件监控已启动")
-        return file_monitor
-    if not hasattr(_app.state, "file_monitor"):
-        from backend.core.file_monitor import FileMonitor
+            file_monitor = FileMonitor(config_loader, index_manager, file_scanner)
+            if config_loader.getboolean("monitor", "enabled", False):
+                file_monitor.start_monitoring()
+                logger.info("文件监控已启动")
+            return file_monitor
+        if not hasattr(_app.state, "file_monitor"):
+            from backend.core.file_monitor import FileMonitor
 
-        _app.state.file_monitor = FileMonitor(
-            config_loader, index_manager, file_scanner
-        )
-        if config_loader.getboolean("monitor", "enabled", False):
-            _app.state.file_monitor.start_monitoring()
-            logger.info("文件监控已启动")
-    return _app.state.file_monitor
+            _app.state.file_monitor = FileMonitor(
+                config_loader, index_manager, file_scanner
+            )
+            if config_loader.getboolean("monitor", "enabled", False):
+                _app.state.file_monitor.start_monitoring()
+                logger.info("文件监控已启动")
+        return _app.state.file_monitor
 
 
 def get_is_path_allowed():
@@ -326,25 +326,12 @@ def resolve_path_if_allowed(path: str, config_loader: ConfigLoader) -> Path | No
         return None
 
     try:
+        # 使用 resolve() 解析符号链接和相对路径，获取真实绝对路径
+        # 注意：不再检查是否为符号链接，因为符号链接可能指向允许的目录
+        # 只要最终解析的路径在允许列表中，就允许访问
+        # 这与 is_path_allowed() 保持一致的策略
         original_path = Path(path)
-
-        # 检查符号链接
-        try:
-            if original_path.is_symlink():
-                logger.warning(f"路径是符号链接，拒绝访问: {path[:50]}...")
-                return None
-        except (OSError, ValueError):
-            pass
-
         file_path = original_path.resolve()
-
-        # 再次检查 resolve 后的符号链接
-        try:
-            if file_path.is_symlink():
-                logger.warning(f"解析后的路径是符号链接，拒绝访问: {file_path}")
-                return None
-        except (OSError, ValueError):
-            pass
     except (OSError, ValueError) as e:
         logger.warning(f"路径解析失败: {path[:50]}... - {e}")
         return None
