@@ -20,20 +20,14 @@ repos:
       - id: mixed-line-ending
         args: ['--fix=lf']
 
-  # Python 代码格式化
-  - repo: https://github.com/psf/black
-    rev: 23.12.1
-    hooks:
-      - id: black
-        language_version: python3
-        args: ['--line-length=100']
-
-  # Python 代码检查
+  # Python 代码检查和格式化（ruff 统一处理，与 CI 一致）
   - repo: https://github.com/charliermarsh/ruff-pre-commit
     rev: v0.1.9
     hooks:
       - id: ruff
         args: ['--fix', '--exit-non-zero-on-fix']
+      - id: ruff-format
+        alias_type: secondhand
 
   # Python 类型检查
   - repo: https://github.com/pre-commit/mirrors-mypy
@@ -50,13 +44,6 @@ repos:
       - id: bandit
         args: ['-c', 'pyproject.toml']
         additional_dependencies: ["bandit[toml]"]
-
-  # Python 导入排序
-  - repo: https://github.com/pycqa/isort
-    rev: 5.13.2
-    hooks:
-      - id: isort
-        args: ['--profile=black', '--line-length=100']
 
   # 文档字符串检查
   - repo: https://github.com/PyCQA/pydocstyle

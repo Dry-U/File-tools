@@ -1,6 +1,6 @@
 {
   "name": "filetools",
-  "version": "v1.1.2",
+  "version": "1.1.2",
   "description": "智能文件检索与问答系统 - Tauri Desktop App",
   "scripts": {
     "tauri": "tauri",

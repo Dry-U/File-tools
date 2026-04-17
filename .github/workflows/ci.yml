@@ -1,8 +1,5 @@
 name: CI/CD (PyInstaller + Tauri)
 
-env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-
 on:
   push:
     branches: [main, develop]
@@ -22,6 +19,7 @@ on:
           - release
 
 env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
   PYTHONUNBUFFERED: 1
   UV_SYSTEM_PYTHON: 1
   # Use default PyPI in CI (override pyproject.toml's Chinese mirror)
@@ -54,7 +52,6 @@ jobs:
       - name: Type check with mypy
         run: |
           uvx mypy backend/ --ignore-missing-imports --pretty
-        continue-on-error: true
 
   # ==================== 单元测试 ====================
   test:
@@ -75,24 +72,19 @@ jobs:
         with:
           enable-cache: true
 
-      - name: Cache pip packages
-        uses: actions/cache@v5
-        with:
-          path: ~/.cache/pip
-          key: pip-${{ runner.os }}-${{ hashFiles('**/pyproject.toml') }}
-          restore-keys: |
-            pip-${{ runner.os }}-
-
       - name: Run tests with coverage
         run: |
+          uv sync --index-url https://pypi.org/simple/
           uv run pytest tests/unit/ -v --cov=backend --cov-report=xml --cov-report=term --tb=short
 
       - name: Run integration tests
         run: |
+          uv sync --index-url https://pypi.org/simple/
           uv run pytest tests/integration/ -v --tb=short
 
       - name: Run API tests
         run: |
+          uv sync --index-url https://pypi.org/simple/
           uv run pytest tests/api/ -v --tb=short
 
       - name: Upload coverage to Codecov
@@ -100,7 +92,7 @@ jobs:
         uses: codecov/codecov-action@v6
         with:
           files: ./coverage.xml
-          fail_ci_if_error: false
+          fail_ci_if_error: true
           verbose: true
 
   # ==================== macOS 测试 ====================
@@ -242,7 +234,6 @@ jobs:
 
       - name: Build Tauri application
         run: |
-          $env:PATH = 'C:\Users\20840\.cargo\bin;' + $env:PATH
           npm run tauri:build -- --bundles nsis,msi
         env:
           FILETOOLS_VERSION: ${{ env.FILETOOLS_VERSION }}
@@ -662,6 +653,7 @@ jobs:
           chmod +x "$APPIMAGE_PATH"
 
           # 提取 AppImage 到临时目录
+          PROJECT_DIR=$(pwd)
           TEMP_DIR=$(mktemp -d)
           cd "$TEMP_DIR"
           "$APPIMAGE_PATH" --appimage-extract > /dev/null 2>&1
@@ -689,10 +681,12 @@ jobs:
             echo "Warning: App may not be fully ready after $max_wait seconds"
           fi
 
-          # 运行 E2E 测试
+          # 运行 E2E 测试（返回项目目录）
+          cd "$PROJECT_DIR"
           uv run pytest tests/e2e/ -v --tb=short
 
           # Cleanup
+          cd "$PROJECT_DIR"
           kill $APP_PID 2>/dev/null || true
 
       - name: Upload test artifacts on failure
