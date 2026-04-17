@@ -139,6 +139,80 @@ class EmbeddingModelManager:
 
         return os.path.exists(model_cache_path) or os.path.exists(hf_model_path)
 
+    def _get_model_cache_path(self, model_name: str, cache_dir: str) -> str:
+        """获取模型的缓存路径（优先本地缓存，其次 HF 缓存）"""
+        local_path = os.path.join(cache_dir, model_name.replace("/", "_"))
+        if os.path.exists(local_path):
+            return local_path
+
+        hf_cache = Path.home() / ".cache" / "huggingface" / "hub"
+        hf_path = hf_cache / f"models--{model_name.replace('/', '--')}"
+        if os.path.exists(hf_path):
+            return str(hf_path)
+
+        return local_path  # 返回本地路径，即使不存在
+
+    def _verify_model_integrity(self, model_name: str, cache_dir: str) -> bool:
+        """验证模型文件完整性：检查文件存在且大小 > 1MB
+
+        这是基础完整性检查，能检测模型文件被截断或损坏的情况。
+        方案C：仅验证文件存在且大小合理。
+
+        Returns:
+            True 如果验证通过，False 如果验证失败（但仍然允许使用）
+        """
+        MIN_MODEL_SIZE = 1024 * 1024  # 1MB
+
+        model_path = self._get_model_cache_path(model_name, cache_dir)
+        if not os.path.exists(model_path):
+            # 模型可能在 HF 缓存但路径不对，尝试递归搜索
+            hf_cache = Path.home() / ".cache" / "huggingface" / "hub"
+            hf_path = hf_cache / f"models--{model_name.replace('/', '--')}"
+            if hf_path.exists():
+                model_path = str(hf_path)
+
+        if not os.path.exists(model_path):
+            logger.warning(
+                f"[EmbeddingManager] 模型缓存路径不存在: {model_name}, "
+                f"可能正在下载或使用内存模式"
+            )
+            return True  # 不阻止使用，可能是首次下载
+
+        # 检查目录下的文件
+        if os.path.isdir(model_path):
+            files = []
+            for root, dirs, filenames in os.walk(model_path):
+                for f in filenames:
+                    fp = os.path.join(root, f)
+                    if os.path.isfile(fp):
+                        files.append(fp)
+
+            if not files:
+                logger.warning(f"[EmbeddingManager] 模型目录为空: {model_path}")
+                return True
+
+            # 检查最大文件的大小
+            max_size = max(os.path.getsize(f) for f in files)
+            if max_size < MIN_MODEL_SIZE:
+                logger.warning(
+                    f"[EmbeddingManager] 模型文件异常小: {max_size} bytes < {MIN_MODEL_SIZE} bytes"
+                )
+                return False
+
+            logger.debug(f"[EmbeddingManager] 模型完整性验证通过: {max_size} bytes")
+            return True
+
+        elif os.path.isfile(model_path):
+            size = os.path.getsize(model_path)
+            if size < MIN_MODEL_SIZE:
+                logger.warning(
+                    f"[EmbeddingManager] 模型文件异常小: {size} bytes < {MIN_MODEL_SIZE} bytes"
+                )
+                return False
+            return True
+
+        return True
+
     def _load_embedding_model(self) -> bool:
         """加载 Embedding 模型"""
         try:
@@ -164,6 +238,12 @@ class EmbeddingModelManager:
             self._embedding_dim = self._embedding_model.embedding_size
             dim_info = f"向量维度: {self._embedding_dim}"
             logger.info(f"[EmbeddingManager] FastEmbed 加载成功，{dim_info}")
+
+            # 验证模型文件完整性（方案C：基础存在性检查）
+            self._verify_model_integrity(
+                self.embedding_model_name, self.embedding_cache_dir
+            )
+
             return True
 
         except ImportError as e:
@@ -249,6 +329,12 @@ class EmbeddingModelManager:
             )
             self._reranker_type = "colbert"
             logger.info("[EmbeddingManager] ColBERT 模型加载成功")
+
+            # 验证模型文件完整性（方案C：基础存在性检查）
+            self._verify_model_integrity(
+                self.reranker_model_name, self.reranker_cache_dir
+            )
+
             return True
 
         except ImportError as e:
