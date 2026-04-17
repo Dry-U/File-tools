@@ -73,6 +73,17 @@ const FileToolsChat = (function() {
         // 添加 AI 加载消息
         const loadingId = addLoadingMessage();
 
+        // 优先尝试流式端点，失败时回退到非流式
+        try {
+            const streamed = await sendMessageStreaming(text, loadingId);
+            if (streamed) {
+                loadChatHistory();
+                return;
+            }
+        } catch (streamError) {
+            console.warn('流式对话失败，回退到非流式:', streamError);
+        }
+
         try {
             const response = await fetchWithTimeout('/api/chat', {
                 method: 'POST',
@@ -98,6 +109,196 @@ const FileToolsChat = (function() {
             removeLoadingMessage(loadingId);
             addMessage('网络错误，请稍后重试', 'ai');
         }
+    }
+
+    /**
+     * 渲染 Markdown 文本为安全的 HTML
+     * @param {string} text - Markdown 文本
+     * @returns {string} 渲染后的 HTML
+     */
+    function renderMarkdown(text) {
+        try {
+            if (typeof marked !== 'undefined' && typeof DOMPurify !== 'undefined') {
+                return DOMPurify.sanitize(marked.parse(text || ''));
+            }
+        } catch (e) {
+            console.warn('Markdown 渲染失败:', e);
+        }
+        return FileToolsUtils.escapeHtml(text || '').replace(/\n/g, '<br>');
+    }
+
+    /**
+     * 添加流式消息占位符（替换 loading 消息）
+     * @param {string} loadingId - 待替换的 loading 消息 ID
+     * @returns {string} 新消息 ID
+     */
+    function addStreamingMessage(loadingId) {
+        removeLoadingMessage(loadingId);
+        const container = document.getElementById('chatContainer');
+        const div = document.createElement('div');
+        div.className = 'message-row ai';
+        const id = FileToolsUtils.generateMessageId('stream');
+        div.id = id;
+
+        div.innerHTML = `
+            <div class="message-avatar avatar-ai">
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16">
+                    <path d="M6 12.796V3.204L11.481 8 6 12.796zm.659.753 5.48-4.796a1 1 0 0 0 0-1.506L6.66 2.451C6.011 1.885 5 2.345 5 3.204v9.592a1 1 0 0 0 1.659.753z"/>
+                </svg>
+            </div>
+            <div class="message-content multiline">
+                <div class="message-body"></div>
+            </div>
+        `;
+        container.appendChild(div);
+        container.scrollTop = container.scrollHeight;
+        return id;
+    }
+
+    /**
+     * 更新流式消息内容
+     * @param {string} id - 消息 ID
+     * @param {string} text - 已累计文本
+     */
+    function updateStreamingMessage(id, text) {
+        const el = document.getElementById(id);
+        if (!el) return;
+        const body = el.querySelector('.message-body');
+        if (body) {
+            body.innerHTML = renderMarkdown(text);
+        }
+        const container = document.getElementById('chatContainer');
+        if (container) {
+            container.scrollTop = container.scrollHeight;
+        }
+    }
+
+    /**
+     * 结束流式消息（写入最终文本）
+     * @param {string} id - 消息 ID
+     * @param {string} text - 最终文本
+     */
+    function finalizeStreamingMessage(id, text) {
+        updateStreamingMessage(id, text);
+    }
+
+    /**
+     * 移除流式消息
+     * @param {string} id - 消息 ID
+     */
+    function removeStreamingMessage(id) {
+        const el = document.getElementById(id);
+        if (el) {
+            el.remove();
+        }
+    }
+
+    /**
+     * 以 SSE 流式方式发送消息
+     * @param {string} text - 用户输入
+     * @param {string} loadingId - loading 消息 ID
+     * @returns {Promise<boolean>} 是否成功流式完成（false 时外层应回退）
+     */
+    async function sendMessageStreaming(text, loadingId) {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 120000);
+
+        let response;
+        try {
+            response = await fetch('/api/chat/stream', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ query: text, session_id: currentSessionId }),
+                signal: controller.signal
+            });
+        } catch (err) {
+            clearTimeout(timeoutId);
+            throw err;
+        }
+
+        if (!response.ok || !response.body) {
+            clearTimeout(timeoutId);
+            // 4xx/5xx：读取错误信息但不回退（回退只在网络/不可用时）
+            if (response.status >= 400 && response.status < 500) {
+                removeLoadingMessage(loadingId);
+                let detail = '未知错误';
+                try {
+                    const data = await response.json();
+                    detail = data.detail || detail;
+                } catch (_e) {
+                    // 忽略
+                }
+                addMessage('出错: ' + detail, 'ai');
+                return true;
+            }
+            return false;
+        }
+
+        const streamId = addStreamingMessage(loadingId);
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder('utf-8');
+        let buffer = '';
+        let accumulated = '';
+        let finalAnswer = '';
+        let hadError = false;
+
+        try {
+            while (true) {
+                const { value, done } = await reader.read();
+                if (done) break;
+                buffer += decoder.decode(value, { stream: true });
+
+                let sepIndex;
+                while ((sepIndex = buffer.indexOf('\n\n')) !== -1) {
+                    const rawEvent = buffer.slice(0, sepIndex);
+                    buffer = buffer.slice(sepIndex + 2);
+
+                    const lines = rawEvent.split('\n');
+                    for (const line of lines) {
+                        if (!line.startsWith('data:')) continue;
+                        const payload = line.slice(5).trim();
+                        if (!payload) continue;
+                        let parsed;
+                        try {
+                            parsed = JSON.parse(payload);
+                        } catch (_e) {
+                            continue;
+                        }
+                        const type = parsed.type;
+                        const content = parsed.content;
+                        if (type === 'chunk') {
+                            accumulated += String(content || '');
+                            updateStreamingMessage(streamId, accumulated);
+                        } else if (type === 'done' || type === 'answer') {
+                            finalAnswer = String(content || accumulated);
+                            finalizeStreamingMessage(streamId, finalAnswer);
+                        } else if (type === 'error') {
+                            hadError = true;
+                            removeStreamingMessage(streamId);
+                            addMessage('出错: ' + String(content || '未知错误'), 'ai');
+                        } else if (type === 'sources') {
+                            // 暂不渲染来源列表，保留扩展点
+                        }
+                    }
+                }
+            }
+        } finally {
+            clearTimeout(timeoutId);
+            try {
+                reader.releaseLock();
+            } catch (_e) {
+                // 忽略
+            }
+        }
+
+        if (!hadError && !finalAnswer && !accumulated) {
+            removeStreamingMessage(streamId);
+            addMessage('没有收到回复', 'ai');
+        } else if (!hadError && !finalAnswer && accumulated) {
+            finalizeStreamingMessage(streamId, accumulated);
+        }
+
+        return true;
     }
 
     /**

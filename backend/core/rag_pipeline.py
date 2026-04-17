@@ -1424,6 +1424,105 @@ class RAGPipeline:
             logger.error(f"RAG查询失败: {exc}")
             return {"answer": f"错误：处理查询时发生异常 ({str(exc)})。", "sources": []}
 
+    def query_stream(self, query: str, session_id: Optional[str] = None):
+        """流式执行检索增强生成流程，逐步 yield JSON 事件"""
+        import json as _json
+
+        self._cleanup_old_sessions_if_needed()
+
+        session_key = (session_id or "").strip()
+        if not session_key:
+            session_key = secrets.token_hex(8)
+
+        special_result = self._handle_special_commands(query, session_key)
+        if special_result is not None:
+            yield _json.dumps(
+                {"type": "answer", "content": special_result["answer"]},
+                ensure_ascii=False,
+            )
+            yield _json.dumps(
+                {
+                    "type": "sources",
+                    "content": special_result.get("sources", []),
+                },
+                ensure_ascii=False,
+            )
+            return
+
+        try:
+            context_info = self._collect_and_prepare_context(query, session_key)
+            if "answer" in context_info:
+                yield _json.dumps(
+                    {"type": "answer", "content": context_info["answer"]},
+                    ensure_ascii=False,
+                )
+                yield _json.dumps(
+                    {"type": "sources", "content": []},
+                    ensure_ascii=False,
+                )
+                return
+
+            history_text = context_info["history_text"]
+            doc_budget = context_info["doc_budget"]
+            documents = context_info["documents"]
+
+            prompt = self._build_prompt(query, documents, history_text, doc_budget)
+            if not prompt:
+                fallback = self._render_template(self.fallback_response, query)
+                yield _json.dumps(
+                    {"type": "answer", "content": fallback},
+                    ensure_ascii=False,
+                )
+                yield _json.dumps(
+                    {"type": "sources", "content": []},
+                    ensure_ascii=False,
+                )
+                return
+
+            full_answer_chunks: List[str] = []
+            for piece in self.model_manager.generate(
+                prompt,
+                max_tokens=self.max_output_tokens,
+                temperature=self.sampling_params["temperature"],
+                top_p=self.sampling_params["top_p"],
+                top_k=self.sampling_params["top_k"],
+                min_p=self.sampling_params["min_p"],
+                seed=self.sampling_params["seed"],
+                repeat_penalty=self.sampling_params["repeat_penalty"],
+                frequency_penalty=self.sampling_params["frequency_penalty"],
+                presence_penalty=self.sampling_params["presence_penalty"],
+            ):
+                if piece:
+                    full_answer_chunks.append(str(piece))
+                    yield _json.dumps(
+                        {"type": "chunk", "content": str(piece)},
+                        ensure_ascii=False,
+                    )
+
+            sources = [doc.get("path") or doc.get("filename") for doc in documents]
+            full_answer = "".join(full_answer_chunks).strip()
+            answer = self._post_process_answer(full_answer, sources)
+            self._remember_turn(session_key, query, answer)
+
+            yield _json.dumps(
+                {"type": "done", "content": answer},
+                ensure_ascii=False,
+            )
+            yield _json.dumps(
+                {"type": "sources", "content": sources},
+                ensure_ascii=False,
+            )
+
+        except Exception as exc:
+            logger.error(f"RAG流式查询失败: {exc}")
+            yield _json.dumps(
+                {
+                    "type": "error",
+                    "content": f"错误：处理查询时发生异常 ({str(exc)})。",
+                },
+                ensure_ascii=False,
+            )
+
     def _handle_special_commands(
         self, query: str, session_key: str
     ) -> Optional[Dict[str, Any]]:

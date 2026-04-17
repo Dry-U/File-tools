@@ -90,6 +90,9 @@ class FileMonitor:
         self.handler = None
         self.is_running = False
 
+        # 懒加载的 DocumentParser，用于索引更新时解析多种格式文档
+        self._document_parser = None
+
         # 用于去重和防抖（线程安全）
         self._event_buffer = {}
         self._buffer_lock = (
@@ -565,6 +568,17 @@ class FileMonitor:
 
             self.logger.error(f"详细错误信息: {traceback.format_exc()}")
 
+    def _get_document_parser(self):
+        """懒加载 DocumentParser 实例，用于解析多种格式文档"""
+        if self._document_parser is None:
+            try:
+                from backend.core.document_parser import DocumentParser
+
+                self._document_parser = DocumentParser()
+            except Exception as e:
+                self.logger.warning(f"DocumentParser 初始化失败: {e}")
+        return self._document_parser
+
     def _update_index_for_file(self, file_path):
         """更新文件在索引中的信息"""
         if self.file_scanner:
@@ -616,28 +630,45 @@ class FileMonitor:
             else:
                 file_type = "unknown"
 
-            # 读取文件内容（简化处理）
+            # 读取文件内容（优先使用 DocumentParser，失败时回退到纯文本）
             content = file_path_obj.name  # 默认使用文件名作为内容
-            try:
-                # 对于文本类文件，尝试读取内容
-                if file_ext in [
-                    ".txt",
-                    ".md",
-                    ".json",
-                    ".xml",
-                    ".csv",
-                    ".log",
-                    ".py",
-                    ".js",
-                    ".java",
-                    ".cpp",
-                    ".c",
-                    ".h",
-                ]:
-                    with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
-                        content = f.read(1000)  # 限制读取内容大小
-            except Exception:
-                pass  # 保持默认内容
+            parser = self._get_document_parser()
+            parsed_ok = False
+            if parser is not None:
+                try:
+                    parsed = parser.extract_text(str(file_path))
+                    if parsed:
+                        content = str(parsed)
+                        parsed_ok = True
+                except Exception as parse_err:
+                    self.logger.debug(
+                        "DocumentParser 解析失败，回退到纯文本读取: "
+                        f"{file_path} ({parse_err})"
+                    )
+
+            if not parsed_ok:
+                try:
+                    # 对于文本类文件，尝试读取内容
+                    if file_ext in [
+                        ".txt",
+                        ".md",
+                        ".json",
+                        ".xml",
+                        ".csv",
+                        ".log",
+                        ".py",
+                        ".js",
+                        ".java",
+                        ".cpp",
+                        ".c",
+                        ".h",
+                    ]:
+                        with open(
+                            file_path, "r", encoding="utf-8", errors="ignore"
+                        ) as f:
+                            content = f.read(1000)  # 限制读取内容大小
+                except Exception:
+                    pass  # 保持默认内容
 
             # 构建文档字典
             document = {

@@ -260,7 +260,10 @@ async def search(
         raise
     except Exception as e:
         logger.error(f"搜索错误: {str(e)}")
-        raise HTTPException(status_code=500, detail="搜索处理失败，请稍后重试") from e
+        raise HTTPException(
+            status_code=500,
+            detail="搜索处理失败，请稍后重试。如果问题持续，请尝试重建索引。",
+        ) from e
 
 
 @router.post("/preview")

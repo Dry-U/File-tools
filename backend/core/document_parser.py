@@ -235,19 +235,47 @@ class DocumentParser:
 
         # 明确拒绝二进制/压缩/媒体格式
         if file_ext in [
-            "zip", "rar", "7z", "tar", "gz", "bz2", "xz", "cab",
-            "exe", "dll", "so", "dylib", "msi",
-            "db", "sqlite", "db3",
-            "iso", "dmg",
-            "mp3", "wav", "flac", "ogg", "m4a",
-            "mp4", "avi", "mov", "mkv", "wmv",
-            "pyc", "pyo", "lottie",
+            "zip",
+            "rar",
+            "7z",
+            "tar",
+            "gz",
+            "bz2",
+            "xz",
+            "cab",
+            "exe",
+            "dll",
+            "so",
+            "dylib",
+            "msi",
+            "db",
+            "sqlite",
+            "db3",
+            "iso",
+            "dmg",
+            "mp3",
+            "wav",
+            "flac",
+            "ogg",
+            "m4a",
+            "mp4",
+            "avi",
+            "mov",
+            "mkv",
+            "wmv",
+            "pyc",
+            "pyo",
+            "lottie",
         ]:
             return ""
 
         # 对于已知无用路径中的文件，直接跳过
         file_path_lower = file_path.lower()
-        if "lottie" in file_path_lower or "emojisystermresource" in file_path_lower or "thumbtemp" in file_path_lower:
+        if (
+            "lottie" in file_path_lower
+            or "emojisystermresource" in file_path_lower
+            or "thumbtemp" in file_path_lower
+        ):
             return ""
 
         try:
@@ -713,10 +741,15 @@ class DocumentParser:
                 return f"错误: Excel文件过大 ({file_size} bytes)，已跳过解析"
 
             # pandas read_excel 自动处理 .xls (需要xlrd) 和 .xlsx (需要openpyxl)
-            df = pd.read_excel(file_path)
+            # 使用 sheet_name=None 读取所有 Sheet，返回 {sheet_name: DataFrame}
+            all_sheets = pd.read_excel(file_path, sheet_name=None)
+            parts = []
+            for sheet_name, df in all_sheets.items():
+                sheet_content = df.to_string()
+                parts.append(f"--- Sheet: {sheet_name} ---\n{sheet_content}")
+            content = "\n\n".join(parts)
 
             # 限制返回内容大小
-            content = df.to_string()
             max_content_size = self.MAX_OUTPUT_SIZE_DOC_MB * 1024 * 1024
             if len(content) > max_content_size:
                 content = content[:max_content_size] + "\n... (内容已截断)"
@@ -821,21 +854,55 @@ class DocumentParser:
         file_ext = os.path.splitext(file_path)[1].lower()[1:]
         # 明确拒绝图片和二进制格式，防止进入通用解析器
         if file_ext in [
-            "jpg", "jpeg", "png", "gif", "bmp", "tiff", "svg", "webp",  # 图片
-            "zip", "rar", "7z", "tar", "gz", "bz2", "xz", "cab",  # 压缩
-            "exe", "dll", "so", "dylib", "msi",  # 可执行
-            "db", "sqlite", "db3",  # 数据库
-            "iso", "dmg",  # 磁盘镜像
-            "mp3", "wav", "flac", "ogg", "m4a",  # 音频
-            "mp4", "avi", "mov", "mkv", "wmv",  # 视频
-            "pyc", "pyo",  # Python编译
+            "jpg",
+            "jpeg",
+            "png",
+            "gif",
+            "bmp",
+            "tiff",
+            "svg",
+            "webp",  # 图片
+            "zip",
+            "rar",
+            "7z",
+            "tar",
+            "gz",
+            "bz2",
+            "xz",
+            "cab",  # 压缩
+            "exe",
+            "dll",
+            "so",
+            "dylib",
+            "msi",  # 可执行
+            "db",
+            "sqlite",
+            "db3",  # 数据库
+            "iso",
+            "dmg",  # 磁盘镜像
+            "mp3",
+            "wav",
+            "flac",
+            "ogg",
+            "m4a",  # 音频
+            "mp4",
+            "avi",
+            "mov",
+            "mkv",
+            "wmv",  # 视频
+            "pyc",
+            "pyo",  # Python编译
             "lottie",  # lottie动画
         ]:
             return ""
 
         # 对于 lottie json 文件（路径中包含 lottie 或 EmojiSystermResource），直接跳过
         file_path_lower = file_path.lower()
-        if "lottie" in file_path_lower or "emojisystermresource" in file_path_lower or "thumbtemp" in file_path_lower:
+        if (
+            "lottie" in file_path_lower
+            or "emojisystermresource" in file_path_lower
+            or "thumbtemp" in file_path_lower
+        ):
             return ""
 
         # 使用textract尝试提取内容
