@@ -6,6 +6,9 @@
 const FileToolsSearch = (function() {
     'use strict';
 
+    // 防重入标志
+    let isSearching = false;
+
     // 防抖处理的搜索函数（300ms延迟）
     const debouncedSearch = FileToolsUtils.debounce(performSearch, 300);
 
@@ -13,9 +16,16 @@ const FileToolsSearch = (function() {
      * 执行搜索
      */
     async function performSearch() {
+        // 防重入检查
+        if (isSearching) return;
+        isSearching = true;
+
         const input = document.getElementById('searchInput');
         const query = input.value.trim();
-        if (!query) return;
+        if (!query) {
+            isSearching = false;
+            return;
+        }
 
         // 收集过滤器
         const filters = {};
@@ -43,6 +53,7 @@ const FileToolsSearch = (function() {
                     <p class="mt-3">请至少选择一种文件类型</p>
                 </div>
             `;
+            isSearching = false;
             return;
         }
         
@@ -82,10 +93,13 @@ const FileToolsSearch = (function() {
 
         resultsContainer.innerHTML = `
             <div class="text-center text-muted mt-5">
-                <div class="spinner-border text-secondary" role="status">
+                <div class="spinner-border text-secondary" role="status" style="width:3rem;height:3rem;">
                     <span class="visually-hidden">Loading...</span>
                 </div>
-                <p class="mt-3">正在搜索...</p>
+                <div class="mt-3">
+                    <span class="search-loading-text">正在搜索</span>
+                    <span class="search-loading-dots"></span>
+                </div>
             </div>
         `;
 
@@ -143,6 +157,8 @@ const FileToolsSearch = (function() {
                     <p class="mt-3">${FileToolsUtils.escapeHtml(errorMsg)}</p>
                 </div>
             `;
+        } finally {
+            isSearching = false;
         }
     }
 
