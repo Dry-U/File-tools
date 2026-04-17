@@ -1108,6 +1108,8 @@ class IndexManager:
 
         注意：此方法只负责将文档追加到缓冲区，不触发刷新。
         刷新由 add_document 在锁外调用 _flush_vector_buffer 处理。
+
+        调用要求：此方法必须在持有 _batch_lock 的情况下调用。
         """
         content_to_encode = (
             document["content"][:MAX_ENCODE_LENGTH] if document["content"] else ""
@@ -1129,10 +1131,8 @@ class IndexManager:
             "total_chunks": 1,
         }
 
-        with self._batch_lock:
-            self._vector_buffer.append((content_to_encode, metadata))
-            # 不再在此触发刷新，避免三层嵌套锁
-            # 刷新由 add_document 在锁外统一处理
+        # 不再获取锁：调用者已持有 _batch_lock，避免三层嵌套锁开销
+        self._vector_buffer.append((content_to_encode, metadata))
 
         return True
 
@@ -1171,32 +1171,32 @@ class IndexManager:
             )
             chunks = chunks[:MAX_CHUNKS_PER_DOC]
 
-        with self._batch_lock:
-            for chunk in chunks:
-                chunk_content = chunk.content[:MAX_ENCODE_LENGTH]
-                if not chunk_content.strip():
-                    continue
+        # 不再获取锁：调用者 add_document 已持有 _batch_lock，避免三层嵌套锁开销
+        for chunk in chunks:
+            chunk_content = chunk.content[:MAX_ENCODE_LENGTH]
+            if not chunk_content.strip():
+                continue
 
-                metadata = {
-                    "path": document["path"],
-                    "filename": document["filename"],
-                    "file_type": document["file_type"],
-                    "modified": (
-                        document["modified"].strftime("%Y-%m-%d %H:%M:%S")
-                        if isinstance(document["modified"], datetime)
-                        else str(document["modified"])
-                    ),
-                    "is_chunk": True,
-                    "chunk_index": chunk.chunk_index,
-                    "total_chunks": original_chunk_count,
-                    "chunk_start_pos": chunk.start_pos,
-                    "chunk_end_pos": chunk.end_pos,
-                    "chunk_content_preview": chunk.content[:200],
-                }
-                self._vector_buffer.append((chunk_content, metadata))
+            metadata = {
+                "path": document["path"],
+                "filename": document["filename"],
+                "file_type": document["file_type"],
+                "modified": (
+                    document["modified"].strftime("%Y-%m-%d %H:%M:%S")
+                    if isinstance(document["modified"], datetime)
+                    else str(document["modified"])
+                ),
+                "is_chunk": True,
+                "chunk_index": chunk.chunk_index,
+                "total_chunks": original_chunk_count,
+                "chunk_start_pos": chunk.start_pos,
+                "chunk_end_pos": chunk.end_pos,
+                "chunk_content_preview": chunk.content[:200],
+            }
+            self._vector_buffer.append((chunk_content, metadata))
 
-            # 不再在此触发刷新，避免三层嵌套锁
-            # 刷新由 add_document 在锁外统一处理
+        # 不再在此触发刷新，避免三层嵌套锁
+        # 刷新由 add_document 在锁外统一处理
 
         return True
 
