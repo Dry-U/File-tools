@@ -1427,6 +1427,7 @@ class RAGPipeline:
     def query_stream(self, query: str, session_id: Optional[str] = None):
         """流式执行检索增强生成流程，逐步 yield JSON 事件"""
         import json as _json
+        import time as _time
 
         self._cleanup_old_sessions_if_needed()
 
@@ -1479,7 +1480,13 @@ class RAGPipeline:
                 )
                 return
 
+            # 流式生成（带超时控制 - CodeRabbit #8）
+            timeout = self.config_loader.getint(
+                "ai_model", "request_timeout", 120
+            )
+            start_time = _time.time()
             full_answer_chunks: List[str] = []
+            timed_out = False
             for piece in self.model_manager.generate(
                 prompt,
                 max_tokens=self.max_output_tokens,
@@ -1492,6 +1499,19 @@ class RAGPipeline:
                 frequency_penalty=self.sampling_params["frequency_penalty"],
                 presence_penalty=self.sampling_params["presence_penalty"],
             ):
+                if _time.time() - start_time > timeout:
+                    timed_out = True
+                    logger.warning(
+                        f"流式生成超时({timeout}s): {query[:50]}..."
+                    )
+                    yield _json.dumps(
+                        {
+                            "type": "error",
+                            "content": f"生成超时（{timeout}秒），已中断。",
+                        },
+                        ensure_ascii=False,
+                    )
+                    break
                 if piece:
                     full_answer_chunks.append(str(piece))
                     yield _json.dumps(
@@ -1499,19 +1519,22 @@ class RAGPipeline:
                         ensure_ascii=False,
                     )
 
-            sources = [doc.get("path") or doc.get("filename") for doc in documents]
-            full_answer = "".join(full_answer_chunks).strip()
-            answer = self._post_process_answer(full_answer, sources)
-            self._remember_turn(session_key, query, answer)
+            if not timed_out:
+                sources = [
+                    doc.get("path") or doc.get("filename") for doc in documents
+                ]
+                full_answer = "".join(full_answer_chunks).strip()
+                answer = self._post_process_answer(full_answer, sources)
+                self._remember_turn(session_key, query, answer)
 
-            yield _json.dumps(
-                {"type": "done", "content": answer},
-                ensure_ascii=False,
-            )
-            yield _json.dumps(
-                {"type": "sources", "content": sources},
-                ensure_ascii=False,
-            )
+                yield _json.dumps(
+                    {"type": "done", "content": answer},
+                    ensure_ascii=False,
+                )
+                yield _json.dumps(
+                    {"type": "sources", "content": sources},
+                    ensure_ascii=False,
+                )
 
         except Exception as exc:
             logger.error(f"RAG流式查询失败: {exc}")

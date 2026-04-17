@@ -73,15 +73,23 @@ const FileToolsChat = (function() {
         // 添加 AI 加载消息
         const loadingId = addLoadingMessage();
 
-        // 优先尝试流式端点，失败时回退到非流式
+        // 优先尝试流式端点，仅在网络级错误时回退到非流式
         try {
             const streamed = await sendMessageStreaming(text, loadingId);
             if (streamed) {
                 loadChatHistory();
                 return;
             }
+            // streamed === false 表示端点不可用（如 5xx 网络问题），继续走非流式回退
         } catch (streamError) {
-            console.warn('流式对话失败，回退到非流式:', streamError);
+            // 仅 TypeError（网络/CORS/AbortError 等 fetch 失败）才回退到非流式；
+            // 其它应用层错误直接展示给用户，避免回退时重复请求
+            if (!(streamError instanceof TypeError)) {
+                removeLoadingMessage(loadingId);
+                addMessage('出错: ' + (streamError.message || '未知错误'), 'ai');
+                return;
+            }
+            console.warn('流式端点不可用，回退到非流式:', streamError);
         }
 
         try {

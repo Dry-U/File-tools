@@ -230,9 +230,10 @@ async def add_security_headers(request, call_next):
 
     # 内容安全策略
     # 注意：Tauri IPC 使用 ipc: 和 http://ipc.localhost，需要在此添加
+    # script-src 保留 'unsafe-inline'，因为页面存在 inline event handler
     response.headers["Content-Security-Policy"] = (
         "default-src 'self'; "
-        "script-src 'self'; "
+        "script-src 'self' 'unsafe-inline'; "
         "style-src 'self' 'unsafe-inline'; "
         "font-src 'self'; "
         "img-src 'self' data:; "

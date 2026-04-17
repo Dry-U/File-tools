@@ -574,7 +574,8 @@ class FileMonitor:
             try:
                 from backend.core.document_parser import DocumentParser
 
-                self._document_parser = DocumentParser()
+                # 传入 config_loader，确保 DocumentParser 使用项目配置
+                self._document_parser = DocumentParser(self.config_loader)
             except Exception as e:
                 self.logger.warning(f"DocumentParser 初始化失败: {e}")
         return self._document_parser
@@ -637,7 +638,9 @@ class FileMonitor:
             if parser is not None:
                 try:
                     parsed = parser.extract_text(str(file_path))
-                    if parsed:
+                    # 过滤掉 DocumentParser 返回的错误前缀（以 "错误:" 开头），
+                    # 避免错误信息被当作正文写入索引
+                    if parsed and not str(parsed).startswith("错误:"):
                         content = str(parsed)
                         parsed_ok = True
                 except Exception as parse_err:

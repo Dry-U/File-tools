@@ -743,16 +743,23 @@ class DocumentParser:
             # pandas read_excel 自动处理 .xls (需要xlrd) 和 .xlsx (需要openpyxl)
             # 使用 sheet_name=None 读取所有 Sheet，返回 {sheet_name: DataFrame}
             all_sheets = pd.read_excel(file_path, sheet_name=None)
-            parts = []
-            for sheet_name, df in all_sheets.items():
-                sheet_content = df.to_string()
-                parts.append(f"--- Sheet: {sheet_name} ---\n{sheet_content}")
-            content = "\n\n".join(parts)
 
-            # 限制返回内容大小
+            # 增量截断：边拼接边检查总大小，避免先拼成超大字符串再截断的内存峰值
             max_content_size = self.MAX_OUTPUT_SIZE_DOC_MB * 1024 * 1024
-            if len(content) > max_content_size:
-                content = content[:max_content_size] + "\n... (内容已截断)"
+            parts = []
+            current_size = 0
+            for sheet_name, df in all_sheets.items():
+                part = f"--- Sheet: {sheet_name} ---\n{df.to_string()}\n\n"
+                remaining = max_content_size - current_size
+                if remaining <= 0:
+                    break
+                if len(part) > remaining:
+                    parts.append(part[:remaining] + "\n... (内容已截断)")
+                    current_size = max_content_size
+                    break
+                parts.append(part)
+                current_size += len(part)
+            content = "".join(parts)
             return content
         except Exception as e:
             self.logger.error(f"Excel解析失败 {file_path}: {str(e)}")
