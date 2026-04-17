@@ -75,14 +75,17 @@ jobs:
 
       - name: Run tests with coverage
         run: |
+          uv sync --index-url https://pypi.org/simple/
           uv run pytest tests/unit/ -v --cov=backend --cov-report=xml --cov-report=term --tb=short
 
       - name: Run integration tests
         run: |
+          uv sync --index-url https://pypi.org/simple/
           uv run pytest tests/integration/ -v --tb=short
 
       - name: Run API tests
         run: |
+          uv sync --index-url https://pypi.org/simple/
           uv run pytest tests/api/ -v --tb=short
 
       - name: Upload coverage to Codecov
