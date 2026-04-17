@@ -654,6 +654,7 @@ jobs:
           chmod +x "$APPIMAGE_PATH"
 
           # 提取 AppImage 到临时目录
+          PROJECT_DIR=$(pwd)
           TEMP_DIR=$(mktemp -d)
           cd "$TEMP_DIR"
           "$APPIMAGE_PATH" --appimage-extract > /dev/null 2>&1
@@ -681,10 +682,12 @@ jobs:
             echo "Warning: App may not be fully ready after $max_wait seconds"
           fi
 
-          # 运行 E2E 测试
+          # 运行 E2E 测试（返回项目目录）
+          cd "$PROJECT_DIR"
           uv run pytest tests/e2e/ -v --tb=short
 
           # Cleanup
+          cd "$PROJECT_DIR"
           kill $APP_PID 2>/dev/null || true
 
       - name: Upload test artifacts on failure
