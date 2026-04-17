@@ -73,14 +73,6 @@ jobs:
         with:
           enable-cache: true
 
-      - name: Cache pip packages
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/pip
-          key: pip-${{ runner.os }}-${{ hashFiles('**/pyproject.toml') }}
-          restore-keys: |
-            pip-${{ runner.os }}-
-
       - name: Run tests with coverage
         run: |
           uv run pytest tests/unit/ -v --cov=backend --cov-report=xml --cov-report=term --tb=short
