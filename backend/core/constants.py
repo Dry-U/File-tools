@@ -10,7 +10,7 @@
 # 默认配置常量
 # ============================================================================
 
-DEFAULT_MAX_WORKERS = 8
+DEFAULT_MAX_WORKERS = 16
 DEFAULT_BATCH_SIZE = 500
 DEFAULT_MAX_FILE_SIZE_MB = 100
 

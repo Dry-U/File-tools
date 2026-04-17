@@ -244,7 +244,7 @@ async def delete_session(session_id: str, rag_pipeline=Depends(get_rag_pipeline)
         raise  # 重新抛出 HTTPException，保持原始状态码
     except Exception as e:
         logger.error(f"删除会话错误: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"删除会话失败: {str(e)}")
+        raise HTTPException(status_code=500, detail="删除会话失败，请稍后重试")
 
 
 @router.get("/sessions/{session_id}/messages")

@@ -195,7 +195,8 @@ class EmbeddingModelManager:
             max_size = max(os.path.getsize(f) for f in files)
             if max_size < MIN_MODEL_SIZE:
                 logger.warning(
-                    f"[EmbeddingManager] 模型文件异常小: {max_size} bytes < {MIN_MODEL_SIZE} bytes"
+                    "[EmbeddingManager] 模型文件异常小: "
+                    f"{max_size} bytes < {MIN_MODEL_SIZE} bytes"
                 )
                 return False
 
@@ -206,7 +207,8 @@ class EmbeddingModelManager:
             size = os.path.getsize(model_path)
             if size < MIN_MODEL_SIZE:
                 logger.warning(
-                    f"[EmbeddingManager] 模型文件异常小: {size} bytes < {MIN_MODEL_SIZE} bytes"
+                    "[EmbeddingManager] 模型文件异常小: "
+                    f"{size} bytes < {MIN_MODEL_SIZE} bytes"
                 )
                 return False
             return True
@@ -224,9 +226,7 @@ class EmbeddingModelManager:
 
             # 检查模型是否存在，不存在则下载
             if not self.is_embedding_model_cached():
-                logger.info(
-                    f"[EmbeddingManager] 模型不存在，使用 FastEmbed 自动下载..."
-                )
+                logger.info("[EmbeddingManager] 模型不存在，使用 FastEmbed 自动下载...")
 
             # 加载模型（FastEmbed 会自动从镜像下载）
             self._embedding_model = TextEmbedding(
@@ -319,7 +319,7 @@ class EmbeddingModelManager:
             # 检查模型是否存在
             if not self.is_reranker_model_cached():
                 logger.info(
-                    f"[EmbeddingManager] ColBERT 模型不存在，使用 FastEmbed 自动下载..."
+                    "[EmbeddingManager] ColBERT 模型不存在，使用 FastEmbed 自动下载..."
                 )
 
             # 加载 ColBERT 模型

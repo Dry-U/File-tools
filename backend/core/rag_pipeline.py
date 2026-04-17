@@ -1481,9 +1481,7 @@ class RAGPipeline:
                 return
 
             # 流式生成（带超时控制 - CodeRabbit #8）
-            timeout = self.config_loader.getint(
-                "ai_model", "request_timeout", 120
-            )
+            timeout = self.config_loader.getint("ai_model", "request_timeout", 120)
             start_time = _time.time()
             full_answer_chunks: List[str] = []
             timed_out = False
@@ -1501,9 +1499,7 @@ class RAGPipeline:
             ):
                 if _time.time() - start_time > timeout:
                     timed_out = True
-                    logger.warning(
-                        f"流式生成超时({timeout}s): {query[:50]}..."
-                    )
+                    logger.warning(f"流式生成超时({timeout}s): {query[:50]}...")
                     yield _json.dumps(
                         {
                             "type": "error",
@@ -1520,9 +1516,7 @@ class RAGPipeline:
                     )
 
             if not timed_out:
-                sources = [
-                    doc.get("path") or doc.get("filename") for doc in documents
-                ]
+                sources = [doc.get("path") or doc.get("filename") for doc in documents]
                 full_answer = "".join(full_answer_chunks).strip()
                 answer = self._post_process_answer(full_answer, sources)
                 self._remember_turn(session_key, query, answer)

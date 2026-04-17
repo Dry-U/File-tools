@@ -100,7 +100,7 @@ async def rebuild_index(
         }
     except Exception as e:
         logger.error(f"重建索引错误: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"重建索引失败: {str(e)}")
+        raise HTTPException(status_code=500, detail="索引重建失败，请稍后重试")
 
 
 # 重建进度状态（模块级全局变量）
@@ -190,9 +190,14 @@ async def rebuild_index_stream(
                 _rebuild_progress_state["progress"] = progress
                 # 从 file_scanner 的统计信息中获取已扫描/已索引数
                 try:
-                    if hasattr(file_scanner, 'scan_stats'):
-                        _rebuild_progress_state["files_scanned"] = file_scanner.scan_stats.get("total_files_scanned", 0)
-                        _rebuild_progress_state["files_indexed"] = file_scanner.scan_stats.get("total_files_indexed", 0)
+                    if hasattr(file_scanner, "scan_stats"):
+                        stats = file_scanner.scan_stats
+                        _rebuild_progress_state["files_scanned"] = stats.get(
+                            "total_files_scanned", 0
+                        )
+                        _rebuild_progress_state["files_indexed"] = stats.get(
+                            "total_files_indexed", 0
+                        )
                 except Exception:
                     pass
 
@@ -273,8 +278,12 @@ async def rebuild_index_stream(
                             cancelled_data = {
                                 "status": "cancelled",
                                 "progress": _rebuild_progress_state["progress"],
-                                "files_scanned": _rebuild_progress_state.get("files_scanned", 0),
-                                "files_indexed": _rebuild_progress_state.get("files_indexed", 0),
+                                "files_scanned": _rebuild_progress_state.get(
+                                    "files_scanned", 0
+                                ),
+                                "files_indexed": _rebuild_progress_state.get(
+                                    "files_indexed", 0
+                                ),
                             }
                             yield f"data: {json.dumps(cancelled_data)}\n\n"
                             logger.info("SSE: 发送取消消息到客户端")
@@ -378,7 +387,7 @@ async def cancel_rebuild_index(
         }
     except Exception as e:
         logger.error(f"取消重建索引错误: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"取消重建失败: {str(e)}")
+        raise HTTPException(status_code=500, detail="取消重建失败，请稍后重试")
 
 
 @router.get("/health")

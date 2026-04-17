@@ -108,8 +108,8 @@ class FileScanner:
             self._cache_max_size = 10000
 
         # 依赖组件
-        self.document_parser: Optional[DocumentParser] = document_parser or DocumentParser(
-            config_loader
+        self.document_parser: Optional[DocumentParser] = (
+            document_parser or DocumentParser(config_loader)
         )
         self.index_manager: Optional[IndexManager] = index_manager
 
@@ -671,7 +671,10 @@ class FileScanner:
         return all_files
 
     def _collect_files_from_dir(
-        self, dir_path: Path, files_list: List[Path], progress_info: Optional[dict] = None
+        self,
+        dir_path: Path,
+        files_list: List[Path],
+        progress_info: Optional[dict] = None,
     ):
         """从目录收集文件（递归）- 使用os.scandir优化性能"""
         if not dir_path.exists() or not dir_path.is_dir():
@@ -749,7 +752,10 @@ class FileScanner:
                             except OSError:
                                 continue
                             # 排除模式检查文件名（如 ~$ 开头的 Office 临时文件）
-                            if any(self._match_exclude(pattern, entry.name) for pattern in self.exclude_patterns):
+                            if any(
+                                self._match_exclude(pattern, entry.name)
+                                for pattern in self.exclude_patterns
+                            ):
                                 continue
                             file_ext = Path(entry.name).suffix.lower()
                             if file_ext in self.all_extensions:
@@ -762,7 +768,10 @@ class FileScanner:
             self.logger.debug(f"扫描目录失败 {dir_path}: {e}")
 
     def _scan_dir_recursive(
-        self, dir_path: Path, files_list: List[Path], progress_info: Optional[dict] = None
+        self,
+        dir_path: Path,
+        files_list: List[Path],
+        progress_info: Optional[dict] = None,
     ):
         """使用os.scandir递归扫描目录，比os.walk更快"""
         # 每处理 N 个条目检查一次停止标志，避免过于频繁的锁竞争
@@ -811,7 +820,10 @@ class FileScanner:
                             except OSError:
                                 continue
                             # 排除模式检查文件名（如 ~$ 开头的 Office 临时文件）
-                            if any(self._match_exclude(pattern, entry.name) for pattern in self.exclude_patterns):
+                            if any(
+                                self._match_exclude(pattern, entry.name)
+                                for pattern in self.exclude_patterns
+                            ):
                                 continue
                             # 快速扩展名检查（不调用stat）
                             file_ext = Path(entry.name).suffix.lower()
@@ -901,7 +913,10 @@ class FileScanner:
                     except OSError:
                         continue
                     # 排除模式检查文件名
-                    if any(self._match_exclude(pattern, file_name) for pattern in self.exclude_patterns):
+                    if any(
+                        self._match_exclude(pattern, file_name)
+                        for pattern in self.exclude_patterns
+                    ):
                         continue
                     # 快速扩展名检查
                     file_ext = file_path.suffix.lower()
@@ -983,7 +998,10 @@ class FileScanner:
                                         continue
 
                                     # 排除模式检查文件名（如 ~$ 开头的 Office 临时文件）
-                                    if any(self._match_exclude(pattern, entry.name) for pattern in self.exclude_patterns):
+                                    if any(
+                                        self._match_exclude(pattern, entry.name)
+                                        for pattern in self.exclude_patterns
+                                    ):
                                         continue
 
                                     self._process_file(Path(entry.path))
@@ -1254,11 +1272,27 @@ class FileScanner:
     # 二进制/压缩/数据库扩展名（无文本内容可提取）
     _BINARY_EXTENSIONS = frozenset(
         [
-            ".zip", ".rar", ".7z", ".tar", ".gz", ".bz2", ".xz", ".cab",
-            ".exe", ".dll", ".so", ".dylib", ".msi",
-            ".db", ".sqlite", ".db3",
-            ".iso", ".dmg",
-            ".pyc", ".pyo", ".lottie",
+            ".zip",
+            ".rar",
+            ".7z",
+            ".tar",
+            ".gz",
+            ".bz2",
+            ".xz",
+            ".cab",
+            ".exe",
+            ".dll",
+            ".so",
+            ".dylib",
+            ".msi",
+            ".db",
+            ".sqlite",
+            ".db3",
+            ".iso",
+            ".dmg",
+            ".pyc",
+            ".pyo",
+            ".lottie",
         ]
     )
 

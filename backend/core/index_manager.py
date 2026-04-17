@@ -117,11 +117,16 @@ class IndexManager:
             self.metadata_path = self.config_loader.get(
                 "index", "metadata_path", f"{data_dir}/metadata"
             )
+            # 内容缓存大小（从配置读取，默认500）
+            self._content_cache_max_size = self.config_loader.getint(
+                "index", "content_cache_size", 500
+            )
         except Exception as e:
             self.logger.error(f"配置读取失败: {str(e)}")
             self.tantivy_index_path = "./data/tantivy_index"
             self.hnsw_index_path = "./data/hnsw_index"
             self.metadata_path = "./data/metadata"
+            self._content_cache_max_size = 500
 
         os.makedirs(self.tantivy_index_path, exist_ok=True)
         os.makedirs(self.hnsw_index_path, exist_ok=True)
@@ -192,14 +197,14 @@ class IndexManager:
 
             if "modelscope" in str(ie).lower():
                 self.logger.warning(
-                    f"ModelScope 未安装 (pip install modelscope)，语义搜索功能已禁用。"
-                    f"如需语义搜索，可安装轻量级 fastembed: pip install fastembed"
+                    "ModelScope 未安装 (pip install modelscope)，语义搜索功能已禁用。"
+                    "如需语义搜索，可安装轻量级 fastembed: pip install fastembed"
                 )
             elif "fastembed" in str(ie).lower():
                 self.logger.warning(
-                    f"FastEmbed 未安装 (pip install fastembed)，"
-                    f"语义搜索功能已禁用。当前仅使用文本搜索 (BM25)。"
-                    f"如需语义搜索，请安装: pip install fastembed"
+                    "FastEmbed 未安装 (pip install fastembed)，"
+                    "语义搜索功能已禁用。当前仅使用文本搜索 (BM25)。"
+                    "如需语义搜索，请安装: pip install fastembed"
                 )
             else:
                 self.logger.warning(
@@ -316,7 +321,7 @@ class IndexManager:
 
         from fastembed import TextEmbedding
 
-        self.logger.info(f"FastEmbed 导入成功，开始加载模型...")
+        self.logger.info("FastEmbed 导入成功，开始加载模型...")
         sys.stdout.flush()
 
         model_name = self.config_loader.get(
@@ -804,7 +809,8 @@ class IndexManager:
                 if vector_buffer_size > 0:
                     self.logger.info("[BATCH] 刷新向量缓冲区...")
                     try:
-                        self._do_flush_vector_buffer()  # 已持有 _batch_lock，直接调用内部方法
+                        # 已持有 _batch_lock，直接调用内部方法
+                        self._do_flush_vector_buffer()
                         self.logger.info("[BATCH] 向量缓冲区刷新完成")
                     except Exception as e:
                         self.logger.error(f"[BATCH] 刷新向量缓冲区失败: {e}")
@@ -1201,7 +1207,7 @@ class IndexManager:
         return True
 
     def _add_document_single(self, document):
-        """传统模式：整个文档作为一个向量存储"""
+        """传统模式：整个文档作为一个向量存储（使用缓冲批量处理）"""
         content_to_encode = (
             document["content"][:MAX_ENCODE_LENGTH] if document["content"] else ""
         )
@@ -1209,19 +1215,8 @@ class IndexManager:
             self.logger.warning(f"文档内容为空，跳过向量索引: {document['path']}")
             return
 
-        v = np.array([self._encode_text(content_to_encode)], dtype=np.float32)
-        doc_id = self.next_id
-        ids = np.array([doc_id])
-
-        try:
-            self.hnsw.add_items(v, ids)
-        except Exception:
-            # 如果添加项目失败，尝试调整索引大小
-            self.hnsw.resize_index(self.hnsw.get_max_elements() + 1024)
-            self.hnsw.add_items(v, ids)
-
-        # 记录元数据（标记为非分块文档）
-        self.vector_metadata[str(doc_id)] = {
+        # 构建元数据
+        metadata = {
             "path": document["path"],
             "filename": document["filename"],
             "file_type": document["file_type"],
@@ -1234,13 +1229,25 @@ class IndexManager:
             "chunk_index": 0,
             "total_chunks": 1,
         }
+
+        # 累积到向量缓冲区（批量处理提升效率）
+        self._vector_buffer.append((content_to_encode, metadata))
+
+        # 分配 doc_id（与批处理模式一致）
+        doc_id = self.next_id
         self.next_id += 1
-        # 非批量模式下立即保存索引
-        if not self._batch_mode:
+
+        # 记录元数据到 vector_metadata（与批处理模式一致）
+        self.vector_metadata[str(doc_id)] = metadata
+
+        # 非批量模式下也使用批量刷新机制，减少 hnsw.add_items 调用次数
+        if not self._batch_mode and len(self._vector_buffer) >= self._vector_batch_size:
+            self._flush_vector_buffer()
+            # 非批量模式下每次刷新后立即保存索引
             self.save_indexes()
 
     def _add_document_chunks(self, document):
-        """分块模式：将文档分块后批量编码存储"""
+        """分块模式：将文档分块后批量编码存储（使用缓冲批量处理）"""
         chunks = self.chunker.chunk_document(
             content=document["content"],
             doc_path=document["path"],
@@ -1300,37 +1307,24 @@ class IndexManager:
         if not texts_to_encode:
             return
 
-        # 批量编码所有分块
-        success_count = 0
-        try:
-            vectors = self._encode_texts_batch(texts_to_encode)
-            ids = np.arange(self.next_id, self.next_id + len(vectors))
+        # 累积到向量缓冲区（批量处理提升效率）
+        for text, metadata in zip(texts_to_encode, chunk_metadatas):
+            self._vector_buffer.append((text, metadata))
 
-            try:
-                self.hnsw.add_items(vectors, ids)
-            except Exception:
-                self.hnsw.resize_index(
-                    self.hnsw.get_max_elements() + len(vectors) + 1024
-                )
-                self.hnsw.add_items(vectors, ids)
+        # 分配 doc_ids（与批处理模式一致）
+        base_id = self.next_id
+        for i, metadata in enumerate(chunk_metadatas):
+            self.vector_metadata[str(base_id + i)] = metadata
+        self.next_id += len(texts_to_encode)
 
-            for i, metadata in enumerate(chunk_metadatas):
-                self.vector_metadata[str(self.next_id + i)] = metadata
-            self.next_id += len(vectors)
-            success_count = len(chunk_metadatas)
-        except Exception as e:
-            self.logger.error(f"批量编码分块失败，回退到逐个编码: {e}")
-            for text, metadata in zip(texts_to_encode, chunk_metadatas):
-                if self._store_chunk_vector(text, metadata):
-                    success_count += 1
-
-        # 非批量模式下立即保存索引
-        if not self._batch_mode:
+        # 非批量模式下也使用批量刷新机制，减少 hnsw.add_items 调用次数
+        if not self._batch_mode and len(self._vector_buffer) >= self._vector_batch_size:
+            self._flush_vector_buffer()
+            # 非批量模式下每次刷新后立即保存索引
             self.save_indexes()
 
         self.logger.info(
-            f"成功添加 {success_count}/{len(chunks)} 个chunks到向量索引: "
-            f"{document['path']}"
+            f"成功缓冲 {len(chunk_metadatas)} 个chunks到向量索引: {document['path']}"
         )
 
     def _store_chunk_vector(
@@ -2471,9 +2465,10 @@ class IndexManager:
                     result["total_chunks"] = total_chunks
                     result["chunk_start"] = chunk_start
                     result["chunk_end"] = chunk_end
-                    result["snippet"] = (
-                        content[:300] + "..." if content and len(content) > 300 else (content or "")
-                    )
+                    if content and len(content) > 300:
+                        result["snippet"] = content[:300] + "..."
+                    else:
+                        result["snippet"] = content or ""
 
                 results.append(result)
 
@@ -2669,14 +2664,16 @@ class IndexManager:
                         f"[VECTOR_FLUSH] 旧索引元数据: {old_metadata_count} 条, "
                         f"next_id={old_next_id}"
                     )
-                    # 重建索引：_create_new_hnsw_index 会清空 vector_metadata 和重置 next_id=0
+                    # 重建索引：_create_new_hnsw_index 会清空 vector_metadata
+                    # 和重置 next_id=0
                     self._create_new_hnsw_index()
                     # 注意：不恢复旧元数据！旧 HNSW 索引已损坏，旧向量不可恢复。
                     # 恢复旧元数据会导致搜索时指向不存在的向量 ID（悬空引用）。
                     # 当前批次将从 next_id=0 重新写入。
                     self.logger.info(
-                        f"[VECTOR_FLUSH] HNSW 索引已重建（旧索引 {old_metadata_count} 条数据已丢失），"
-                        f"从 next_id=0 重新写入当前批次"
+                        "[VECTOR_FLUSH] HNSW 索引已重建"
+                        f"（旧索引 {old_metadata_count} 条数据已丢失），"
+                        "从 next_id=0 重新写入当前批次"
                     )
                     # 重建后重新尝试批量写入（仅当前批次）
                     try:
@@ -2697,7 +2694,8 @@ class IndexManager:
                         return
                     except Exception as retry_e:
                         self.logger.error(
-                            f"[VECTOR_FLUSH] 重建后批量写入仍然失败: {retry_e}，丢弃此批次"
+                            "[VECTOR_FLUSH] 重建后批量写入仍然失败: "
+                            f"{retry_e}，丢弃此批次"
                         )
                         self._vector_buffer = []
                         return
@@ -2720,14 +2718,15 @@ class IndexManager:
                         # 如果逐个写入也出现 blank link list，停止尝试
                         if "blank link list" in str(add_err):
                             self.logger.error(
-                                f"[VECTOR_FLUSH] 逐个写入也检测到索引损坏，停止写入"
+                                "[VECTOR_FLUSH] 逐个写入也检测到索引损坏，停止写入"
                             )
                             break
                         self.hnsw.resize_index(self.hnsw.get_max_elements() + 1024)
                         try:
                             self.hnsw.add_items(v, ids)
                         except Exception:
-                            self.logger.warning(f"[VECTOR_FLUSH] resize后写入仍失败，跳过")
+                            msg = "[VECTOR_FLUSH] resize后写入仍失败，跳过"
+                            self.logger.warning(msg)
                             continue
                     self.vector_metadata[str(doc_id)] = metadata
                     self.next_id += 1
@@ -2735,7 +2734,7 @@ class IndexManager:
                     self.logger.warning(f"单个向量写入失败: {e2}")
 
         self._vector_buffer = []
-        self.logger.info(f"[VECTOR_FLUSH] 刷新完成，缓冲区已清空")
+        self.logger.info("[VECTOR_FLUSH] 刷新完成，缓冲区已清空")
 
     def save_indexes(self):
         try:
