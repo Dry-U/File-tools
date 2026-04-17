@@ -360,6 +360,18 @@ const FileToolsUtils = (function() {
         }
     }
 
+    /**
+     * 格式化文件大小
+     * @param {number} bytes - 字节数
+     * @returns {string} 格式化后的文件大小
+     */
+    function formatFileSize(bytes) {
+        if (!bytes || bytes < 1024) return bytes + ' B';
+        if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+        if (bytes < 1024 * 1024 * 1024) return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+        return (bytes / (1024 * 1024 * 1024)).toFixed(2) + ' GB';
+    }
+
     // 公共 API
     return {
         escapeHtml,
@@ -374,7 +386,8 @@ const FileToolsUtils = (function() {
         openExternalLink,
         showTestResultModal,
         generateSessionId,
-        fetchWithTimeout
+        fetchWithTimeout,
+        formatFileSize
     };
 })();
 
@@ -392,3 +405,4 @@ const openExternalLink = FileToolsUtils.openExternalLink;
 const showTestResultModal = FileToolsUtils.showTestResultModal;
 const generateSessionId = FileToolsUtils.generateSessionId;
 const fetchWithTimeout = FileToolsUtils.fetchWithTimeout;
+const formatFileSize = FileToolsUtils.formatFileSize;

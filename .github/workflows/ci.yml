@@ -76,7 +76,7 @@ jobs:
           enable-cache: true
 
       - name: Cache pip packages
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: ~/.cache/pip
           key: pip-${{ runner.os }}-${{ hashFiles('**/pyproject.toml') }}
@@ -97,7 +97,7 @@ jobs:
 
       - name: Upload coverage to Codecov
         if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.12'
-        uses: codecov/codecov-action@v5
+        uses: codecov/codecov-action@v6
         with:
           files: ./coverage.xml
           fail_ci_if_error: false
@@ -524,7 +524,7 @@ jobs:
           echo "App version: ${APP_VERSION}"
 
       - name: Download Windows build
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: filetools-windows-portable-v${{ env.FILETOOLS_VERSION }}
           path: ./build
@@ -618,7 +618,7 @@ jobs:
           echo "App version: ${APP_VERSION}"
 
       - name: Download Linux build
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: filetools-linux-installers-v${{ env.FILETOOLS_VERSION }}
           path: ./build
@@ -727,7 +727,7 @@ jobs:
           echo "App version: ${APP_VERSION}"
 
       - name: Download macOS build
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: filetools-macos-arm64-dmg-v${{ env.FILETOOLS_VERSION }}
           path: ./build
@@ -841,7 +841,7 @@ jobs:
           echo "App version: ${APP_VERSION}"
 
       - name: Download all artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           path: release-artifacts
           merge-multiple: true

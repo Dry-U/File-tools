@@ -3135,3 +3135,20 @@ input[type="date"]::-webkit-calendar-picker-indicator {
     font-size: 0.85em;
     text-align: center;
 }
+
+/* 加载进度条样式 */
+.loading-progress-container {
+    margin-top: 8px;
+}
+.loading-progress {
+    width: 200px;
+    height: 4px;
+    background: rgba(255,255,255,0.1);
+    border-radius: 2px;
+    overflow: hidden;
+}
+.loading-progress-bar {
+    height: 100%;
+    background: var(--llama-accent);
+    transition: width 1s linear;
+}
