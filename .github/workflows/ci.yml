@@ -1,8 +1,5 @@
 name: CI/CD (PyInstaller + Tauri)
 
-env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-
 on:
   push:
     branches: [main, develop]
@@ -22,6 +19,7 @@ on:
           - release
 
 env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
   PYTHONUNBUFFERED: 1
   UV_SYSTEM_PYTHON: 1
   # Use default PyPI in CI (override pyproject.toml's Chinese mirror)
