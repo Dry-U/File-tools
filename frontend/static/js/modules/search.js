@@ -283,7 +283,7 @@ const FileToolsSearch = (function() {
                 const language = metadata.language || 'text';
                 const isTruncated = metadata.is_truncated || false;
                 const lineCount = metadata.line_count || 0;
-                const fileSize = metadata.file_size_formatted || '';
+                const fileSize = metadata.file_size_formatted || FileToolsUtils.formatFileSize(metadata.file_size);
 
                 // 检查是否为Markdown文件
                 const isMarkdown = path && (path.endsWith('.md') || path.endsWith('.markdown'));
