@@ -7,7 +7,8 @@
 const fs = require('fs');
 const path = require('path');
 
-const VERSION = process.env.FILETOOLS_VERSION || process.argv[2];
+const rawVersion = process.env.FILETOOLS_VERSION || process.argv[2];
+const VERSION = rawVersion ? rawVersion.replace(/^v/, '') : null;
 
 if (!VERSION) {
   console.error('Error: VERSION not provided');
