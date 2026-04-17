@@ -240,7 +240,6 @@ jobs:
 
       - name: Build Tauri application
         run: |
-          $env:PATH = 'C:\Users\20840\.cargo\bin;' + $env:PATH
           npm run tauri:build -- --bundles nsis,msi
         env:
           FILETOOLS_VERSION: ${{ env.FILETOOLS_VERSION }}
