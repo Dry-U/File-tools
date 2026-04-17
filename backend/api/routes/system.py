@@ -601,10 +601,19 @@ async def shutdown_app(request: Request):
 
     此端点用于 Tauri 后端向 Python 后端发送优雅关闭信号。
     收到请求后执行清理逻辑，然后终止进程。
+
+    安全说明：仅允许来自本地地址（127.0.0.1 或 ::1）的请求。
+    这是防护的关键措施，因为 Rust 端通过 127.0.0.1 发送请求。
     """
     import os
 
-    logger.info("收到关闭请求，开始执行清理...")
+    # 安全检查：仅允许来自本地的请求
+    client_host = request.client.host if request.client else ""
+    if client_host not in ("127.0.0.1", "::1", "localhost"):
+        logger.warning(f"拒绝来自非本地地址 {client_host} 的关闭请求")
+        raise HTTPException(status_code=403, detail="仅允许本地访问")
+
+    logger.info("收到来自 {} 的关闭请求，开始执行清理...", client_host)
 
     # 执行与应用 lifespan 相同的清理逻辑
     try:
