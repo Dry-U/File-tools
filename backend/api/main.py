@@ -14,6 +14,7 @@ from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse, Response
+
 from backend.api.routes import chat, config, directory, search, system
 from backend.api.routes.system import get_version
 from backend.utils.logger import get_logger
@@ -229,13 +230,14 @@ async def add_security_headers(request, call_next):
 
     # 内容安全策略
     # 注意：Tauri IPC 使用 ipc: 和 http://ipc.localhost，需要在此添加
+    # script-src 保留 'unsafe-inline'，因为页面存在 inline event handler
     response.headers["Content-Security-Policy"] = (
         "default-src 'self'; "
-        "script-src 'self' https://cdn.jsdelivr.net; "
-        "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; "
-        "font-src 'self' https://cdn.jsdelivr.net; "
+        "script-src 'self' 'unsafe-inline'; "
+        "style-src 'self' 'unsafe-inline'; "
+        "font-src 'self'; "
         "img-src 'self' data:; "
-        "connect-src 'self' ipc: http://ipc.localhost https://cdn.jsdelivr.net; "
+        "connect-src 'self' ipc: http://ipc.localhost; "
         "frame-ancestors 'none'; "
         "form-action 'self'"
     )
@@ -493,7 +495,10 @@ async def lifespan(app: FastAPI):
             logger.info("检查并清理无效索引文档...")
             loop = asyncio.get_event_loop()
             deleted_count = await loop.run_in_executor(
-                None, _cleanup_invalid_index_documents_sync, index_manager, config_loader
+                None,
+                _cleanup_invalid_index_documents_sync,
+                index_manager,
+                config_loader,
             )
             if deleted_count > 0:
                 logger.info(f"已清理 {deleted_count} 个无效索引文档")
@@ -643,16 +648,40 @@ app.include_router(config.router, prefix="/api")
 app.include_router(directory.router, prefix="/api")
 app.include_router(system.router, prefix="/api")
 
-# 挂载静态文件目录（禁用缓存以便开发时热重载）
+# 挂载静态文件目录
+# 开发模式（FILETOOLS_DEV_MODE=1/true）禁用缓存便于热重载；
+# 生产环境使用默认缓存策略，减轻服务器压力并提升加载速度
 from starlette.staticfiles import StaticFiles as StarletteStaticFiles
 
 _static_dir = _get_frontend_dir() / "static"
 if _static_dir.exists():
-    class NoCacheStaticFiles(StarletteStaticFiles):
-        async def get_response(self, path, scope):
-            response = await super().get_response(path, scope)
-            response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
-            response.headers["Pragma"] = "no-cache"
-            response.headers["Expires"] = "0"
-            return response
-    app.mount("/static", NoCacheStaticFiles(directory=str(_static_dir)), name="static")
+    _dev_mode = os.environ.get("FILETOOLS_DEV_MODE", "").strip().lower() in (
+        "1",
+        "true",
+        "yes",
+        "on",
+    )
+
+    if _dev_mode:
+
+        class NoCacheStaticFiles(StarletteStaticFiles):
+            async def get_response(self, path, scope):
+                response = await super().get_response(path, scope)
+                response.headers["Cache-Control"] = (
+                    "no-cache, no-store, must-revalidate"
+                )
+                response.headers["Pragma"] = "no-cache"
+                response.headers["Expires"] = "0"
+                return response
+
+        app.mount(
+            "/static",
+            NoCacheStaticFiles(directory=str(_static_dir)),
+            name="static",
+        )
+    else:
+        app.mount(
+            "/static",
+            StarletteStaticFiles(directory=str(_static_dir)),
+            name="static",
+        )

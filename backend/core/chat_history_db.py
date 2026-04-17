@@ -250,7 +250,12 @@ class ChatHistoryDB:
                 )
                 user_count = cursor.fetchone()[0]
                 if user_count == 1:
-                    title = content[:30] + "..." if len(content) > 30 else content
+                    # 规范化空白并按 50 字符截断，避免多行/多空格污染标题
+                    clean_content = " ".join(content.split())
+                    if len(clean_content) > 50:
+                        title = clean_content[:50] + "..."
+                    else:
+                        title = clean_content
                     cursor.execute(
                         "UPDATE sessions SET title = ? WHERE session_id = ?",
                         (title, session_id),
