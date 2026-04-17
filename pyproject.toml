@@ -53,7 +53,7 @@ dependencies = [
     "pywin32>=306,<320; sys_platform == 'win32'",
     # 加密和缓存
     "pycryptodome>=3.23.0,<4.0.0",
-    "cryptography>=41.0.0,<46.0.0",
+    "cryptography>=46.0.7,<47.0.0",
     "diskcache>=5.6.0,<6.0.0",
     "cachetools>=5.0.0,<7.0.0",
     # 配置和日志
