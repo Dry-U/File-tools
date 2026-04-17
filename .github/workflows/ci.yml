@@ -52,7 +52,6 @@ jobs:
       - name: Type check with mypy
         run: |
           uvx mypy backend/ --ignore-missing-imports --pretty
-        continue-on-error: true
 
   # ==================== 单元测试 ====================
   test:
@@ -93,7 +92,7 @@ jobs:
         uses: codecov/codecov-action@v5
         with:
           files: ./coverage.xml
-          fail_ci_if_error: false
+          fail_ci_if_error: true
           verbose: true
 
   # ==================== macOS 测试 ====================
