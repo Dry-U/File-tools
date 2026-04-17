@@ -140,9 +140,30 @@ const FileToolsChat = (function() {
     function addLoadingMessage() {
         const container = document.getElementById('chatContainer');
         const div = document.createElement('div');
-        div.className = 'message-row ai';
+        div.className = 'message-row ai loading-message';
         const id = FileToolsUtils.generateMessageId('loading');
         div.id = id;
+
+        // 超时进度跟踪
+        let elapsed = 0;
+        const timeout = 120000; // 120s
+        const interval = setInterval(() => {
+            elapsed += 1000;
+            const progressEl = document.getElementById(id + '-progress');
+            if (progressEl) {
+                const seconds = Math.floor(elapsed / 1000);
+                const percent = Math.min((elapsed / timeout) * 100, 100);
+                progressEl.innerHTML = `
+                    <div class="loading-progress">
+                        <div class="loading-progress-bar" style="width:${percent}%"></div>
+                    </div>
+                    <small class="text-muted">${seconds}s / 120s</small>
+                `;
+            }
+            if (elapsed >= timeout) {
+                clearInterval(interval);
+            }
+        }, 1000);
 
         div.innerHTML = `
             <div class="message-avatar avatar-ai">
@@ -156,11 +177,12 @@ const FileToolsChat = (function() {
                     <span></span>
                     <span></span>
                 </div>
+                <div id="${id}-progress" class="loading-progress-container"></div>
             </div>
         `;
         container.appendChild(div);
         container.scrollTop = container.scrollHeight;
-        loadingMessages[id] = div;
+        loadingMessages[id] = { div, interval };
         return id;
     }
 
@@ -172,8 +194,11 @@ const FileToolsChat = (function() {
         const loadingEl = document.getElementById(id);
         if (loadingEl) {
             loadingEl.remove();
-            delete loadingMessages[id];
         }
+        if (loadingMessages[id]?.interval) {
+            clearInterval(loadingMessages[id].interval);
+        }
+        delete loadingMessages[id];
     }
 
     /**
