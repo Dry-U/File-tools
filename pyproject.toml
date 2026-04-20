@@ -67,7 +67,7 @@ dependencies = [
     "six>=1.16.0",
     "numpy>=1.26.0,<3.0.0", # hnswlib/pandas/sklearn 需要
     "scikit-learn>=1.0.0,<2.0.0", # RAG 需要
-    "fastembed>=0.7.3",
+    "fastembed>=0.7.4",
 ]
 
 # 开发依赖（uv 依赖组）
@@ -109,7 +109,7 @@ fast-scan = [
 # 语义搜索嵌入模型（轻量级，纯CPU，约100MB）
 # 与 modelscope 二选一，推荐此选项
 embedding = [
-    "fastembed>=0.3.0,<0.8.0",
+    "fastembed>=0.7.4,<0.8.0",
 ]
 # 阿里云 ModelScope 嵌入模型（备选）
 # 如需使用，设置 embedding.provider = "modelscope"
