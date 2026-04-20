@@ -30,7 +30,7 @@ dependencies = [
     # 桌面 GUI
     "pywebview>=6.2,<7.0.0",
     # 数据处理
-    "pydantic>=2.12.0,<3.0.0",
+    "pydantic>=2.13.2,<3.0.0",
     "pandas>=2.0.0,<3.0.0",
     # 搜索引擎
     "tantivy>=0.25.0,<0.26.0",
