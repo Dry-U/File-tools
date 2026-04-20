@@ -692,20 +692,25 @@ class ConfigLoader:
             self.set("file_scanner", "scan_paths", validated_paths)
         elif isinstance(scan_paths, list):
             # 如果已经是列表，验证每个路径
-            validated_paths = []
-            for path in scan_paths:
-                expanded_path = Path(str(path)).expanduser()
-                if expanded_path.exists() and expanded_path.is_dir():
-                    validated_paths.append(str(expanded_path))
-                else:
-                    logger.warning(f"扫描路径不存在: {path}")
-            if not validated_paths:
-                # 如果没有有效路径，使用默认路径
-                default_path = Path.home() / "Documents"
-                if not default_path.exists():
-                    default_path = Path.home()
-                validated_paths = [str(default_path)]
-            self.set("file_scanner", "scan_paths", validated_paths)
+            # 如果是空列表（用户明确配置），保持为空，不填充默认值
+            if len(scan_paths) == 0:
+                logger.info("扫描路径配置为空，将在首次添加时设置")
+                # 不修改配置，保持为空列表
+            else:
+                validated_paths = []
+                for path in scan_paths:
+                    expanded_path = Path(str(path)).expanduser()
+                    if expanded_path.exists() and expanded_path.is_dir():
+                        validated_paths.append(str(expanded_path))
+                    else:
+                        logger.warning(f"扫描路径不存在: {path}")
+                if not validated_paths:
+                    # 如果没有有效路径，使用默认路径
+                    default_path = Path.home() / "Documents"
+                    if not default_path.exists():
+                        default_path = Path.home()
+                    validated_paths = [str(default_path)]
+                self.set("file_scanner", "scan_paths", validated_paths)
 
         # 验证监控目录
         monitor_dirs = self.get(
@@ -730,20 +735,25 @@ class ConfigLoader:
             self.set("monitor", "directories", validated_dirs)
         elif isinstance(monitor_dirs, list):
             # 如果已经是列表，验证每个路径
-            validated_dirs = []
-            for dir_path in monitor_dirs:
-                expanded_path = Path(str(dir_path)).expanduser()
-                if expanded_path.exists() and expanded_path.is_dir():
-                    validated_dirs.append(str(expanded_path))
-                else:
-                    logger.warning(f"监控目录不存在: {dir_path}")
-            if not validated_dirs:
-                # 如果没有有效路径，使用默认路径
-                default_path = Path.home() / "Documents"
-                if not default_path.exists():
-                    default_path = Path.home()
-                validated_dirs = [str(default_path)]
-            self.set("monitor", "directories", validated_dirs)
+            # 如果是空列表（用户明确配置），保持为空，不填充默认值
+            if len(monitor_dirs) == 0:
+                logger.info("监控目录配置为空，将在首次添加时设置")
+                # 不修改配置，保持为空列表
+            else:
+                validated_dirs = []
+                for dir_path in monitor_dirs:
+                    expanded_path = Path(str(dir_path)).expanduser()
+                    if expanded_path.exists() and expanded_path.is_dir():
+                        validated_dirs.append(str(expanded_path))
+                    else:
+                        logger.warning(f"监控目录不存在: {dir_path}")
+                if not validated_dirs:
+                    # 如果没有有效路径，使用默认路径
+                    default_path = Path.home() / "Documents"
+                    if not default_path.exists():
+                        default_path = Path.home()
+                    validated_dirs = [str(default_path)]
+                self.set("monitor", "directories", validated_dirs)
 
         # 验证数值配置
         self._validate_numeric_configs()
