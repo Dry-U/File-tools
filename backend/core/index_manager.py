@@ -46,7 +46,7 @@ class BatchModeContext:
 
 
 class IndexManager:
-    def __init__(self, config_loader):
+    def __init__(self, config_loader: Any) -> None:
         self.config_loader = config_loader
         self.logger = logging.getLogger(__name__)
 
@@ -60,21 +60,10 @@ class IndexManager:
         # 初始化配置
         self._init_config()
 
-        # 初始化嵌入模型（同步初始化，避免索引加载时模型未就绪）
-        self.embedding_model = None
-        self.vector_dim = 384
-        self._embedding_lazy_loading_attempted = False
-
-        # 先初始化嵌入模型，确保 _init_indexes() 时模型已就绪
-        self._init_embedding_model()
-
-        # 初始化索引（此时 embedding_model 已就绪）
-        self._init_indexes()
-
         # 批量添加模式支持
         self._batch_mode = False
         self._batch_mode_start_time = None  # 追踪批量模式开始时间，用于超时检测
-        self._batch_buffer = []
+        self._batch_buffer: list[Any] = []
         self._batch_size = config_loader.getint("index", "batch_size", 100)
         self._batch_commit_interval = config_loader.getint(
             "index", "commit_interval", 30
@@ -102,7 +91,7 @@ class IndexManager:
         self._batch_mode_done_event.set()  # 初始状态：未在批量模式
 
         # Vector batch encoding buffer - 跨文档缓冲，批量编码提升 40-60% 速度
-        self._vector_buffer = []  # [(text, metadata_dict), ...]
+        self._vector_buffer: list[tuple[str, Dict[str, Any]]] = []
         self._vector_batch_size = config_loader.getint(
             "index", "vector_batch_size", 128
         )  # 从32提升到128，减少编码调用次数
@@ -118,15 +107,26 @@ class IndexManager:
         )
 
         # 已删除文件路径集合（用于在搜索时过滤已删除的文档，因为HNSW不支持真正删除）
-        self._deleted_paths = set()  # {file_path, ...}
+        self._deleted_paths: set[str] = set()  # {file_path, ...}
 
         # 内容缓存（LRU），避免同一文件多次 I/O
-        self._content_cache = {}  # {path: content}
-        self._content_cache_order = []  # 记录访问顺序，用于 LRU 淘汰
+        self._content_cache: dict[str, Any] = {}  # {path: content}
+        self._content_cache_order: list[str] = []  # 记录访问顺序，用于 LRU 淘汰
         self._content_cache_max_size = 500  # 最大缓存文件数
 
         # 分块器（可为 None）
         self.chunker: Optional["TextChunker"] = None
+
+        # 初始化嵌入模型（同步初始化，避免索引加载时模型未就绪）
+        self.embedding_model: Optional[Any] = None
+        self.vector_dim = 384
+        self._embedding_lazy_loading_attempted = False
+
+        # 先初始化嵌入模型，确保 _init_indexes() 时模型已就绪
+        self._init_embedding_model()
+
+        # 初始化索引（此时 embedding_model 已就绪）
+        self._init_indexes()
 
     def _init_config(self) -> None:
         """初始化配置参数"""

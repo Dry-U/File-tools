@@ -29,7 +29,7 @@ logger = logging.getLogger(__name__)
 class VRAMManager:
     """VRAM管理器，用于优化RAG系统性能，特别是在处理大上下文时"""
 
-    def __init__(self, config):
+    def __init__(self, config: Any) -> None:
         self.config = config
         self.models: Dict[str, Any] = {}
         self.last_used: Dict[str, float] = {}

@@ -209,11 +209,21 @@ class ConfigLoader:
             try:
                 import winreg
 
+                open_key = getattr(winreg, "OpenKey", None)
+                hkey_local_machine = getattr(winreg, "HKEY_LOCAL_MACHINE", None)
+                query_value_ex = getattr(winreg, "QueryValueEx", None)
+                if (
+                    not callable(open_key)
+                    or hkey_local_machine is None
+                    or not callable(query_value_ex)
+                ):
+                    raise AttributeError("winreg APIs unavailable")
+
                 # 尝试读取系统UUID
-                with winreg.OpenKey(
-                    winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\Microsoft\Cryptography"
+                with open_key(
+                    hkey_local_machine, r"SOFTWARE\Microsoft\Cryptography"
                 ) as key:
-                    machine_guid, _ = winreg.QueryValueEx(key, "MachineGuid")
+                    machine_guid, _ = query_value_ex(key, "MachineGuid")
                     if machine_guid:
                         machine_info.append(machine_guid)
             except Exception:

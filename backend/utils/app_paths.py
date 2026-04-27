@@ -23,7 +23,7 @@ class AppPaths:
     APP_NAME = "FileTools"
     APP_AUTHOR = "DryU"  # Windows 上用于组织文件夹
 
-    def __init__(self):
+    def __init__(self) -> None:
         self._user_data_dir: Optional[Path] = None
         self._config_dir: Optional[Path] = None
         self._log_dir: Optional[Path] = None

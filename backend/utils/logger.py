@@ -23,7 +23,7 @@ from logging.handlers import (
 )
 from pathlib import Path
 from queue import Queue
-from typing import Any, Dict, Literal, Optional, Union
+from typing import Any, Dict, List, Literal, Optional, Union
 
 
 def sanitize_log_message(msg: str) -> str:
@@ -365,7 +365,7 @@ class EnterpriseLogger:
             )
 
         # 收集实际的处理器
-        handlers = []
+        handlers: List[logging.Handler] = []
 
         # 创建控制台处理器
         # 在 Windows 上设置编码为 utf-8 以避免中文乱码

@@ -163,7 +163,7 @@ class ConfigValidator:
         "search": ["text_weight", "vector_weight"],
     }
 
-    def __init__(self, config_loader=None):
+    def __init__(self, config_loader: Optional[Any] = None) -> None:
         self.config_loader = config_loader
         self.issues: List[ValidationIssue] = []
         self.config: Dict[str, Any] = {}
@@ -475,7 +475,12 @@ class ConfigValidator:
             try:
                 import ctypes
 
-                if ctypes.windll.shell32.IsUserAnAdmin():
+                windll = getattr(ctypes, "windll", None)
+                shell32 = getattr(windll, "shell32", None) if windll is not None else None
+                is_user_admin = (
+                    getattr(shell32, "IsUserAnAdmin", None) if shell32 is not None else None
+                )
+                if callable(is_user_admin) and bool(is_user_admin()):
                     result.add_info(
                         message="应用以管理员权限运行（通常不需要）",
                         section="system",

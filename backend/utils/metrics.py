@@ -146,7 +146,7 @@ class Gauge:
 class MetricsCollector:
     """指标收集器"""
 
-    def __init__(self):
+    def __init__(self) -> None:
         self._counters: Dict[str, Counter] = {}
         self._histograms: Dict[str, Histogram] = {}
         self._gauges: Dict[str, Gauge] = {}

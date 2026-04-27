@@ -8,7 +8,7 @@ import sys
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
-from typing import TYPE_CHECKING, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 from watchdog.events import FileSystemEventHandler
 from watchdog.observers import Observer
@@ -24,9 +24,14 @@ class FileMonitor:
     DEFAULT_MAX_WORKERS = 2  # 默认并行处理线程数
     DEFAULT_BUFFER_TIMEOUT = 0.1  # 事件缓冲超时时间（秒），降低延迟
 
-    def __init__(self, config_loader, index_manager=None, file_scanner=None):
+    def __init__(
+        self,
+        config_loader: Any,
+        index_manager: Optional[Any] = None,
+        file_scanner: Optional[Any] = None,
+    ) -> None:
         self.config_loader = config_loader
-        self.index_manager: Optional["IndexManager"] = index_manager
+        self.index_manager: Optional[Any] = index_manager
         self.file_scanner = file_scanner
         self.logger = logging.getLogger(__name__)
 
@@ -94,7 +99,7 @@ class FileMonitor:
         self._document_parser = None
 
         # 用于去重和防抖（线程安全）
-        self._event_buffer = {}
+        self._event_buffer: Dict[str, List[Dict[str, Any]]] = {}
         self._buffer_lock = (
             threading.Lock()
         )  # 保护 _event_buffer 和 _last_process_time 的锁
@@ -850,7 +855,7 @@ if __name__ == "__main__":
         # 初始化监控器
         index_manager = MockIndexManager()
         config = MockConfig()
-        monitor = FileMonitor(index_manager, config)
+        monitor = FileMonitor(config, index_manager)
 
         # 启动监控
         monitor.start_monitoring()
