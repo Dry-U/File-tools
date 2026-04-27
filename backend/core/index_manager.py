@@ -856,20 +856,20 @@ class IndexManager:
 
         def commit_worker():
             """后台线程：定期commit以释放writer锁"""
-            self.logger.info("[COMMIT_THREAD] 后台commit线程已启动")
+            self.logger.debug("[COMMIT_THREAD] 后台commit线程已启动")
             commit_count = 0
             while not self._commit_thread_stop.is_set():
                 # 等待10秒或直到被唤醒
                 result = self._commit_thread_stop.wait(timeout=10)
                 if result:  # stop event被设置
-                    self.logger.info("[COMMIT_THREAD] 收到停止信号，退出线程")
+                    self.logger.debug("[COMMIT_THREAD] 收到停止信号，退出线程")
                     break
 
                 # 检查是否应该commit
                 try:
                     with self._batch_lock:
                         if not self._batch_mode:
-                            self.logger.info("[COMMIT_THREAD] 批量模式已关闭，退出线程")
+                            self.logger.debug("[COMMIT_THREAD] 批量模式已关闭，退出线程")
                             break
                         if self._writer is None:
                             self.logger.warning(
@@ -879,7 +879,7 @@ class IndexManager:
 
                         elapsed = time.time() - self._last_commit_time
                         buffer_size = len(self._batch_buffer)
-                        self.logger.info(
+                        self.logger.debug(
                             f"[COMMIT_THREAD] 检查commit: "
                             f"elapsed={elapsed:.1f}s, buffer={buffer_size}"
                         )
@@ -896,7 +896,7 @@ class IndexManager:
                                 # 处理缓冲区中的文档
                                 docs_to_process = list(self._batch_buffer)
                                 if docs_to_process:
-                                    self.logger.info(
+                                    self.logger.debug(
                                         f"[COMMIT_THREAD] 开始提交 "
                                         f"{len(docs_to_process)} 个文档"
                                     )
@@ -904,7 +904,7 @@ class IndexManager:
                                     for doc in docs_to_process:
                                         self._add_doc_to_writer(doc)
                                     elapsed_add = time.time() - t_commit_start
-                                    self.logger.info(
+                                    self.logger.debug(
                                         f"[COMMIT_THREAD] 添加文档到writer完成，"
                                         f"耗时 {elapsed_add:.3f}s"
                                     )
@@ -914,7 +914,7 @@ class IndexManager:
 
                                 t_writer_commit = time.time()
                                 elapsed_since = t_writer_commit - elapsed
-                                self.logger.info(
+                                self.logger.debug(
                                     f"[COMMIT_THREAD] 开始writer.commit() "
                                     f"(累计 {elapsed_since:.3f}s from last commit)"
                                 )
@@ -925,7 +925,7 @@ class IndexManager:
                                     self._writer_dirty = False
                                     commit_count += 1
                                     commit_time = t_commit_done - t_writer_commit
-                                    self.logger.info(
+                                    self.logger.debug(
                                         f"[COMMIT_THREAD] Commit #{commit_count} 完成，"
                                         f"writer.commit()耗时 {commit_time:.3f}s，"
                                         f"本轮提交文档数 {self._commit_docs_since_last}"
@@ -939,7 +939,7 @@ class IndexManager:
                                     f"[COMMIT_THREAD] 后台commit失败: {e}"
                                 )
                         else:
-                            self.logger.info(
+                            self.logger.debug(
                                 f"[COMMIT_THREAD] 跳过commit: "
                                 f"elapsed={elapsed:.1f}s < 10s, "
                                 f"buffer={buffer_size} < 50"
@@ -947,14 +947,14 @@ class IndexManager:
                 except Exception as e:
                     self.logger.error(f"[COMMIT_THREAD] Commit循环异常: {e}")
 
-            self.logger.info(f"[COMMIT_THREAD] 线程退出，完成 {commit_count} 次commit")
+            self.logger.debug(f"[COMMIT_THREAD] 线程退出，完成 {commit_count} 次commit")
             self._commit_thread_running = False
 
         self._commit_thread = threading.Thread(
             target=commit_worker, daemon=True, name="TantivyCommitThread"
         )
         self._commit_thread.start()
-        self.logger.info("[COMMIT_THREAD] 后台commit线程已启动")
+        self.logger.debug("[COMMIT_THREAD] 后台commit线程已启动")
 
     def commit_batch(self):
         """提交批量添加的文档"""
@@ -974,7 +974,7 @@ class IndexManager:
 
     def end_batch_mode(self, commit=True):
         """结束批量添加模式"""
-        self.logger.info(f"[BATCH] end_batch_mode 开始，commit={commit}")
+        self.logger.debug(f"[BATCH] end_batch_mode 开始，commit={commit}")
 
         # 先停止后台commit线程
         self._stop_commit_thread()
@@ -982,12 +982,12 @@ class IndexManager:
         # 使用单个锁区域避免 TOCTOU 竞态
         with self._batch_lock:
             if not self._batch_mode:
-                self.logger.info("[BATCH] 批量模式未激活，直接返回")
+                self.logger.debug("[BATCH] 批量模式未激活，直接返回")
                 return
 
             # 检查是否超时
             elapsed = time.time() - (self._batch_mode_start_time or time.time())
-            self.logger.info(f"[BATCH] 批量模式已运行 {elapsed:.1f} 秒")
+            self.logger.debug(f"[BATCH] 批量模式已运行 {elapsed:.1f} 秒")
             if elapsed > self._BATCH_MODE_TIMEOUT:
                 self.logger.warning(
                     f"[BATCH] 批量模式超时（已运行 {elapsed:.1f} 秒），强制结束"
@@ -996,7 +996,7 @@ class IndexManager:
             try:
                 # 先处理缓冲区中剩余的文档
                 buffer_size = len(self._batch_buffer)
-                self.logger.info(f"[BATCH] 处理剩余 {buffer_size} 个文档")
+                self.logger.debug(f"[BATCH] 处理剩余 {buffer_size} 个文档")
                 if self._batch_buffer:
                     for doc in self._batch_buffer:
                         self._add_doc_to_writer(doc)
@@ -1006,15 +1006,15 @@ class IndexManager:
 
                 # 检查向量缓冲区大小
                 vector_buffer_size = len(getattr(self, "_vector_buffer", []))
-                self.logger.info(f"[BATCH] 向量缓冲区大小: {vector_buffer_size}")
+                self.logger.debug(f"[BATCH] 向量缓冲区大小: {vector_buffer_size}")
 
                 # 在标记批量模式结束前先刷新向量缓冲区（避免 save_indexes 再次 flush）
                 if vector_buffer_size > 0:
-                    self.logger.info("[BATCH] 刷新向量缓冲区...")
+                    self.logger.debug("[BATCH] 刷新向量缓冲区...")
                     try:
                         # 已持有 _batch_lock，直接调用内部方法
                         self._do_flush_vector_buffer()
-                        self.logger.info("[BATCH] 向量缓冲区刷新完成")
+                        self.logger.debug("[BATCH] 向量缓冲区刷新完成")
                     except Exception as e:
                         self.logger.error(f"[BATCH] 刷新向量缓冲区失败: {e}")
 
@@ -1022,12 +1022,12 @@ class IndexManager:
                 if self._writer is not None:
                     try:
                         if commit:
-                            self.logger.info("[BATCH] 执行最终commit")
+                            self.logger.debug("[BATCH] 执行最终commit")
                             if self._writer_dirty:
                                 t_final_commit = time.time()
                                 self._writer.commit()
                                 final_commit_elapsed = time.time() - t_final_commit
-                                self.logger.info(
+                                self.logger.debug(
                                     "[BATCH] 最终commit完成，"
                                     f"耗时 {final_commit_elapsed:.3f}s，"
                                     f"本轮提交文档数 {self._commit_docs_since_last}"
@@ -1038,11 +1038,11 @@ class IndexManager:
                                 self.logger.debug(
                                     "[BATCH] writer 无新增文档，跳过最终空 commit"
                                 )
-                            self.logger.info("[BATCH] 执行save_indexes")
+                            self.logger.debug("[BATCH] 执行save_indexes")
                             self.save_indexes()
                         # 释放 writer
                         self._writer = None
-                        self.logger.info("[BATCH] Writer已释放")
+                        self.logger.debug("[BATCH] Writer已释放")
                     except Exception as e:
                         self.logger.warning(f"[BATCH] 释放 writer 时出错: {e}")
                         self._writer = None
@@ -1051,7 +1051,7 @@ class IndexManager:
                 self._batch_mode_start_time = None
                 # 通知等待批量模式结束的线程
                 self._batch_mode_done_event.set()
-                self.logger.info("[BATCH] 批量添加模式已结束")
+                self.logger.debug("[BATCH] 批量添加模式已结束")
 
             except Exception as e:
                 self.logger.error(f"[BATCH] 结束批量模式时出错: {e}")
@@ -1128,15 +1128,15 @@ class IndexManager:
     def _stop_commit_thread(self):
         """停止后台commit线程"""
         if getattr(self, "_commit_thread_running", False):
-            self.logger.info("[COMMIT_THREAD] 正在停止后台commit线程...")
+            self.logger.debug("[COMMIT_THREAD] 正在停止后台commit线程...")
             self._commit_thread_stop.set()
             self._commit_thread_running = False
             # 等待线程真正退出
             if hasattr(self, "_commit_thread") and self._commit_thread.is_alive():
                 self._commit_thread.join(timeout=2)
-            self.logger.info("[COMMIT_THREAD] 后台commit线程已停止")
+            self.logger.debug("[COMMIT_THREAD] 后台commit线程已停止")
         else:
-            self.logger.info("[COMMIT_THREAD] 后台commit线程未运行")
+            self.logger.debug("[COMMIT_THREAD] 后台commit线程未运行")
 
     def batch_mode(self, commit=True):
         """
@@ -2848,14 +2848,14 @@ class IndexManager:
         t0 = time.time()  # 调试：记录开始时间
         encode_total_seconds = 0.0
         hnsw_total_seconds = 0.0
-        self.logger.info(
+        self.logger.debug(
             f"[VECTOR_FLUSH] 开始刷新向量缓冲区，大小={len(self._vector_buffer)}"
         )
 
         # 触发延迟加载（如有必要）
         self._ensure_embedding_loaded()
         if not self.embedding_model or self.hnsw is None:
-            self.logger.info("[VECTOR_FLUSH] Embedding模型未就绪，清空缓冲区")
+            self.logger.debug("[VECTOR_FLUSH] Embedding模型未就绪，清空缓冲区")
             self._vector_buffer = []
             return
 
@@ -2864,7 +2864,7 @@ class IndexManager:
         count = len(pending_items)
 
         try:
-            self.logger.info(
+            self.logger.debug(
                 f"[VECTOR_FLUSH] 分块写入开始，共 {count} 个向量，"
                 f"块大小={self._vector_batch_size}"
             )
@@ -2899,7 +2899,7 @@ class IndexManager:
                 self.next_id += len(vectors)
                 chunk_count += 1
 
-            self.logger.info(
+            self.logger.debug(
                 "[VECTOR_FLUSH] 分块写入完成，"
                 f"chunks={chunk_count}，"
                 f"编码峰值 {encode_peak_seconds:.3f}s，"
@@ -2908,7 +2908,7 @@ class IndexManager:
             )
 
             total_time = time.time() - t0
-            self.logger.info(
+            self.logger.debug(
                 f"[VECTOR_FLUSH] 向量批量写入完成: {count} 个向量，"
                 f"总耗时 {total_time:.3f}s"
             )
@@ -2931,7 +2931,7 @@ class IndexManager:
                     # 保存已有元数据用于日志
                     old_metadata_count = len(self.vector_metadata)
                     old_next_id = self.next_id
-                    self.logger.info(
+                    self.logger.debug(
                         f"[VECTOR_FLUSH] 旧索引元数据: {old_metadata_count} 条, "
                         f"next_id={old_next_id}"
                     )
@@ -2941,7 +2941,7 @@ class IndexManager:
                     # 注意：不恢复旧元数据！旧 HNSW 索引已损坏，旧向量不可恢复。
                     # 恢复旧元数据会导致搜索时指向不存在的向量 ID（悬空引用）。
                     # 当前批次将从 next_id=0 重新写入。
-                    self.logger.info(
+                    self.logger.warning(
                         "[VECTOR_FLUSH] HNSW 索引已重建"
                         f"（旧索引 {old_metadata_count} 条数据已丢失），"
                         "从 next_id=0 重新写入当前批次"
@@ -2960,7 +2960,7 @@ class IndexManager:
                         for i, metadata in enumerate(retry_metadatas):
                             self.vector_metadata[str(self.next_id + i)] = metadata
                         self.next_id += len(vectors)
-                        self.logger.info(
+                        self.logger.warning(
                             f"[VECTOR_FLUSH] 重建后批量写入成功: {len(vectors)} 个向量"
                         )
                         self._vector_buffer = []
@@ -3014,7 +3014,7 @@ class IndexManager:
             self._perf_stats["vector_encode_total_seconds"] += encode_total_seconds
             self._perf_stats["vector_hnsw_total_seconds"] += hnsw_total_seconds
         self._vector_buffer = []
-        self.logger.info("[VECTOR_FLUSH] 刷新完成，缓冲区已清空")
+        self.logger.debug("[VECTOR_FLUSH] 刷新完成，缓冲区已清空")
 
     def get_perf_snapshot(self) -> dict:
         """返回索引层性能统计快照。"""
@@ -3061,11 +3061,8 @@ class IndexManager:
 
             self.logger.info("索引保存成功")
             return True
-        except Exception as e:
-            self.logger.error(f"保存索引失败: {str(e)}")
-            import traceback
-
-            self.logger.error(f"保存索引失败详细错误: {traceback.format_exc()}")
+        except Exception:
+            self.logger.exception("保存索引失败")
             return False
 
     def rebuild_index(self):

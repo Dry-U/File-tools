@@ -4,6 +4,7 @@
 """日志工具模块 - 提供结构化日志记录功能"""
 
 import atexit
+import contextvars
 import datetime
 import json
 import logging
@@ -22,7 +23,7 @@ from logging.handlers import (
     TimedRotatingFileHandler,
 )
 from pathlib import Path
-from queue import Queue
+from queue import Full, Queue
 from typing import Any, Dict, List, Literal, Optional, Union
 
 
@@ -286,6 +287,53 @@ class SafeTimedRotatingFileHandler(TimedRotatingFileHandler):
                 raise e
 
 
+class SafeQueueHandler(QueueHandler):
+    """有界队列处理器，队列满时丢弃并发出降噪告警。"""
+
+    def __init__(self, queue: Queue[Any], logger_name: str):
+        super().__init__(queue)
+        self.logger_name = logger_name
+        self._dropped_count = 0
+        self._drop_warn_interval = 100
+        self._drop_lock = threading.Lock()
+
+    def enqueue(self, record: logging.LogRecord) -> None:
+        try:
+            self.queue.put_nowait(record)
+        except Full:
+            with self._drop_lock:
+                self._dropped_count += 1
+                should_warn = self._dropped_count % self._drop_warn_interval == 1
+                dropped_count = self._dropped_count
+            if should_warn:
+                sys.stderr.write(
+                    f"[{self.logger_name}] log queue full, dropped messages={dropped_count}\n"
+                )
+
+
+class ContextInjectFilter(logging.Filter):
+    """将当前上下文注入到日志记录中。"""
+
+    def __init__(self, enterprise_logger: "EnterpriseLogger"):
+        super().__init__()
+        self.enterprise_logger = enterprise_logger
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        context = self.enterprise_logger.get_context()
+        if context:
+            if not hasattr(record, "context"):
+                record.context = {
+                    "user_id": context.user_id,
+                    "session_id": context.session_id,
+                    "request_id": context.request_id,
+                    "module": context.module,
+                    "component": context.component,
+                }
+            if context.custom_fields and not hasattr(record, "custom_fields"):
+                record.custom_fields = context.custom_fields
+        return True
+
+
 class EnterpriseLogger:
     """日志记录器类
 
@@ -306,7 +354,9 @@ class EnterpriseLogger:
         if not hasattr(self, "initialized"):
             self.logger_dict = {}
             self.listeners = {}
-            self.contexts = threading.local()
+            self.contexts: contextvars.ContextVar[Optional[LogContext]] = (
+                contextvars.ContextVar("log_context", default=None)
+            )
             self.initialized = True
             atexit.register(self.shutdown)
 
@@ -344,6 +394,7 @@ class EnterpriseLogger:
         logger_config = LoggerConfig(config)
         log_level = logger_config.get_log_level()
         logger.setLevel(log_level)
+        logger.addFilter(ContextInjectFilter(self))
 
         # 根据配置决定使用哪种格式化器
         if logger_config.log_json:
@@ -411,9 +462,20 @@ class EnterpriseLogger:
         file_handler.setFormatter(formatter)
         handlers.append(file_handler)
 
-        # 创建异步日志队列和监听器
-        log_queue: Queue[Any] = Queue(-1)  # 无限大小的队列
-        queue_handler = QueueHandler(log_queue)
+        # 创建异步日志队列和监听器（有界，避免极端情况下内存无限增长）
+        queue_max_size = 10000
+        try:
+            if hasattr(config, "getint"):
+                queue_max_size = max(1000, config.getint("system", "log_queue_size", 10000))
+            elif isinstance(config, dict):
+                queue_max_size = max(
+                    1000,
+                    int(config.get("system", {}).get("log_queue_size", 10000)),
+                )
+        except Exception:
+            queue_max_size = 10000
+        log_queue: Queue[Any] = Queue(queue_max_size)
+        queue_handler = SafeQueueHandler(log_queue, name)
         listener = QueueListener(log_queue, *handlers, respect_handler_level=True)
 
         # 启动监听器并保存引用
@@ -430,16 +492,15 @@ class EnterpriseLogger:
 
     def set_context(self, context: LogContext):
         """设置当前线程的日志上下文"""
-        self.contexts.context = context
+        self.contexts.set(context)
 
     def clear_context(self):
         """清除当前线程的日志上下文"""
-        if hasattr(self.contexts, "context"):
-            delattr(self.contexts, "context")
+        self.contexts.set(None)
 
     def get_context(self) -> Optional[LogContext]:
         """获取当前线程的日志上下文"""
-        return getattr(self.contexts, "context", None)
+        return self.contexts.get()
 
     def log_with_context(
         self,

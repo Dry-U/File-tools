@@ -259,7 +259,7 @@ async def search(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"搜索错误: {str(e)}")
+        logger.exception("搜索错误")
         raise HTTPException(
             status_code=500,
             detail="搜索处理失败，请稍后重试。如果问题持续，请尝试重建索引。",
@@ -339,7 +339,7 @@ async def preview_file(
                     },
                 )
         except (OSError, IOError) as e:
-            logger.error(f"无法读取文件信息: {e}")
+            logger.exception("无法读取文件信息")
             raise HTTPException(
                 status_code=500,
                 detail={
@@ -449,7 +449,7 @@ async def preview_file(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"预览文件时出错: {e}")
+        logger.exception("预览文件时出错")
         raise HTTPException(
             status_code=500,
             detail={"error": {"code": "PREVIEW_ERROR", "message": "预览处理失败"}},

@@ -280,7 +280,6 @@ function generateBasicTemplate(version) {
 
 ### macOS
 - [Apple M 芯片](${REPO_URL}/releases/download/v${version}/FileTools_${version}_aarch64.dmg)
-- [Intel 芯片](${REPO_URL}/releases/download/v${version}/FileTools_${version}_x64.dmg)
 
 ### Linux
 - [DEB 包](${REPO_URL}/releases/download/v${version}/FileTools_${version}_amd64.deb)
@@ -289,7 +288,7 @@ function generateBasicTemplate(version) {
 ## 系统要求
 - **Windows**: Windows 10/11 64位
 - **Linux**: Ubuntu 20.04+ / Debian 11+ (64位)
-- **macOS**: macOS 10.15+ (Apple Silicon 或 Intel)
+- **macOS**: macOS 10.15+ (Apple Silicon)
 
 ---
 

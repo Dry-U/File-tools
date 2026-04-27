@@ -376,11 +376,11 @@ POST /api/directories/browse
 
 ### 打包为EXE
 ```bash
-# 使用PyInstaller打包
-pyinstaller file-tools.spec
+# 构建 Python 后端 sidecar
+python build_pyinstaller.py
 
-# 或运行打包脚本
-./build_exe.bat  # Windows
+# 构建桌面安装包（Windows/macOS/Linux）
+npm run tauri build
 ```
 
 ## 开发指南

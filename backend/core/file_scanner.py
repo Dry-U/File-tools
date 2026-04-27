@@ -440,7 +440,7 @@ class FileScanner:
                         result[type_name] = exts
                     elif isinstance(ext_str, list):
                         result[type_name] = ext_str
-                self.logger.info(f"从配置加载文件类型: {result}")
+                self.logger.debug(f"从配置加载文件类型: {result}")
                 return result if result else default_extensions
 
             # 如果是字符串格式: document=.txt,.md,.pdf;image=.jpg,.png
@@ -464,7 +464,7 @@ class FileScanner:
         except Exception as e:
             self.logger.error(f"解析配置文件类型失败: {str(e)}")
 
-        self.logger.info(f"使用默认文件类型: {default_extensions}")
+        self.logger.debug(f"使用默认文件类型: {default_extensions}")
         return default_extensions
 
     def scan_and_index(self) -> Dict:
@@ -480,7 +480,7 @@ class FileScanner:
         """
         start_time = time.time()
         self.logger.info("开始扫描并索引文件（流式模式）")
-        self.logger.info(
+        self.logger.debug(
             f"开始扫描: {len(self.scan_paths)} 个路径, 并行线程: {self.max_workers}"
         )
 
@@ -520,7 +520,7 @@ class FileScanner:
         if self.index_manager:
             try:
                 self.index_manager.start_batch_mode()
-                self.logger.info("启动索引批量模式")
+                self.logger.debug("启动索引批量模式")
             except Exception as e:
                 self.logger.warning(f"启动批量模式失败: {e}")
 
@@ -687,7 +687,7 @@ class FileScanner:
                 t_end_batch = time.time()
                 self.index_manager.end_batch_mode(commit=True)
                 self._record_perf("end_batch_seconds", time.time() - t_end_batch)
-                self.logger.info("批量模式结束，索引已提交")
+                self.logger.debug("批量模式结束，索引已提交")
             except Exception as e:
                 self.logger.error(f"结束批量模式失败: {e}")
 
@@ -1691,7 +1691,7 @@ class FileScanner:
 
     def stop_scan(self):
         """停止扫描操作"""
-        self.logger.info("正在停止扫描...")
+        self.logger.debug("正在停止扫描...")
         with self._stop_lock:
             self._stop_flag = True
 
@@ -1707,19 +1707,19 @@ class FileScanner:
         with self._cache_lock:
             cache_size = len(self._file_hash_cache)
             self._file_hash_cache.clear()
-            self.logger.info(f"已清空文件哈希缓存（{cache_size} 条目）")
+            self.logger.debug(f"已清空文件哈希缓存（{cache_size} 条目）")
 
         # 关闭文档解析器
         if self.document_parser is not None:
             try:
                 if hasattr(self.document_parser, "close"):
                     self.document_parser.close()  # type: ignore[attr-defined]
-                    self.logger.info("文档解析器已关闭")
+                    self.logger.debug("文档解析器已关闭")
             except Exception as e:
                 self.logger.warning(f"关闭文档解析器时出错：{e}")
             self.document_parser = None
 
-        self.logger.info("文件扫描器已关闭")
+        self.logger.debug("文件扫描器已关闭")
 
     def get_supported_file_types(self) -> Dict[str, List[str]]:
         """获取支持的文件类型及其扩展名"""
@@ -1746,7 +1746,7 @@ class FileScanner:
             return True
 
         self.scan_paths.append(path_str)
-        self.logger.info(f"已添加扫描路径: {path_str}")
+        self.logger.debug(f"已添加扫描路径: {path_str}")
         return True
 
     def remove_scan_path(self, path: str) -> bool:
@@ -1757,7 +1757,7 @@ class FileScanner:
             return True
 
         self.scan_paths.remove(expanded_path)
-        self.logger.info(f"已移除扫描路径: {expanded_path}")
+        self.logger.debug(f"已移除扫描路径: {expanded_path}")
         return True
 
     def set_max_file_size(self, size_mb: int) -> None:
@@ -1767,7 +1767,7 @@ class FileScanner:
             return
 
         self.max_file_size = size_mb * 1024 * 1024
-        self.logger.info(f"已设置最大文件大小: {size_mb} MB")
+        self.logger.debug(f"已设置最大文件大小: {size_mb} MB")
 
     def get_scannable_files(self, directory: Optional[str] = None) -> List[str]:
         """获取可扫描的文件列表"""
@@ -1806,14 +1806,14 @@ class FileScanner:
                 return False
 
             if not self._should_index(file_path):
-                self.logger.info(f"文件不符合索引条件: {file_path}")
+                self.logger.debug(f"文件不符合索引条件: {file_path}")
                 return False
 
             # 索引文件
             success = self._index_file(file_path)
             if success:
                 self._increment_stat("total_files_indexed")
-                self.logger.info(f"成功更新文件索引: {file_path}")
+                self.logger.debug(f"成功更新文件索引: {file_path}")
             else:
                 self._increment_stat("total_files_skipped")
                 self.logger.warning(f"更新文件索引失败: {file_path}")
@@ -1829,7 +1829,7 @@ class FileScanner:
             if self.index_manager:
                 success = self.index_manager.delete_document(file_path)
                 if success:
-                    self.logger.info(f"成功从索引中移除文件: {file_path}")
+                    self.logger.debug(f"成功从索引中移除文件: {file_path}")
                 else:
                     self.logger.warning(f"从索引中移除文件失败: {file_path}")
                 return success
@@ -1947,7 +1947,7 @@ class FileScanner:
         if self.index_manager:
             try:
                 self.index_manager.start_batch_mode()
-                self.logger.info("启动索引批量模式")
+                self.logger.debug("启动索引批量模式")
             except Exception as e:
                 self.logger.warning(f"启动批量模式失败: {e}")
 
@@ -1955,7 +1955,7 @@ class FileScanner:
             # 异步收集所有待扫描文件
             all_files = await self._collect_files_async()
             total_files = len(all_files)
-            self.logger.info(f"共收集到 {total_files} 个待扫描文件")
+            self.logger.debug(f"共收集到 {total_files} 个待扫描文件")
 
             if total_files == 0:
                 self.logger.warning("没有找到需要扫描的文件")
@@ -1974,7 +1974,7 @@ class FileScanner:
             batch_size = self.batch_size * self.max_workers
             for batch_start in range(0, total_files, batch_size):
                 if self._is_stop_requested():
-                    self.logger.info("扫描已被停止")
+                    self.logger.debug("扫描已被停止")
                     break
 
                 batch_end = min(batch_start + batch_size, total_files)
@@ -2017,7 +2017,7 @@ class FileScanner:
             if self.index_manager:
                 try:
                     self.index_manager.end_batch_mode(commit=True)
-                    self.logger.info("批量模式结束，索引已提交")
+                    self.logger.debug("批量模式结束，索引已提交")
                 except Exception as e:
                     self.logger.error(f"结束批量模式失败: {e}")
 

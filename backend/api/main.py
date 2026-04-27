@@ -5,6 +5,8 @@ FastAPI 应用主文件 - 初始化和生命周期管理
 import os
 import threading
 import time
+import uuid
+import zlib
 from collections import OrderedDict
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -17,9 +19,23 @@ from fastapi.responses import HTMLResponse, JSONResponse, Response
 
 from backend.api.routes import chat, config, directory, search, system
 from backend.api.routes.system import get_version
-from backend.utils.logger import get_logger
+from backend.utils.logger import LogContext, clear_context, get_logger, set_context
 
 logger = get_logger(__name__)
+SLOW_REQUEST_THRESHOLD_MS = 1000.0
+CLIENT_ERROR_LOG_SAMPLE_RATE = 0.1
+
+
+def _should_sample_client_error_log(request_id: str, path: str) -> bool:
+    """对 4xx 请求进行稳定采样，避免日志噪音。"""
+    if CLIENT_ERROR_LOG_SAMPLE_RATE >= 1.0:
+        return True
+    if CLIENT_ERROR_LOG_SAMPLE_RATE <= 0.0:
+        return False
+    sample_basis = f"{request_id}:{path}".encode("utf-8", errors="ignore")
+    bucket = zlib.crc32(sample_basis) % 100
+    threshold = int(CLIENT_ERROR_LOG_SAMPLE_RATE * 100)
+    return bucket < threshold
 
 
 # 请求限流器 - 防止接口被滥用
@@ -220,7 +236,21 @@ app.add_middleware(
 @app.middleware("http")
 async def add_security_headers(request, call_next):
     """添加安全响应头"""
-    response = await call_next(request)
+    request_id = request.headers.get("X-Request-ID") or uuid.uuid4().hex[:12]
+    request.state.request_id = request_id
+    request_start = time.perf_counter()
+    set_context(
+        LogContext(
+            request_id=request_id,
+            module="api.main",
+            component="http_middleware",
+        )
+    )
+    logger.debug(f"[HTTP] request_start method={request.method} path={request.url.path}")
+    try:
+        response = await call_next(request)
+    finally:
+        clear_context()
 
     # 防止 MIME 类型嗅探
     response.headers["X-Content-Type-Options"] = "nosniff"
@@ -250,6 +280,21 @@ async def add_security_headers(request, call_next):
 
     # Referrer 策略
     response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    response.headers["X-Request-ID"] = request_id
+    elapsed_ms = (time.perf_counter() - request_start) * 1000
+    log_message = (
+        f"[HTTP] request_done method={request.method} path={request.url.path} "
+        f"status={response.status_code} duration_ms={elapsed_ms:.1f} request_id={request_id}"
+    )
+    if elapsed_ms >= SLOW_REQUEST_THRESHOLD_MS:
+        logger.warning(f"{log_message} slow_request=true")
+    elif 400 <= response.status_code < 500:
+        if _should_sample_client_error_log(request_id, request.url.path):
+            logger.info(f"{log_message} client_error=true sampled=true")
+        else:
+            logger.debug(f"{log_message} client_error=true sampled=false")
+    else:
+        logger.info(log_message)
 
     return response
 
@@ -408,20 +453,20 @@ async def lifespan(app: FastAPI):
         # 使用 try-except 包装每个初始化，实现优雅降级
         try:
             index_manager = init_index_manager()
-        except Exception as e:
-            logger.error(f"索引管理器初始化失败：{e}")
+        except Exception:
+            logger.exception("索引管理器初始化失败")
             raise  # 索引是核心组件，失败时不能继续
 
         try:
             init_search_engine()
-        except Exception as e:
-            logger.error(f"搜索引擎初始化失败：{e}")
+        except Exception:
+            logger.exception("搜索引擎初始化失败")
             raise  # 搜索是核心功能，失败时不能继续
 
         try:
             file_scanner = init_file_scanner()
-        except Exception as e:
-            logger.error(f"文件扫描器初始化失败：{e}")
+        except Exception:
+            logger.exception("文件扫描器初始化失败")
             raise  # 文件扫描是核心功能，失败时不能继续
 
         # 初始化文件监控器
@@ -460,7 +505,7 @@ async def lifespan(app: FastAPI):
                 # 通知等待的协程 RAG 已就绪
                 asyncio.run_coroutine_threadsafe(_set_rag_ready(), app.state.main_loop)
             except Exception as e:
-                logger.error(f"RAG 管道初始化失败：{e}")
+                logger.exception("RAG 管道初始化失败")
                 app.state.rag_pipeline = None
                 app.state.rag_status = "error"
                 app.state.rag_error = str(e)
@@ -511,8 +556,8 @@ async def lifespan(app: FastAPI):
         init_time = time.time() - start_time
         logger.info(f"Web 应用初始化成功，耗时 {init_time:.2f}秒")
         app.state.initialized = True
-    except Exception as e:
-        logger.error(f"初始化 Web 应用时出错：{str(e)}")
+    except Exception:
+        logger.exception("初始化 Web 应用时出错")
         app.state.initialized = False
         raise
 
@@ -526,24 +571,24 @@ async def lifespan(app: FastAPI):
         try:
             app.state.rag_init_thread.join(timeout=5)
             logger.info("RAG 初始化线程已结束")
-        except Exception as e:
-            logger.error(f"等待 RAG 初始化线程时出错：{e}")
+        except Exception:
+            logger.exception("等待 RAG 初始化线程时出错")
 
     # 停止文件监控
     if hasattr(app.state, "file_monitor") and app.state.file_monitor:
         try:
             app.state.file_monitor.stop_monitoring()
             logger.info("文件监控已停止")
-        except Exception as e:
-            logger.error(f"停止文件监控时出错：{e}")
+        except Exception:
+            logger.exception("停止文件监控时出错")
 
     # 关闭文件扫描器
     if hasattr(app.state, "file_scanner") and app.state.file_scanner:
         try:
             app.state.file_scanner.close()
             logger.info("文件扫描器已关闭")
-        except Exception as e:
-            logger.error(f"关闭文件扫描器时出错：{e}")
+        except Exception:
+            logger.exception("关闭文件扫描器时出错")
 
     # 关闭 RAG Pipeline
     if hasattr(app.state, "rag_pipeline") and app.state.rag_pipeline:
@@ -554,16 +599,16 @@ async def lifespan(app: FastAPI):
             ):
                 app.state.rag_pipeline.model_manager.close()
                 logger.info("RAG Pipeline 已关闭")
-        except Exception as e:
-            logger.error(f"关闭 RAG Pipeline 时出错：{e}")
+        except Exception:
+            logger.exception("关闭 RAG Pipeline 时出错")
 
     # 关闭索引管理器
     if hasattr(app.state, "index_manager") and app.state.index_manager:
         try:
             app.state.index_manager.close()
             logger.info("索引管理器已关闭")
-        except Exception as e:
-            logger.error(f"关闭索引管理器时出错：{e}")
+        except Exception:
+            logger.exception("关闭索引管理器时出错")
 
     # 关闭 ChatHistoryDB
     if hasattr(app.state, "rag_pipeline") and app.state.rag_pipeline:
@@ -574,16 +619,16 @@ async def lifespan(app: FastAPI):
             ):
                 app.state.rag_pipeline.chat_db.close()
                 logger.info("ChatHistoryDB 已关闭")
-        except Exception as e:
-            logger.error(f"关闭 ChatHistoryDB 时出错：{e}")
+        except Exception:
+            logger.exception("关闭 ChatHistoryDB 时出错")
 
     # 关闭限流器（使用模块全局变量）
     if rate_limiter:
         try:
             rate_limiter.shutdown()
             logger.info("限流器已关闭")
-        except Exception as e:
-            logger.error(f"关闭限流器时出错：{e}")
+        except Exception:
+            logger.exception("关闭限流器时出错")
 
     logger.info("应用关闭完成")
 
@@ -596,7 +641,7 @@ app.router.lifespan_context = lifespan
 @app.exception_handler(RequestValidationError)
 async def validation_exception_handler(_request: Request, exc: RequestValidationError):
     """处理请求验证错误"""
-    logger.error(f"请求验证错误：{exc.errors()}")
+    logger.warning(f"请求验证错误：{exc.errors()}")
     return JSONResponse(
         status_code=422, content={"detail": "请求参数验证失败", "errors": exc.errors()}
     )

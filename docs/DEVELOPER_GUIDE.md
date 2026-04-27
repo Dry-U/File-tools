@@ -11,7 +11,7 @@ File-tools/
 │   ├── tauri.conf.json          # Tauri 配置
 │   ├── build.rs                 # 构建脚本
 │   ├── bin/                     # PyInstaller 打包的后端
-│   │   └── filetools-backend.exe
+│   │   └── filetools_backend.exe
 │   ├── src/
 │   │   ├── main.rs             # 主入口 (启动 Python 后端)
 │   │   └── lib.rs              # 库入口
@@ -436,7 +436,7 @@ ls src-tauri/target/release/bundle/msi/*.msi     # MSI 安装包
 ls src-tauri/target/release/*.exe               # filetools.exe
 
 # Python 后端 (PyInstaller)
-ls src-tauri/bin/filetools-backend.exe          # 打包的后端
+ls src-tauri/bin/filetools_backend.exe          # 打包的后端
 ```
 
 ### 快速命令汇总

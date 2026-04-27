@@ -106,7 +106,7 @@ async def chat(
     except HTTPException:
         raise  # 重新抛出 HTTPException，保持原始状态码
     except Exception as e:
-        logger.error(f"对话错误: {str(e)}")
+        logger.exception("对话错误")
         raise HTTPException(status_code=500, detail="对话处理失败，请稍后重试") from e
 
 
@@ -196,8 +196,8 @@ async def chat_stream(
         try:
             for event in rag_pipeline.query_stream(query, session_id=session_id):
                 yield f"data: {event}\n\n"
-        except Exception as exc:
-            logger.error(f"流式对话错误: {exc}")
+        except Exception:
+            logger.exception("流式对话错误")
             err_payload = {
                 "type": "error",
                 "content": "对话处理失败，请稍后重试",
@@ -220,8 +220,8 @@ async def get_sessions(rag_pipeline=Depends(get_rag_pipeline)):
     try:
         sessions = rag_pipeline.get_all_sessions()
         return {"sessions": sessions}
-    except Exception as e:
-        logger.error(f"获取会话错误: {str(e)}")
+    except Exception:
+        logger.exception("获取会话错误")
         return {"sessions": []}
 
 
@@ -242,8 +242,8 @@ async def delete_session(session_id: str, rag_pipeline=Depends(get_rag_pipeline)
             raise HTTPException(status_code=404, detail="会话不存在")
     except HTTPException:
         raise  # 重新抛出 HTTPException，保持原始状态码
-    except Exception as e:
-        logger.error(f"删除会话错误: {str(e)}")
+    except Exception:
+        logger.exception("删除会话错误")
         raise HTTPException(status_code=500, detail="删除会话失败，请稍后重试")
 
 
@@ -260,5 +260,5 @@ async def get_session_messages(session_id: str, rag_pipeline=Depends(get_rag_pip
         messages = rag_pipeline.chat_db.get_session_messages(session_id)
         return {"session_id": session_id, "messages": messages}
     except Exception as e:
-        logger.error(f"获取会话消息错误: {str(e)}")
+        logger.exception("获取会话消息错误")
         raise HTTPException(status_code=500, detail=f"获取会话消息失败: {str(e)}")

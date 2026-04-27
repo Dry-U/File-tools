@@ -39,10 +39,11 @@ python scripts/run_tests.py unit --allure  # Unit tests with report
 
 ### Building Executable (Windows)
 ```bash
-pip install pyinstaller
-pyinstaller file-tools.spec
-# or use build script if exists:
-./build_exe.bat
+# Build Python backend sidecar
+python build_pyinstaller.py
+
+# Build desktop installers
+npm run tauri build
 ```
 
 ## Architecture Overview
@@ -56,15 +57,15 @@ This is a hybrid file retrieval and RAG (Retrieval-Augmented Generation) system 
 
 ### Core Flow
 ```
-main.py → Pywebview Window + FastAPI (后台线程)
-         ↓
-    Startup → [IndexManager, SearchEngine, FileScanner, FileMonitor, RAGPipeline]
-         ↓
-    FileScanner.scan_and_index() → DocumentParser → IndexManager.add_document()
-         ↓
-    SearchEngine.search() → [search_text(), search_vector()] → _combine_results()
-         ↓
-    RAGPipeline.query() → SearchEngine → ModelManager.generate()
+Tauri Desktop (Rust) → Python FastAPI backend
+                    ↓
+Startup → [IndexManager, SearchEngine, FileScanner, FileMonitor, RAGPipeline]
+                    ↓
+FileScanner.scan_and_index() → DocumentParser → IndexManager.add_document()
+                    ↓
+SearchEngine.search() → [search_text(), search_vector()] → _combine_results()
+                    ↓
+RAGPipeline.query() → SearchEngine → ModelManager.generate()
 ```
 
 ### Key Patterns

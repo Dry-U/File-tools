@@ -507,7 +507,7 @@ jobs:
           echo "App version: ${APP_VERSION}"
 
       - name: Download Windows build
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@v4
         with:
           name: filetools-windows-portable-v${{ env.FILETOOLS_VERSION }}
           path: ./build
@@ -601,7 +601,7 @@ jobs:
           echo "App version: ${APP_VERSION}"
 
       - name: Download Linux build
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@v4
         with:
           name: filetools-linux-installers-v${{ env.FILETOOLS_VERSION }}
           path: ./build
@@ -713,7 +713,7 @@ jobs:
           echo "App version: ${APP_VERSION}"
 
       - name: Download macOS build
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@v4
         with:
           name: filetools-macos-arm64-dmg-v${{ env.FILETOOLS_VERSION }}
           path: ./build
@@ -808,7 +808,7 @@ jobs:
   # ==================== 发布 ====================
   release:
     name: Publish Release
-    needs: [build-tauri-windows, build-tauri-linux, build-tauri-macos-arm64]
+    needs: [e2e-windows, e2e-linux, e2e-macos]
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     permissions:
@@ -827,8 +827,9 @@ jobs:
           echo "App version: ${APP_VERSION}"
 
       - name: Download all artifacts
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@v4
         with:
+          pattern: filetools-*-v${{ steps.version.outputs.version }}
           path: release-artifacts
           merge-multiple: true
 

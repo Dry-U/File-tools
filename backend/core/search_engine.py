@@ -12,7 +12,6 @@ import logging
 import os
 import re
 import time
-import traceback
 from datetime import datetime
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
@@ -221,7 +220,7 @@ class SearchEngine:
             cached_result = self._get_from_cache(cache_key)
             if cached_result is not None:
                 cache_hit_time = time.time() - start_time
-                self.logger.info(
+                self.logger.debug(
                     f"缓存命中，返回缓存结果，耗时: {cache_hit_time:.3f}秒"
                 )
                 return cached_result
@@ -260,7 +259,7 @@ class SearchEngine:
         # 使用QueryProcessor扩展查询
         try:
             expanded_queries = self.query_processor.process(query)
-            self.logger.info(f"查询扩展: {expanded_queries}")
+            self.logger.debug(f"查询扩展: {expanded_queries}")
         except Exception as e:
             self.logger.warning(f"查询扩展失败: {e}")
             expanded_queries = [query]
@@ -301,7 +300,7 @@ class SearchEngine:
         # 短查询：只使用原始查询，避免扩展查询带来的性能开销
         if is_short_query:
             queries_to_search = [original_query]
-            self.logger.info(f"短查询优化：只使用原始查询 '{original_query}'")
+            self.logger.debug(f"短查询优化：只使用原始查询 '{original_query}'")
         else:
             # 正常查询：限制最多3个扩展查询
             queries_to_search = expanded_queries[:3]
@@ -332,7 +331,7 @@ class SearchEngine:
                         result["text_rank"] = -1  # 初始化文本排名
                         all_vector_results.append(result)
 
-        self.logger.info(
+        self.logger.debug(
             f"多路召回: 文本搜索 {len(all_text_results)} 条, "
             f"向量搜索 {len(all_vector_results)} 条"
         )
@@ -355,15 +354,15 @@ class SearchEngine:
         combined_results = self._combine_results(
             query, all_text_results, all_vector_results
         )
-        self.logger.info(f"合并后 {len(combined_results)} 条结果")
+        self.logger.debug(f"合并后 {len(combined_results)} 条结果")
 
         # 重排序优化
         combined_results = self._rerank_results(query, combined_results)
-        self.logger.info(f"重排序后 {len(combined_results)} 条结果")
+        self.logger.debug(f"重排序后 {len(combined_results)} 条结果")
 
         # 应用过滤器
         filtered_results = self._apply_filters(combined_results, filters)
-        self.logger.info(f"过滤后 {len(filtered_results)} 条结果")
+        self.logger.debug(f"过滤后 {len(filtered_results)} 条结果")
 
         # 优先返回真正包含查询词的结果，剩余语义匹配结果追加在后
         limited_results = filtered_results
@@ -454,16 +453,15 @@ class SearchEngine:
             results = self.index_manager.search_text(
                 query, limit=self.max_results * 3, filters=filters
             )
-            self.logger.info(f"文本搜索返回 {len(results)} 条结果")
+            self.logger.debug(f"文本搜索返回 {len(results)} 条结果")
 
             # 为每个结果添加搜索类型标识
             for result in results:
                 result["search_type"] = "text"
 
             return results
-        except Exception as e:
-            self.logger.error(f"文本搜索失败: {str(e)}")
-            self.logger.error(f"详细错误信息: {traceback.format_exc()}")
+        except Exception:
+            self.logger.exception("文本搜索失败")
             return []
 
     def _search_vector(
@@ -485,16 +483,15 @@ class SearchEngine:
             results = self.index_manager.search_vector(
                 query, limit=self.max_results * 3
             )
-            self.logger.info(f"向量搜索返回 {len(results)} 条结果")
+            self.logger.debug(f"向量搜索返回 {len(results)} 条结果")
 
             # 为每个结果添加搜索类型标识
             for result in results:
                 result["search_type"] = "vector"
 
             return results
-        except Exception as e:
-            self.logger.error(f"向量搜索失败: {str(e)}")
-            self.logger.error(f"详细错误信息: {traceback.format_exc()}")
+        except Exception:
+            self.logger.exception("向量搜索失败")
             return []
 
     def _merge_text_results(self, text_results: List[Dict]) -> tuple[Dict, float]:

@@ -8,9 +8,9 @@ FileTools Backend Builder - PyInstaller 版
     python build_pyinstaller.py --check  # 仅检查依赖
 
 输出:
-    Windows: src-tauri/bin/filetools-backend-x86_64-pc-windows-msvc.exe
-    Linux:   src-tauri/bin/filetools-backend-x86_64-unknown-linux-gnu
-    macOS:   src-tauri/bin/filetools-backend-x86_64-apple-darwin
+    Windows: src-tauri/bin/filetools_backend-x86_64-pc-windows-msvc.exe
+    Linux:   src-tauri/bin/filetools_backend-x86_64-unknown-linux-gnu
+    macOS:   src-tauri/bin/filetools_backend-x86_64-apple-darwin
 """
 
 import os
@@ -39,7 +39,7 @@ def get_output_name():
     machine = platform.machine().lower()
 
     # Tauri v2 需要带 target triple 的文件名
-    # 格式: filetools-backend-{arch}-{vendor}-{os}-{abi}.exe
+    # 格式: filetools_backend-{arch}-{vendor}-{os}-{abi}.exe
     arch_map = {
         "amd64": "x86_64",
         "x86_64": "x86_64",

@@ -32,7 +32,6 @@ MANIFEST
 # PyInstaller
 *.manifest
 *.spec
-!file-tools.spec
 
 # NSIS generated scripts
 installer-*.nsi
@@ -240,10 +239,8 @@ src-tauri/data/
 # ============================================================
 build/pyinstaller/
 *.spec
-!file-tools.spec
 
 # Temporary/artifact files
-EOF
 
 #claude settings - 本地开发环境配置
 .claude/settings.local.json

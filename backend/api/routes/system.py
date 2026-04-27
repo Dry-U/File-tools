@@ -117,7 +117,7 @@ async def rebuild_index(
         with _rebuild_lock:
             _rebuild_progress_state["in_progress"] = False
             _rebuild_progress_state["error"] = str(e)
-        logger.error(f"重建索引错误: {str(e)}")
+        logger.exception("重建索引错误")
         raise HTTPException(status_code=500, detail="索引重建失败，请稍后重试")
 
 
@@ -347,7 +347,7 @@ async def rebuild_index_stream(
                 stats = scan_task.result()
                 logger.info(f"SSE: 获取到扫描结果: {stats}")
             except Exception as e:
-                logger.error(f"SSE: 获取扫描结果异常: {str(e)}")
+                logger.exception("SSE: 获取扫描结果异常")
                 # 发送错误消息后让异常继续传播到外层
                 with _rebuild_lock:
                     _rebuild_progress_state["error"] = str(e)
@@ -387,7 +387,7 @@ async def rebuild_index_stream(
                 logger.warning(f"SSE: 发送成功消息时客户端已断开: {e}")
 
         except Exception as e:
-            logger.error(f"重建索引错误: {str(e)}")
+            logger.exception("重建索引错误")
             try:
                 with _rebuild_lock:
                     _rebuild_progress_state["error"] = str(e)
@@ -444,7 +444,7 @@ async def cancel_rebuild_index(
             "files_indexed": files_indexed,
         }
     except Exception as e:
-        logger.error(f"取消重建索引错误: {str(e)}")
+        logger.exception("取消重建索引错误")
         raise HTTPException(status_code=500, detail="取消重建失败，请稍后重试")
 
 
@@ -506,7 +506,7 @@ async def health_check(
             components=components,
         )
     except Exception as e:
-        logger.error(f"健康检查错误: {str(e)}")
+        logger.exception("健康检查错误")
         raise HTTPException(status_code=500, detail="健康检查失败") from e
 
 
@@ -622,7 +622,7 @@ async def check_update():
         logger.warning(f"检查更新失败: {e}")
         raise HTTPException(status_code=503, detail="无法连接到更新服务器")
     except Exception as e:
-        logger.error(f"检查更新异常: {e}")
+        logger.exception("检查更新异常")
         raise HTTPException(status_code=500, detail="检查更新失败")
 
 
@@ -713,8 +713,8 @@ async def shutdown_app(request: Request):
             try:
                 request.app.state.file_monitor.stop_monitoring()
                 logger.info("文件监控已停止")
-            except Exception as e:
-                logger.error(f"停止文件监控时出错: {e}")
+            except Exception:
+                logger.exception("停止文件监控时出错")
 
         # 关闭文件扫描器
         if (
@@ -724,8 +724,8 @@ async def shutdown_app(request: Request):
             try:
                 request.app.state.file_scanner.close()
                 logger.info("文件扫描器已关闭")
-            except Exception as e:
-                logger.error(f"关闭文件扫描器时出错: {e}")
+            except Exception:
+                logger.exception("关闭文件扫描器时出错")
 
         # 关闭索引管理器
         if (
@@ -735,8 +735,8 @@ async def shutdown_app(request: Request):
             try:
                 request.app.state.index_manager.close()
                 logger.info("索引管理器已关闭")
-            except Exception as e:
-                logger.error(f"关闭索引管理器时出错: {e}")
+            except Exception:
+                logger.exception("关闭索引管理器时出错")
 
         # 关闭 RAG Pipeline
         if (
@@ -750,8 +750,8 @@ async def shutdown_app(request: Request):
                 ):
                     request.app.state.rag_pipeline.model_manager.close()
                 logger.info("RAG Pipeline 已关闭")
-            except Exception as e:
-                logger.error(f"关闭 RAG Pipeline 时出错: {e}")
+            except Exception:
+                logger.exception("关闭 RAG Pipeline 时出错")
 
         # 关闭限流器
         if (
@@ -761,8 +761,8 @@ async def shutdown_app(request: Request):
             try:
                 request.app.state.rate_limiter.shutdown()
                 logger.info("限流器已关闭")
-            except Exception as e:
-                logger.error(f"关闭限流器时出错: {e}")
+            except Exception:
+                logger.exception("关闭限流器时出错")
 
         logger.info("清理完成，正在终止进程...")
 
@@ -770,8 +770,8 @@ async def shutdown_app(request: Request):
         # 使用 os._exit(0) 立即终止，不执行任何清理（已在上方完成）
         os._exit(0)
 
-    except Exception as e:
-        logger.error(f"关闭时发生异常: {e}")
+    except Exception:
+        logger.exception("关闭时发生异常")
         # 即使异常也尝试保存关键索引数据
         try:
             if (

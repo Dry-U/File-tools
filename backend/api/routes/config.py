@@ -336,7 +336,7 @@ async def update_config(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"更新配置错误: {str(e)}")
+        logger.exception("更新配置错误")
         raise HTTPException(status_code=500, detail=f"更新配置失败: {str(e)}")
 
 
@@ -475,7 +475,7 @@ async def get_config(config_loader: ConfigLoader = Depends(get_config_loader)):
         config["rag"]["context_length"] = config["rag"]["max_history_chars"]  # type: ignore[index]
         return config
     except Exception as e:
-        logger.error(f"获取配置错误: {str(e)}")
+        logger.exception("获取配置错误")
         raise HTTPException(status_code=500, detail=f"获取配置失败: {str(e)}")
 
 
@@ -493,5 +493,5 @@ async def test_model_connection(
 
         return result
     except Exception as e:
-        logger.error(f"测试连接错误: {str(e)}")
+        logger.exception("测试连接错误")
         return {"status": "error", "error": str(e)}

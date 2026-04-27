@@ -5,13 +5,21 @@ import sys
 from pathlib import Path
 
 SRC_TAURI_BIN = Path(__file__).parent.resolve() / "src-tauri" / "bin"
-expected_file = SRC_TAURI_BIN / "filetools-backend-x86_64-pc-windows-msvc.exe"
+expected_candidates = [
+    # 当前主命名（下划线）
+    SRC_TAURI_BIN / "filetools_backend-x86_64-pc-windows-msvc.exe",
+    SRC_TAURI_BIN / "filetools_backend.exe",
+]
 
-if expected_file.exists():
-    print(f"后端文件已存在: {expected_file}")
-    print(f"大小: {expected_file.stat().st_size / 1024 / 1024:.1f} MB")
-    sys.exit(0)
-else:
-    print(f"错误: 找不到 {expected_file}")
-    print("请先运行: python build_pyinstaller.py")
-    sys.exit(1)
+for expected_file in expected_candidates:
+    if expected_file.exists():
+        print(f"后端文件已存在: {expected_file}")
+        print(f"大小: {expected_file.stat().st_size / 1024 / 1024:.1f} MB")
+        sys.exit(0)
+
+print("错误: 找不到后端构建产物")
+print("已检查候选文件:")
+for candidate in expected_candidates:
+    print(f"  - {candidate}")
+print("请先运行: python build_pyinstaller.py")
+sys.exit(1)

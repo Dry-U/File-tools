@@ -264,7 +264,7 @@ python build_pyinstaller.py
 src-tauri/target/release/filetools.exe              # Tauri 可执行文件
 src-tauri/target/release/bundle/nsis/*.exe        # NSIS 安装包
 src-tauri/target/release/bundle/msi/*.msi           # MSI 安装包
-src-tauri/bin/filetools-backend.exe                 # PyInstaller 打包的后端
+src-tauri/bin/filetools_backend.exe                 # PyInstaller 打包的后端
 ```
 
  项目架构说明

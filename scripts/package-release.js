@@ -6,6 +6,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const { execSync } = require('child_process');
 
 const VERSION = process.env.VERSION;
 const ARTIFACTS_DIR = process.env.ARTIFACTS_DIR || 'release-artifacts';
@@ -58,29 +59,48 @@ console.log('');
 console.log(`Portable components: ${portableFiles.length}`);
 console.log(`Installers: ${installers.length}\n`);
 
-// 重命名安装包 - 使用 Tauri 原生格式: FileTools_{version}_{arch}-{type}.{ext}
-const renameMap = [
-  // Windows
-  { pattern: /FileTools_[\d.]+_x64-setup\.exe$/i, name: `FileTools_${VERSION}_x64-setup.exe` },
-  { pattern: /FileTools_[\d.]+_aarch64-setup\.exe$/i, name: `FileTools_${VERSION}_aarch64-setup.exe` },
-  { pattern: /FileTools_[\d.]+_x64.*\.msi$/i, name: `FileTools_${VERSION}_x64.msi` },
-  // macOS
-  { pattern: /FileTools_[\d.]+_aarch64\.dmg$/i, name: `FileTools_${VERSION}_aarch64.dmg` },
-  { pattern: /FileTools_[\d.]+_x64\.dmg$/i, name: `FileTools_${VERSION}_x64.dmg` },
-  // Linux
-  { pattern: /filetools_[\d.]+_amd64\.AppImage$/i, name: `FileTools_${VERSION}_amd64.AppImage` },
-  { pattern: /filetools_[\d.]+_amd64\.deb$/i, name: `FileTools_${VERSION}_amd64.deb` },
-];
+function detectArch(name) {
+  const lower = name.toLowerCase();
+  if (lower.includes('aarch64') || lower.includes('arm64')) return 'aarch64';
+  if (lower.includes('x64') || lower.includes('x86_64') || lower.includes('amd64')) return 'x64';
+  return null;
+}
+
+function normalizeInstallerName(name) {
+  const ext = path.extname(name).toLowerCase();
+  const arch = detectArch(name);
+  const lower = name.toLowerCase();
+
+  if (ext === '.exe' && lower.includes('setup')) {
+    return `FileTools_${VERSION}_${arch || 'x64'}-setup.exe`;
+  }
+  if (ext === '.msi') {
+    return `FileTools_${VERSION}_${arch || 'x64'}.msi`;
+  }
+  if (ext === '.dmg') {
+    // 当前 CI 仅产出 ARM64 DMG
+    return `FileTools_${VERSION}_${arch || 'aarch64'}.dmg`;
+  }
+  if (ext === '.deb') {
+    const linuxArch = arch === 'aarch64' ? 'aarch64' : 'amd64';
+    return `FileTools_${VERSION}_${linuxArch}.deb`;
+  }
+  if (ext.toLowerCase() === '.appimage') {
+    const linuxArch = arch === 'aarch64' ? 'aarch64' : 'amd64';
+    return `FileTools_${VERSION}_${linuxArch}.AppImage`;
+  }
+  return null;
+}
 
 for (const { name, path: filePath } of installers) {
-  for (const { pattern, name: newName } of renameMap) {
-    if (pattern.test(name)) {
-      const destPath = path.join(OUTPUT_DIR, newName);
-      fs.copyFileSync(filePath, destPath);
-      console.log(`✓ ${name} -> ${newName}`);
-      break;
-    }
+  const newName = normalizeInstallerName(name);
+  if (!newName) {
+    console.log(`- Skip non-installer file: ${name}`);
+    continue;
   }
+  const destPath = path.join(OUTPUT_DIR, newName);
+  fs.copyFileSync(filePath, destPath);
+  console.log(`✓ ${name} -> ${newName}`);
 }
 
 // 创建便携版 ZIP
@@ -130,7 +150,6 @@ if (portableFiles.length >= 2) {
   console.log('  + README.txt');
 
   // 使用系统 zip 命令打包 - 使用 Tauri 原生格式
-  const { execSync } = require('child_process');
   const zipName = `FileTools_${VERSION}_x64-portable.zip`;
 
   try {
@@ -139,8 +158,44 @@ if (portableFiles.length >= 2) {
     });
     console.log(`✓ Created ${zipName}`);
   } catch (e) {
-    // 如果 zip 命令失败，尝试使用 Node.js 的 archiver
-    console.log('  (zip command failed, trying alternative method)');
+    // 如果 zip 命令失败，使用平台原生命令作为 fallback
+    console.log('  (zip command failed, trying platform fallback)');
+    try {
+      if (process.platform === 'win32') {
+        const src = path.join(OUTPUT_DIR, `FileTools_${VERSION}_x64-portable`);
+        const dst = path.join(OUTPUT_DIR, zipName);
+        execSync(
+          `powershell -NoProfile -Command "Compress-Archive -Path '${src}\\*' -DestinationPath '${dst}' -Force"`,
+          { stdio: 'inherit' }
+        );
+      } else {
+        // Linux/macOS: 使用 Python 标准库 zipfile，避免不同 tar 实现对 zip 支持不一致
+        const zipScript = [
+          'import pathlib, zipfile',
+          `base = pathlib.Path(r"${OUTPUT_DIR}")`,
+          `src = base / "FileTools_${VERSION}_x64-portable"`,
+          `dst = base / "${zipName}"`,
+          'with zipfile.ZipFile(dst, "w", zipfile.ZIP_DEFLATED) as zf:',
+          '    for p in src.rglob("*"):',
+          '        if p.is_file():',
+          '            zf.write(p, p.relative_to(base))',
+        ].join('\n');
+        try {
+          execSync(`python3 -c "${zipScript.replace(/"/g, '\\"')}"`, {
+            stdio: 'inherit',
+          });
+        } catch (_) {
+          execSync(`python -c "${zipScript.replace(/"/g, '\\"')}"`, {
+            stdio: 'inherit',
+          });
+        }
+      }
+      console.log(`✓ Created ${zipName} (fallback)`);
+    } catch (fallbackErr) {
+      console.error('Error: failed to create portable zip in both primary and fallback methods.');
+      console.error(fallbackErr);
+      process.exit(1);
+    }
   }
 
   // 清理临时目录
@@ -158,3 +213,23 @@ outputFiles.forEach(f => {
   const size = (stats.size / 1024 / 1024).toFixed(1);
   console.log(`  - ${f} (${size} MB)`);
 });
+
+// 校验关键产物，避免静默缺件发布
+const requiredPatterns = [
+  /FileTools_.*_x64-setup\.exe$/i,
+  /FileTools_.*_x64\.msi$/i,
+  /FileTools_.*_aarch64\.dmg$/i,
+  /FileTools_.*_amd64\.deb$/i,
+  /FileTools_.*_amd64\.AppImage$/i,
+  /FileTools_.*_x64-portable\.zip$/i,
+];
+const missing = requiredPatterns.filter(
+  (pattern) => !outputFiles.some((file) => pattern.test(file))
+);
+if (missing.length > 0) {
+  console.error('\nError: Missing required release artifacts.');
+  for (const pattern of missing) {
+    console.error(`  - ${pattern}`);
+  }
+  process.exit(1);
+}

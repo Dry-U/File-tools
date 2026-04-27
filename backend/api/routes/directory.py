@@ -153,7 +153,7 @@ async def get_directories(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"获取目录列表错误: {str(e)}")
+        logger.exception("获取目录列表错误")
         raise HTTPException(
             status_code=500, detail="获取目录列表失败，请稍后重试"
         ) from e
@@ -259,7 +259,7 @@ async def add_directory(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"添加目录错误: {str(e)}")
+        logger.exception("添加目录错误")
         raise HTTPException(status_code=500, detail=f"添加目录失败: {str(e)}")
 
 
@@ -352,7 +352,7 @@ async def remove_directory(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"删除目录错误: {str(e)}")
+        logger.exception("删除目录错误")
         raise HTTPException(status_code=500, detail="删除目录失败，请稍后重试") from e
 
 
@@ -395,7 +395,7 @@ async def browse_directory() -> BrowseResponse:
         else:
             return BrowseResponse(status="success", canceled=True)
     except Exception as e:
-        logger.error(f"打开目录选择对话框错误: {str(e)}")
+        logger.exception("打开目录选择对话框错误")
         raise HTTPException(
             status_code=500, detail="打开目录选择对话框失败，请稍后重试"
         ) from e
