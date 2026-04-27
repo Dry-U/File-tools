@@ -53,6 +53,14 @@ SENSITIVE_FIELDS: List[Tuple[str, str]] = [
     ("ai_model", "api_secret"),
 ]
 
+# 嵌套敏感字段（点号路径）
+SENSITIVE_DOTTED_FIELDS: List[Tuple[str, str]] = [
+    ("ai_model", "api.api_key"),
+    ("ai_model", "api.keys.siliconflow"),
+    ("ai_model", "api.keys.deepseek"),
+    ("ai_model", "api.keys.custom"),
+]
+
 
 class ConfigLoader:
     """配置加载器类，负责加载、验证和管理配置文件"""
@@ -116,6 +124,12 @@ class ConfigLoader:
 
         # 解密敏感字段
         self._decrypt_sensitive_fields()
+
+        # save() 阶段产生的告警（用于 API 层提示用户）
+        self._last_save_warnings: List[str] = []
+        # 当 cryptography 不可用时，保存阶段会把敏感字段置空以防明文落盘；
+        # 保存结束后再恢复这些值到内存。
+        self._pending_sensitive_restore: List[Tuple[str, str, Any]] = []
 
     def _get_or_create_salt(self) -> bytes:
         """获取或创建盐值（存储在用户数据目录中）"""
@@ -353,6 +367,8 @@ class ConfigLoader:
 
     def _encrypt_sensitive_fields(self) -> None:
         """加密所有敏感字段"""
+        # 每次保存前清空 pending 列表
+        self._pending_sensitive_restore = []
         for section, key in SENSITIVE_FIELDS:
             if section in self.config and key in self.config[section]:
                 value = self.config[section][key]
@@ -363,9 +379,29 @@ class ConfigLoader:
                         logger.warning(
                             f"跳过存储敏感字段 {section}.{key}：cryptography 库未安装"
                         )
+                        # 防止明文落盘：写空值；保存结束后再恢复到内存
+                        self._pending_sensitive_restore.append((section, key, value))
+                        self.config[section][key] = ""
                         continue
                     self.config[section][key] = encrypted
                     logger.debug(f"已加密字段: {section}.{key}")
+
+        # 处理嵌套敏感字段（如 ai_model.api.keys.*）
+        for section, dotted_key in SENSITIVE_DOTTED_FIELDS:
+            value = self._get_nested_value(section, dotted_key)
+            if value and isinstance(value, str) and not value.startswith("enc:"):
+                encrypted = self._encrypt_value(value)
+                if encrypted == "enc:REQUIRE_CRYPTOGRAPHY":
+                    logger.warning(
+                        f"跳过存储敏感字段 {section}.{dotted_key}：cryptography 库未安装"
+                    )
+                    # 防止明文落盘：写空值；保存结束后再恢复到内存
+                    self._pending_sensitive_restore.append((section, dotted_key, value))
+                    self._set_nested_value(section, dotted_key, "")
+                    continue
+                if encrypted is not None:
+                    self._set_nested_value(section, dotted_key, encrypted)
+                    logger.debug(f"已加密字段: {section}.{dotted_key}")
 
     def _decrypt_sensitive_fields(self) -> None:
         """解密所有敏感字段"""
@@ -375,6 +411,35 @@ class ConfigLoader:
                 if value and isinstance(value, str) and value.startswith("enc:"):
                     self.config[section][key] = self._decrypt_value(value)
                     logger.debug(f"已解密字段: {section}.{key}")
+
+        for section, dotted_key in SENSITIVE_DOTTED_FIELDS:
+            value = self._get_nested_value(section, dotted_key)
+            if value and isinstance(value, str) and value.startswith("enc:"):
+                self._set_nested_value(section, dotted_key, self._decrypt_value(value))
+                logger.debug(f"已解密字段: {section}.{dotted_key}")
+
+    def _get_nested_value(self, section: str, dotted_key: str) -> Any:
+        """获取 section 下点号路径对应的值。"""
+        current = self.config.get(section)
+        if not isinstance(current, dict):
+            return None
+        for part in dotted_key.split("."):
+            if not isinstance(current, dict) or part not in current:
+                return None
+            current = current[part]
+        return current
+
+    def _set_nested_value(self, section: str, dotted_key: str, value: Any) -> None:
+        """设置 section 下点号路径对应的值。"""
+        if section not in self.config or not isinstance(self.config[section], dict):
+            self.config[section] = {}
+        current = self.config[section]
+        parts = dotted_key.split(".")
+        for part in parts[:-1]:
+            if part not in current or not isinstance(current[part], dict):
+                current[part] = {}
+            current = current[part]
+        current[parts[-1]] = value
 
     def _load_config(self) -> Dict[str, Any]:
         """从文件加载配置 (线程安全)"""
@@ -427,7 +492,8 @@ class ConfigLoader:
                 "log_sensitive_data": False,
             },
             "file_scanner": {
-                "scan_paths": str(Path.home() / "Documents"),
+                # 默认留空：避免首次启动自动扫描大量文件
+                "scan_paths": [],
                 "exclude_patterns": (
                     ".git;.svn;.hg;__pycache__;.idea;.vscode;"
                     "node_modules;venv;env;.DS_Store;Thumbs.db"
@@ -460,14 +526,15 @@ class ConfigLoader:
                 "semantic_score_low_threshold": 30.0,
             },
             "monitor": {
-                "directories": str(Path.home() / "Documents"),
+                # 默认留空：由用户显式添加目录后再启用监控
+                "directories": [],
                 "ignored_patterns": (
                     ".git;.svn;.hg;__pycache__;.idea;.vscode;"
                     "node_modules;venv;env;.DS_Store;Thumbs.db"
                 ),
                 "refresh_interval": 1,
                 "debounce_time": 0.5,
-                "enabled": True,
+                "enabled": False,
             },
             "embedding": {
                 "enabled": True,
@@ -670,9 +737,8 @@ class ConfigLoader:
         self.set("system", "log_dir", str(log_dir))
 
         # 验证并修正扫描路径
-        scan_paths = self.get(
-            "file_scanner", "scan_paths", str(Path.home() / "Documents")
-        )
+        # 默认留空：首次启动不自动扫描
+        scan_paths = self.get("file_scanner", "scan_paths", [])
         if isinstance(scan_paths, str):
             # 如果是字符串，转换为列表
             paths = [p.strip() for p in scan_paths.split(";") if p.strip()]
@@ -683,12 +749,6 @@ class ConfigLoader:
                     validated_paths.append(str(expanded_path))
                 else:
                     logger.warning(f"扫描路径不存在: {path}")
-            if not validated_paths:
-                # 如果没有有效路径，使用默认路径
-                default_path = Path.home() / "Documents"
-                if not default_path.exists():
-                    default_path = Path.home()
-                validated_paths = [str(default_path)]
             self.set("file_scanner", "scan_paths", validated_paths)
         elif isinstance(scan_paths, list):
             # 如果已经是列表，验证每个路径
@@ -704,18 +764,10 @@ class ConfigLoader:
                         validated_paths.append(str(expanded_path))
                     else:
                         logger.warning(f"扫描路径不存在: {path}")
-                if not validated_paths:
-                    # 如果没有有效路径，使用默认路径
-                    default_path = Path.home() / "Documents"
-                    if not default_path.exists():
-                        default_path = Path.home()
-                    validated_paths = [str(default_path)]
                 self.set("file_scanner", "scan_paths", validated_paths)
 
         # 验证监控目录
-        monitor_dirs = self.get(
-            "monitor", "directories", str(Path.home() / "Documents")
-        )
+        monitor_dirs = self.get("monitor", "directories", [])
         if isinstance(monitor_dirs, str):
             # 如果是字符串，转换为列表
             dirs = [d.strip() for d in monitor_dirs.split(";") if d.strip()]
@@ -726,12 +778,6 @@ class ConfigLoader:
                     validated_dirs.append(str(expanded_path))
                 else:
                     logger.warning(f"监控目录不存在: {dir_path}")
-            if not validated_dirs:
-                # 如果没有有效路径，使用默认路径
-                default_path = Path.home() / "Documents"
-                if not default_path.exists():
-                    default_path = Path.home()
-                validated_dirs = [str(default_path)]
             self.set("monitor", "directories", validated_dirs)
         elif isinstance(monitor_dirs, list):
             # 如果已经是列表，验证每个路径
@@ -747,13 +793,30 @@ class ConfigLoader:
                         validated_dirs.append(str(expanded_path))
                     else:
                         logger.warning(f"监控目录不存在: {dir_path}")
-                if not validated_dirs:
-                    # 如果没有有效路径，使用默认路径
-                    default_path = Path.home() / "Documents"
-                    if not default_path.exists():
-                        default_path = Path.home()
-                    validated_dirs = [str(default_path)]
                 self.set("monitor", "directories", validated_dirs)
+
+        # 统一索引目录为绝对路径（避免相对路径导致索引落在意外位置）
+        try:
+            data_dir_str = self.get("system", "data_dir", "./data")
+            data_dir = Path(data_dir_str)
+            if not data_dir.is_absolute():
+                data_dir = (app_paths.user_data_dir / "data").resolve()
+
+            def _normalize_index_path(key: str, default_name: str) -> str:
+                raw = self.get("index", key, f"{data_dir}/{default_name}")
+                try:
+                    p = Path(str(raw))
+                except Exception:
+                    p = Path(f"{data_dir}/{default_name}")
+                if not p.is_absolute() or str(p).startswith("."):
+                    p = (data_dir / default_name).resolve()
+                return str(p)
+
+            self.set("index", "tantivy_path", _normalize_index_path("tantivy_path", "tantivy_index"))
+            self.set("index", "hnsw_path", _normalize_index_path("hnsw_path", "hnsw_index"))
+            self.set("index", "metadata_path", _normalize_index_path("metadata_path", "metadata"))
+        except Exception as e:
+            logger.warning(f"规范化索引路径失败: {e}")
 
         # 验证数值配置
         self._validate_numeric_configs()
@@ -1161,6 +1224,8 @@ class ConfigLoader:
     def save(self) -> bool:
         """保存配置到文件 (线程安全，使用原子写入防止配置损坏)"""
         try:
+            self._last_save_warnings = []
+
             # 在保存前加密敏感字段
             self._encrypt_sensitive_fields()
 
@@ -1208,6 +1273,23 @@ class ConfigLoader:
             # 保存后解密敏感字段，以便内存中保持明文
             self._decrypt_sensitive_fields()
 
+            # 恢复因缺少 cryptography 而被置空的敏感字段（仅恢复内存，不落盘）
+            if self._pending_sensitive_restore:
+                for section, key, original_value in self._pending_sensitive_restore:
+                    if "." in key:
+                        self._set_nested_value(section, key, original_value)
+                    else:
+                        if section not in self.config or not isinstance(
+                            self.config[section], dict
+                        ):
+                            self.config[section] = {}
+                        self.config[section][key] = original_value
+
+                self._pending_sensitive_restore = []
+                self._last_save_warnings.append(
+                    "未安装 cryptography：已阻止敏感信息写入配置文件（密钥不会持久化）。请安装：uv add cryptography"
+                )
+
             return True
         except Exception as e:
             logger.error(f"保存配置文件失败: {str(e)}")
@@ -1223,6 +1305,12 @@ class ConfigLoader:
                 logger.error(f"恢复配置备份失败: {restore_error}")
 
             return False
+
+    def pop_last_save_warnings(self) -> List[str]:
+        """获取并清空上次 save() 的警告列表。"""
+        warnings = list(self._last_save_warnings) if self._last_save_warnings else []
+        self._last_save_warnings = []
+        return warnings
 
     def get_path(self, section: str, key: str, default: str = "") -> Path:
         """获取路径形式的配置"""

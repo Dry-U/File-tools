@@ -34,6 +34,116 @@ const FileToolsChat = (function() {
 
     // 加载状态消息
     let loadingMessages = {};
+    // 当前请求控制器（用于取消）
+    let activeAbortController = null;
+    let isSending = false;
+    const scanPathCheckCache = {
+        value: true,
+        timestamp: 0,
+        pending: null
+    };
+    const SCAN_PATH_CACHE_TTL = 5000;
+
+    async function hasConfiguredScanPaths() {
+        const now = Date.now();
+        if (scanPathCheckCache.pending) {
+            return scanPathCheckCache.pending;
+        }
+        if ((now - scanPathCheckCache.timestamp) < SCAN_PATH_CACHE_TTL) {
+            return scanPathCheckCache.value;
+        }
+
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 8000);
+        const checkPromise = (async () => {
+            const response = await fetch('/api/config', {
+                method: 'GET',
+                cache: 'no-store',
+                signal: controller.signal
+            });
+            if (!response.ok) return true;
+            const config = await response.json();
+            const paths = config?.file_scanner?.scan_paths;
+            return Array.isArray(paths) ? paths.length > 0 : !!paths;
+        })();
+        scanPathCheckCache.pending = checkPromise;
+
+        try {
+            const hasPaths = await checkPromise;
+            scanPathCheckCache.value = hasPaths;
+            scanPathCheckCache.timestamp = Date.now();
+            return hasPaths;
+        } catch (e) {
+            scanPathCheckCache.value = true;
+            scanPathCheckCache.timestamp = Date.now();
+            return true;
+        } finally {
+            clearTimeout(timeoutId);
+            scanPathCheckCache.pending = null;
+        }
+    }
+
+    function openDirectorySettings() {
+        if (typeof openSettingsModal === 'function') {
+            openSettingsModal();
+            setTimeout(() => {
+                const tabBtn = document.getElementById('v-pills-directories-tab');
+                if (tabBtn) tabBtn.click();
+            }, 0);
+            return;
+        }
+        FileToolsUtils.showToast('请先打开设置，进入目录管理添加目录', 'warning');
+    }
+
+    function setSendButtonState(sending) {
+        const sendBtn = document.querySelector('.chat-send-btn');
+        if (!sendBtn) return;
+
+        if (sending) {
+            sendBtn.dataset.sending = 'true';
+            sendBtn.setAttribute('aria-label', '取消发送');
+            sendBtn.title = '取消发送';
+            sendBtn.innerHTML = '<i class="bi bi-stop-fill"></i>';
+        } else {
+            delete sendBtn.dataset.sending;
+            sendBtn.setAttribute('aria-label', '发送');
+            sendBtn.title = '';
+            sendBtn.innerHTML = `
+                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="currentColor" viewBox="0 0 16 16">
+                    <path d="M15.854.146a.5.5 0 0 1 .11.54l-5.819 14.547a.75.75 0 0 1-1.329.124l-3.178-4.995L.643 7.184a.75.75 0 0 1 .124-1.33L15.314.037a.5.5 0 0 1 .54.11ZM6.636 10.07l2.761 4.338L14.13 2.576 6.636 10.07Zm6.787-8.201L1.591 6.602l4.339 2.76 7.494-7.493Z"/>
+                </svg>
+            `;
+        }
+    }
+
+    function cancelCurrentRequest() {
+        if (!activeAbortController) return false;
+        activeAbortController.abort();
+        return true;
+    }
+
+    async function sendMessageNonStreaming(text) {
+        const timeoutId = setTimeout(() => {
+            if (activeAbortController) {
+                activeAbortController.abort();
+            }
+        }, 120000);
+
+        try {
+            const response = await fetch('/api/chat', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    query: text,
+                    session_id: currentSessionId
+                }),
+                signal: activeAbortController.signal
+            });
+            return response;
+        } finally {
+            clearTimeout(timeoutId);
+        }
+    }
 
     /**
      * 生成新的会话 ID
@@ -52,9 +162,26 @@ const FileToolsChat = (function() {
      * 发送消息
      */
     async function sendMessage() {
+        if (isSending) {
+            cancelCurrentRequest();
+            return;
+        }
+
         const input = document.getElementById('userInput');
         const text = input.value.trim();
         if (!text) return;
+
+        const hasPaths = await hasConfiguredScanPaths();
+        if (!hasPaths) {
+            FileToolsUtils.showToast('请先在目录管理添加扫描目录并重建索引', 'warning');
+            addMessage('当前还没有配置扫描目录。请先到“设置 → 目录管理”添加目录并重建索引。', 'ai');
+            openDirectorySettings();
+            return;
+        }
+
+        isSending = true;
+        activeAbortController = new AbortController();
+        setSendButtonState(true);
 
         // 切换 UI
         const welcomeContainer = document.getElementById('chat-welcome-container');
@@ -73,35 +200,32 @@ const FileToolsChat = (function() {
         // 添加 AI 加载消息
         const loadingId = addLoadingMessage();
 
-        // 优先尝试流式端点，仅在网络级错误时回退到非流式
         try {
-            const streamed = await sendMessageStreaming(text, loadingId);
-            if (streamed) {
-                loadChatHistory();
-                return;
+            // 优先尝试流式端点，仅在网络级错误时回退到非流式
+            try {
+                const streamed = await sendMessageStreaming(text, loadingId);
+                if (streamed) {
+                    loadChatHistory();
+                    return;
+                }
+                // streamed === false 表示端点不可用（如 5xx 网络问题），继续走非流式回退
+            } catch (streamError) {
+                if (streamError?.name === 'AbortError') {
+                    removeLoadingMessage(loadingId);
+                    addMessage('已取消本次发送', 'ai');
+                    return;
+                }
+                // 仅 TypeError（网络/CORS/AbortError 等 fetch 失败）才回退到非流式；
+                // 其它应用层错误直接展示给用户，避免回退时重复请求
+                if (!(streamError instanceof TypeError)) {
+                    removeLoadingMessage(loadingId);
+                    addMessage('出错: ' + (streamError.message || '未知错误'), 'ai');
+                    return;
+                }
+                console.warn('流式端点不可用，回退到非流式:', streamError);
             }
-            // streamed === false 表示端点不可用（如 5xx 网络问题），继续走非流式回退
-        } catch (streamError) {
-            // 仅 TypeError（网络/CORS/AbortError 等 fetch 失败）才回退到非流式；
-            // 其它应用层错误直接展示给用户，避免回退时重复请求
-            if (!(streamError instanceof TypeError)) {
-                removeLoadingMessage(loadingId);
-                addMessage('出错: ' + (streamError.message || '未知错误'), 'ai');
-                return;
-            }
-            console.warn('流式端点不可用，回退到非流式:', streamError);
-        }
 
-        try {
-            const response = await fetchWithTimeout('/api/chat', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    query: text,
-                    session_id: currentSessionId
-                })
-            }, 120000);
-
+            const response = await sendMessageNonStreaming(text);
             const data = await response.json();
             removeLoadingMessage(loadingId);
 
@@ -115,7 +239,15 @@ const FileToolsChat = (function() {
         } catch (error) {
             console.error('Chat error:', error);
             removeLoadingMessage(loadingId);
-            addMessage('网络错误，请稍后重试', 'ai');
+            if (error?.name === 'AbortError') {
+                addMessage('已取消本次发送', 'ai');
+            } else {
+                addMessage('网络错误，请稍后重试', 'ai');
+            }
+        } finally {
+            isSending = false;
+            activeAbortController = null;
+            setSendButtonState(false);
         }
     }
 
@@ -208,8 +340,7 @@ const FileToolsChat = (function() {
      * @returns {Promise<boolean>} 是否成功流式完成（false 时外层应回退）
      */
     async function sendMessageStreaming(text, loadingId) {
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 120000);
+        const timeoutId = setTimeout(() => activeAbortController.abort(), 120000);
 
         let response;
         try {
@@ -217,7 +348,7 @@ const FileToolsChat = (function() {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ query: text, session_id: currentSessionId }),
-                signal: controller.signal
+                signal: activeAbortController.signal
             });
         } catch (err) {
             clearTimeout(timeoutId);
@@ -326,8 +457,10 @@ const FileToolsChat = (function() {
             ? '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16"><path d="M8 8a3 3 0 1 0 0-6 3 3 0 0 0 0 6zm2-3a2 2 0 1 1-4 0 2 2 0 0 1 4 0zm4 8c0 1-1 1-1 1H3s-1 0-1-1 1-4 6-4 6 3 6 4zm-1-.004c-.001-.246-.154-.986-.832-1.664C11.516 10.68 10.289 10 8 10c-2.29 0-3.516.68-4.168 1.332-.678.678-.83 1.418-.832 1.664h10z"/></svg>'
             : '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16"><path d="M6 12.796V3.204L11.481 8 6 12.796zm.659.753 5.48-4.796a1 1 0 0 0 0-1.506L6.66 2.451C6.011 1.885 5 2.345 5 3.204v9.592a1 1 0 0 0 1.659.753z"/></svg>';
 
-        // 处理换行符
-        const formattedText = FileToolsUtils.escapeHtml(text).replace(/\n/g, '<br>');
+        // AI 消息使用统一的 Markdown 渲染策略，避免流式/非流式体验不一致
+        const formattedText = type === 'ai'
+            ? renderMarkdown(text)
+            : FileToolsUtils.escapeHtml(text).replace(/\n/g, '<br>');
         const isMultiline = text.includes('\n');
         const multilineClass = isMultiline ? 'multiline' : '';
 

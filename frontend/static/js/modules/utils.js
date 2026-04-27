@@ -134,7 +134,9 @@ const FileToolsUtils = (function() {
      */
     function showToast(message, type) {
         const toastEl = document.createElement('div');
-        toastEl.className = `toast align-items-center text-white bg-${type === 'error' ? 'danger' : type} border-0`;
+        const normalizedType = type === 'error' ? 'danger' : (type || 'info');
+        const textClass = normalizedType === 'warning' ? 'text-dark' : 'text-white';
+        toastEl.className = `toast align-items-center ${textClass} bg-${normalizedType} border-0`;
         toastEl.setAttribute('role', 'alert');
         toastEl.setAttribute('aria-live', 'assertive');
         toastEl.setAttribute('aria-atomic', 'true');

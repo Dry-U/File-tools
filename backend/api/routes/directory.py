@@ -197,6 +197,19 @@ async def add_directory(
                 needs_rebuild=False,
             )
 
+        # 记录变更前状态，保存失败时回滚
+        prev_scan_paths = list(scan_paths)
+        prev_monitor_dirs = _normalize_path_list(
+            config_loader.get("monitor", "directories", [])
+        )
+        prev_scanner_paths = None
+        if file_scanner and hasattr(file_scanner, "scan_paths"):
+            prev_scanner_paths = list(file_scanner.scan_paths)
+        had_monitor = False
+        if file_monitor and hasattr(file_monitor, "get_monitored_directories"):
+            monitored_dirs = _normalize_path_list(file_monitor.get_monitored_directories())
+            had_monitor = any(_paths_equal(expanded_path, d) for d in monitored_dirs)
+
         # 添加到扫描路径
         config_loader.add_scan_path(expanded_path)
 
@@ -222,7 +235,19 @@ async def add_directory(
             config_loader.set("monitor", "directories", monitor_dirs)
 
         # 保存配置
-        config_loader.save()
+        if not config_loader.save():
+            # 回滚内存状态，避免运行时与持久化状态不一致
+            config_loader.set("file_scanner", "scan_paths", prev_scan_paths)
+            config_loader.set("monitor", "directories", prev_monitor_dirs)
+            if file_scanner and hasattr(file_scanner, "scan_paths"):
+                file_scanner.scan_paths = prev_scanner_paths or []
+            if file_monitor:
+                if not had_monitor:
+                    try:
+                        file_monitor.remove_monitored_directory(expanded_path)
+                    except Exception:
+                        pass
+            raise HTTPException(status_code=500, detail="配置保存失败，请检查文件权限")
 
         return DirectoryResponse(
             status="success",
@@ -255,6 +280,21 @@ async def remove_directory(
             raise HTTPException(status_code=400, detail=result)
         expanded_path = result
 
+        # 记录变更前状态，保存失败时回滚
+        prev_scan_paths = _normalize_path_list(
+            config_loader.get("file_scanner", "scan_paths", [])
+        )
+        prev_monitor_dirs = _normalize_path_list(
+            config_loader.get("monitor", "directories", [])
+        )
+        prev_scanner_paths = None
+        if file_scanner and hasattr(file_scanner, "scan_paths"):
+            prev_scanner_paths = list(file_scanner.scan_paths)
+        had_monitor = False
+        if file_monitor and hasattr(file_monitor, "get_monitored_directories"):
+            monitored_dirs = _normalize_path_list(file_monitor.get_monitored_directories())
+            had_monitor = any(_paths_equal(expanded_path, d) for d in monitored_dirs)
+
         # 从扫描路径中移除
         config_loader.remove_scan_path(expanded_path)
 
@@ -280,7 +320,18 @@ async def remove_directory(
         config_loader.set("monitor", "directories", monitor_dirs)
 
         # 保存配置
-        config_loader.save()
+        if not config_loader.save():
+            # 回滚内存状态，避免运行时与持久化状态不一致
+            config_loader.set("file_scanner", "scan_paths", prev_scan_paths)
+            config_loader.set("monitor", "directories", prev_monitor_dirs)
+            if file_scanner and hasattr(file_scanner, "scan_paths"):
+                file_scanner.scan_paths = prev_scanner_paths or []
+            if file_monitor and had_monitor:
+                try:
+                    file_monitor.add_monitored_directory(expanded_path)
+                except Exception:
+                    pass
+            raise HTTPException(status_code=500, detail="配置保存失败，请检查文件权限")
 
         # 清理该目录在索引中的文档
         if index_manager:

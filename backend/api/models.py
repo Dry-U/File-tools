@@ -4,7 +4,7 @@ API 请求/响应模型定义
 
 from typing import Any, Dict, List, Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class SearchRequest(BaseModel):
@@ -145,6 +145,7 @@ class AIModelAPIValidator(BaseModel):
     provider: str = "siliconflow"
     api_url: str = "https://api.siliconflow.cn/v1/chat/completions"
     api_key: str = ""
+    keys: Dict[str, str] = Field(default_factory=dict)
     model_name: str = "deepseek-ai/DeepSeek-V2.5"
     max_context: int = 8192
     max_tokens: int = 2048

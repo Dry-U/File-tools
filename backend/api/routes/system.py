@@ -87,10 +87,21 @@ async def rebuild_index(
             raise HTTPException(
                 status_code=409, detail="重建任务正在进行中，请稍后再试"
             )
+        _rebuild_progress_state["in_progress"] = True
+        _rebuild_progress_state["progress"] = 0
+        _rebuild_progress_state["current_file"] = ""
+        _rebuild_progress_state["files_scanned"] = 0
+        _rebuild_progress_state["files_indexed"] = 0
+        _rebuild_progress_state["error"] = None
 
     try:
         logger.info("开始重建索引...")
         stats = file_scanner.scan_and_index()
+        with _rebuild_lock:
+            _rebuild_progress_state["in_progress"] = False
+            _rebuild_progress_state["progress"] = 100
+            _rebuild_progress_state["files_scanned"] = stats.get("total_files_scanned", 0)
+            _rebuild_progress_state["files_indexed"] = stats.get("total_files_indexed", 0)
         logger.info(f"索引重建完成: {stats}")
         return {
             "status": "success",
@@ -99,6 +110,9 @@ async def rebuild_index(
             "files_indexed": stats.get("total_files_indexed", 0),
         }
     except Exception as e:
+        with _rebuild_lock:
+            _rebuild_progress_state["in_progress"] = False
+            _rebuild_progress_state["error"] = str(e)
         logger.error(f"重建索引错误: {str(e)}")
         raise HTTPException(status_code=500, detail="索引重建失败，请稍后重试")
 
@@ -209,6 +223,8 @@ async def rebuild_index_stream(
             scan_task = loop.run_in_executor(None, file_scanner.scan_and_index)
 
             scan_done = False
+            commit_phase_sent = False
+            commit_phase_since = None
             last_yield_time = time.time()
             while not scan_done:
                 # 不再阻塞等待断开检测，直接处理进度
@@ -258,11 +274,33 @@ async def rebuild_index_stream(
                 current_time = time.time()
                 if current_time - last_yield_time >= keepalive_interval:
                     try:
-                        keepalive_data = {
-                            "status": "keepalive",
-                            "progress": _rebuild_progress_state["progress"],
-                        }
-                        yield f"data: {json.dumps(keepalive_data)}\n\n"
+                        current_progress = _rebuild_progress_state["progress"]
+                        if current_progress >= 95:
+                            if not commit_phase_sent:
+                                commit_phase_sent = True
+                                commit_phase_since = current_time
+                                phase_data = {
+                                    "status": "committing",
+                                    "progress": current_progress,
+                                    "message": "正在提交索引，请稍候",
+                                }
+                                yield f"data: {json.dumps(phase_data)}\n\n"
+                            else:
+                                keepalive_data = {
+                                    "status": "keepalive",
+                                    "phase": "committing",
+                                    "progress": current_progress,
+                                    "elapsed_seconds": int(
+                                        max(0, current_time - (commit_phase_since or current_time))
+                                    ),
+                                }
+                                yield f"data: {json.dumps(keepalive_data)}\n\n"
+                        else:
+                            keepalive_data = {
+                                "status": "keepalive",
+                                "progress": current_progress,
+                            }
+                            yield f"data: {json.dumps(keepalive_data)}\n\n"
                         last_yield_time = current_time
                     except Exception:
                         # 客户端已断开
@@ -293,6 +331,15 @@ async def rebuild_index_stream(
             stats = None
             try:
                 logger.info("SSE: 准备获取扫描结果...")
+                if not commit_phase_sent:
+                    with _rebuild_lock:
+                        current_progress = _rebuild_progress_state["progress"]
+                    phase_data = {
+                        "status": "committing",
+                        "progress": max(current_progress, 95),
+                        "message": "正在提交索引，请稍候",
+                    }
+                    yield f"data: {json.dumps(phase_data)}\n\n"
                 stats = scan_task.result()
                 logger.info(f"SSE: 获取到扫描结果: {stats}")
             except Exception as e:
@@ -303,6 +350,13 @@ async def rebuild_index_stream(
                     _rebuild_progress_state["in_progress"] = False
                 yield f"data: {json.dumps({'status': 'error', 'error': str(e)})}\n\n"
                 return  # 显式返回，避免继续执行
+
+            finalizing_data = {
+                "status": "finalizing",
+                "progress": 99,
+                "message": "正在完成最后收尾...",
+            }
+            yield f"data: {json.dumps(finalizing_data)}\n\n"
 
             with _rebuild_lock:
                 _rebuild_progress_state["progress"] = 100
@@ -480,6 +534,7 @@ async def version_check():
 # 更新检查缓存（避免频繁调用 GitHub API）
 _update_cache: dict = {}
 _UPDATE_CACHE_TTL = 300  # 5 分钟缓存
+_update_ssl_fallback_notified = False
 
 
 @router.get("/check-update")
@@ -491,6 +546,8 @@ async def check_update():
     """
     import time
 
+    global _update_ssl_fallback_notified
+    import certifi
     import requests
     from packaging import version as pkg_version
 
@@ -500,15 +557,33 @@ async def check_update():
         return _update_cache.get("data", {})
 
     current = get_version()
-    repo = "Dry-U/File-tools"
+    repo = "Dariandai/File-tools"
 
     try:
         # 调用 GitHub API 获取最新 release
-        response = requests.get(
-            f"https://api.github.com/repos/{repo}/releases/latest",
-            headers={"Accept": "application/vnd.github.v3+json"},
-            timeout=10,
-        )
+        # 优先使用严格证书校验；若当前环境证书链异常，则降级重试以保证可用性。
+        update_url = f"https://api.github.com/repos/{repo}/releases/latest"
+        request_kwargs = {
+            "headers": {"Accept": "application/vnd.github.v3+json"},
+            "timeout": 10,
+            "verify": certifi.where(),
+        }
+        try:
+            response = requests.get(update_url, **request_kwargs)
+        except requests.exceptions.SSLError as ssl_err:
+            # 某些网络环境（企业代理/本地网关）会进行 HTTPS 证书替换，导致严格校验失败。
+            # 为避免日志刷屏，仅首次提示一次并自动降级重试，保证“检查更新”可用。
+            if not _update_ssl_fallback_notified:
+                logger.info(
+                    f"检查更新证书校验失败，已降级重试（仅提示一次）: {ssl_err}"
+                )
+                _update_ssl_fallback_notified = True
+            response = requests.get(
+                update_url,
+                headers=request_kwargs["headers"],
+                timeout=request_kwargs["timeout"],
+                verify=False,
+            )
         response.raise_for_status()
         data = response.json()
 

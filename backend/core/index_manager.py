@@ -9,6 +9,7 @@ import shutil
 import threading
 import time
 from datetime import datetime
+from pathlib import Path
 from typing import Any, Dict
 
 import jieba
@@ -16,9 +17,10 @@ import numpy as np
 
 from backend.core.text_chunker import TextChunker
 
-# 常量定义
-MAX_ENCODE_LENGTH = 2000  # 文本编码最大长度限制
-MAX_CHUNKS_PER_DOC = 100  # 单个文档最大分块数量限制，防止内存溢出
+# 常量定义（默认值，可被配置覆盖）
+DEFAULT_MAX_ENCODE_LENGTH = 900  # 文本编码最大长度限制
+DEFAULT_MAX_CHUNKS_PER_DOC = 60  # 单个文档最大分块数量限制
+DEFAULT_MIN_VECTOR_CHUNK_CHARS = 80  # 过短分块对语义贡献低，默认跳过
 
 
 class BatchModeContext:
@@ -78,6 +80,19 @@ class IndexManager:
             "index", "commit_interval", 30
         )  # 秒
         self._last_commit_time = time.time()
+        self._writer_dirty = False
+        self._commit_docs_since_last = 0
+        self._perf_lock = threading.Lock()
+        self._perf_stats = {
+            "vector_flush_calls": 0.0,
+            "vector_flush_vectors": 0.0,
+            "vector_flush_total_seconds": 0.0,
+            "vector_encode_total_seconds": 0.0,
+            "vector_hnsw_total_seconds": 0.0,
+            "encode_total_texts": 0.0,
+            "encode_unique_texts": 0.0,
+            "encode_cache_hits": 0.0,
+        }
         self._batch_lock = threading.RLock()  # 使用可重入锁，允许在同一线程中多次获取
         self._index_lock = threading.RLock()  # 保护非批量模式的索引操作（可重入）
         self._writer = None
@@ -91,6 +106,16 @@ class IndexManager:
         self._vector_batch_size = config_loader.getint(
             "index", "vector_batch_size", 128
         )  # 从32提升到128，减少编码调用次数
+
+        # Embedding 去重缓存：减少重复文本的重复编码（尤其是PDF页眉页脚/重复段落）
+        self._embed_cache: Dict[str, np.ndarray] = {}
+        self._embed_cache_order: list[str] = []
+        self._embed_cache_max_size = config_loader.getint(
+            "index", "embed_cache_size", 4096
+        )
+        self._embed_call_batch_size = config_loader.getint(
+            "index", "embed_call_batch_size", 96
+        )
 
         # 已删除文件路径集合（用于在搜索时过滤已删除的文档，因为HNSW不支持真正删除）
         self._deleted_paths = set()  # {file_path, ...}
@@ -153,8 +178,29 @@ class IndexManager:
         self.chunk_strategy = self.config_loader.get(
             "index", "chunk_strategy", "semantic"
         )
-        self.chunk_size = self.config_loader.getint("index", "chunk_size", 800)
-        self.chunk_overlap = self.config_loader.getint("index", "chunk_overlap", 100)
+        # 默认值调优：更大块 + 更小 overlap -> 更少 chunks -> 更少 embedding 调用
+        self.chunk_size = self.config_loader.getint("index", "chunk_size", 1200)
+        self.chunk_overlap = self.config_loader.getint("index", "chunk_overlap", 80)
+        self.max_encode_length = max(
+            256,
+            self.config_loader.getint(
+                "index", "max_encode_length", DEFAULT_MAX_ENCODE_LENGTH
+            ),
+        )
+        self.max_chunks_per_doc = max(
+            8,
+            self.config_loader.getint(
+                "index", "max_chunks_per_doc", DEFAULT_MAX_CHUNKS_PER_DOC
+            ),
+        )
+        self.min_vector_chunk_chars = max(
+            32,
+            self.config_loader.getint(
+                "index",
+                "min_vector_chunk_chars",
+                DEFAULT_MIN_VECTOR_CHUNK_CHARS,
+            ),
+        )
 
         # 初始化分块器
         if self.chunk_enabled:
@@ -164,11 +210,118 @@ class IndexManager:
                 chunk_overlap=self.chunk_overlap,
             )
             self.logger.info(
-                f"文本分块已启用: 策略={self.chunk_strategy}, 大小={self.chunk_size}"
+                f"文本分块已启用: 策略={self.chunk_strategy}, 大小={self.chunk_size}, "
+                f"max_chunks={self.max_chunks_per_doc}, max_encode_len={self.max_encode_length}"
             )
         else:
             self.chunker = None
             self.logger.info("文本分块已禁用")
+
+    @staticmethod
+    def _chunk_signature(content: str) -> str:
+        """生成用于去重的分块签名。"""
+        base = re.sub(r"\s+", " ", content).strip().lower()
+        return base[:220]
+
+    def _select_chunk_indices(self, total: int, target: int) -> list[int]:
+        """均匀采样分块索引，保留文档头尾覆盖。"""
+        if target >= total:
+            return list(range(total))
+        if target <= 1:
+            return [0]
+        indices = []
+        for i in range(target):
+            idx = round(i * (total - 1) / (target - 1))
+            indices.append(idx)
+        # 去重后如果不足，顺序补齐
+        unique_sorted = sorted(set(indices))
+        if len(unique_sorted) < target:
+            used = set(unique_sorted)
+            for i in range(total):
+                if i not in used:
+                    unique_sorted.append(i)
+                    used.add(i)
+                    if len(unique_sorted) >= target:
+                        break
+        return sorted(unique_sorted[:target])
+
+    def _prepare_chunks_for_vector_index(
+        self, chunks: list, doc_path: str, max_chunks_override: int = 0
+    ) -> list:
+        """分块去重 + 下采样，降低编码成本同时保持覆盖。"""
+        filtered = []
+        signatures = set()
+        skipped_too_short = 0
+        skipped_duplicate = 0
+        for chunk in chunks:
+            chunk_content = chunk.content[: self.max_encode_length]
+            if len(chunk_content.strip()) < self.min_vector_chunk_chars:
+                skipped_too_short += 1
+                continue
+            sig = self._chunk_signature(chunk_content)
+            if sig in signatures:
+                skipped_duplicate += 1
+                continue
+            signatures.add(sig)
+            filtered.append(chunk)
+
+        max_chunks = max_chunks_override if max_chunks_override > 0 else self.max_chunks_per_doc
+        if len(filtered) > max_chunks:
+            indices = self._select_chunk_indices(len(filtered), max_chunks)
+            sampled = [filtered[i] for i in indices]
+            self.logger.info(
+                f"文档 {doc_path} 分块降采样: 原始 {len(chunks)} -> 去重后 {len(filtered)} -> 入库 {len(sampled)}"
+            )
+            filtered = sampled
+        elif skipped_too_short or skipped_duplicate:
+            self.logger.debug(
+                f"文档 {doc_path} 分块过滤: 原始 {len(chunks)} -> 入库 {len(filtered)} "
+                f"(短块 {skipped_too_short}, 重复 {skipped_duplicate})"
+            )
+        return filtered
+
+    def _effective_encode_length(self, chunk_count: int) -> int:
+        """按分块压力动态调整编码长度，避免高分块文档拖慢重建。"""
+        limit = self.max_encode_length
+        if chunk_count >= 300:
+            return min(limit, 600)
+        if chunk_count >= 180:
+            return min(limit, 720)
+        if chunk_count >= 100:
+            return min(limit, 820)
+        return limit
+
+    def _max_chunks_for_document(self, document: dict, default_cap: int) -> int:
+        """按文件类型设置分块预算上限。"""
+        file_type = str(document.get("file_type", "") or "").lower()
+        path = str(document.get("path", "") or "")
+        ext = Path(path).suffix.lower().lstrip(".") if path else ""
+        # 兜底：当 file_type 不可靠时，用扩展名判断（确保预算策略生效）
+        if ext in {"pdf", "doc", "docx", "ppt", "pptx", "xls", "xlsx"}:
+            file_type = ext
+        if file_type in {"code", "text"}:
+            return min(default_cap, 12)
+        if file_type in {"markdown", "md"}:
+            return min(default_cap, 16)
+        if file_type in {"pdf", "doc", "docx"}:
+            return min(default_cap, 18)
+        return default_cap
+
+    def _should_use_single_vector(self, document: dict) -> bool:
+        """普通短文档默认走单向量，显著降低编码成本。"""
+        file_type = str(document.get("file_type", "") or "").lower()
+        path = str(document.get("path", "") or "")
+        ext = Path(path).suffix.lower().lstrip(".") if path else ""
+        if ext in {"pdf", "doc", "docx", "md", "txt", "py", "js", "java", "json", "yaml", "yml", "toml"}:
+            # 仅作为兜底分类，不覆盖明确的 file_type
+            if not file_type or file_type == "unknown":
+                file_type = ext
+        content_len = len((document.get("content") or "").strip())
+        if file_type in {"code", "text", "markdown", "md"} and content_len <= 6000:
+            return True
+        if content_len <= 1800:
+            return True
+        return False
 
     def _init_embedding_model(self) -> None:
         """初始化嵌入模型"""
@@ -648,6 +801,19 @@ class IndexManager:
             self._batch_buffer = []
             self._writer = self.tantivy_index.writer()
             self._last_commit_time = time.time()
+            self._writer_dirty = False
+            self._commit_docs_since_last = 0
+            with self._perf_lock:
+                self._perf_stats = {
+                    "vector_flush_calls": 0.0,
+                    "vector_flush_vectors": 0.0,
+                    "vector_flush_total_seconds": 0.0,
+                    "vector_encode_total_seconds": 0.0,
+                    "vector_hnsw_total_seconds": 0.0,
+                    "encode_total_texts": 0.0,
+                    "encode_unique_texts": 0.0,
+                    "encode_cache_hits": 0.0,
+                }
             # 重置批量模式结束事件（表示批量模式正在进行）
             self._batch_mode_done_event.clear()
             # 启动后台定期commit线程
@@ -696,7 +862,8 @@ class IndexManager:
                         # 每5秒 或 缓冲区超过500文档 触发commit
                         memory_pressure = buffer_size > 1000
                         should_commit = (
-                            elapsed >= 5 or buffer_size >= 500 or memory_pressure
+                            buffer_size > 0
+                            and (elapsed >= 5 or buffer_size >= 500 or memory_pressure)
                         )
 
                         if should_commit:
@@ -717,6 +884,8 @@ class IndexManager:
                                         f"耗时 {elapsed_add:.3f}s"
                                     )
                                     self._batch_buffer = []
+                                    self._writer_dirty = True
+                                    self._commit_docs_since_last += len(docs_to_process)
 
                                 t_writer_commit = time.time()
                                 elapsed_since = t_writer_commit - elapsed
@@ -724,15 +893,23 @@ class IndexManager:
                                     f"[COMMIT_THREAD] 开始writer.commit() "
                                     f"(累计 {elapsed_since:.3f}s from last commit)"
                                 )
-                                self._writer.commit()
-                                t_commit_done = time.time()
-                                self._last_commit_time = t_commit_done
-                                commit_count += 1
-                                commit_time = t_commit_done - t_writer_commit
-                                self.logger.info(
-                                    f"[COMMIT_THREAD] Commit #{commit_count} 完成，"
-                                    f"writer.commit()耗时 {commit_time:.3f}s"
-                                )
+                                if self._writer_dirty:
+                                    self._writer.commit()
+                                    t_commit_done = time.time()
+                                    self._last_commit_time = t_commit_done
+                                    self._writer_dirty = False
+                                    commit_count += 1
+                                    commit_time = t_commit_done - t_writer_commit
+                                    self.logger.info(
+                                        f"[COMMIT_THREAD] Commit #{commit_count} 完成，"
+                                        f"writer.commit()耗时 {commit_time:.3f}s，"
+                                        f"本轮提交文档数 {self._commit_docs_since_last}"
+                                    )
+                                    self._commit_docs_since_last = 0
+                                else:
+                                    self.logger.debug(
+                                        "[COMMIT_THREAD] writer 无新增文档，跳过空 commit"
+                                    )
                             except Exception as e:
                                 self.logger.error(
                                     f"[COMMIT_THREAD] 后台commit失败: {e}"
@@ -799,7 +976,9 @@ class IndexManager:
                 if self._batch_buffer:
                     for doc in self._batch_buffer:
                         self._add_doc_to_writer(doc)
+                    self._commit_docs_since_last += len(self._batch_buffer)
                     self._batch_buffer = []
+                    self._writer_dirty = True
 
                 # 检查向量缓冲区大小
                 vector_buffer_size = len(getattr(self, "_vector_buffer", []))
@@ -820,7 +999,21 @@ class IndexManager:
                     try:
                         if commit:
                             self.logger.info("[BATCH] 执行最终commit")
-                            self._writer.commit()
+                            if self._writer_dirty:
+                                t_final_commit = time.time()
+                                self._writer.commit()
+                                final_commit_elapsed = time.time() - t_final_commit
+                                self.logger.info(
+                                    "[BATCH] 最终commit完成，"
+                                    f"耗时 {final_commit_elapsed:.3f}s，"
+                                    f"本轮提交文档数 {self._commit_docs_since_last}"
+                                )
+                                self._writer_dirty = False
+                                self._commit_docs_since_last = 0
+                            else:
+                                self.logger.debug(
+                                    "[BATCH] writer 无新增文档，跳过最终空 commit"
+                                )
                             self.logger.info("[BATCH] 执行save_indexes")
                             self.save_indexes()
                         # 释放 writer
@@ -1118,7 +1311,7 @@ class IndexManager:
         调用要求：此方法必须在持有 _batch_lock 的情况下调用。
         """
         content_to_encode = (
-            document["content"][:MAX_ENCODE_LENGTH] if document["content"] else ""
+            document["content"][: self.max_encode_length] if document["content"] else ""
         )
         if not content_to_encode.strip():
             return True
@@ -1148,6 +1341,9 @@ class IndexManager:
         注意：此方法只负责将文档追加到缓冲区，不触发刷新。
         刷新由 add_document 在锁外调用 _flush_vector_buffer 处理。
         """
+        if self._should_use_single_vector(document):
+            return self._add_document_single_batch(document)
+
         from .text_chunker import TextChunker
 
         chunker = self.chunker or TextChunker(
@@ -1168,18 +1364,15 @@ class IndexManager:
             )
             return True
 
-        original_chunk_count = len(chunks)
-        if len(chunks) > MAX_CHUNKS_PER_DOC:
-            doc_path = document.get("path", "")
-            self.logger.warning(
-                f"文档 {doc_path} 产生过多分块 ({len(chunks)})，"
-                f"已截断至 {MAX_CHUNKS_PER_DOC}"
-            )
-            chunks = chunks[:MAX_CHUNKS_PER_DOC]
+        doc_path = document.get("path", "")
+        max_chunks = self._max_chunks_for_document(document, self.max_chunks_per_doc)
+        chunks = self._prepare_chunks_for_vector_index(chunks, doc_path, max_chunks)
+        indexed_chunk_count = len(chunks)
+        encode_limit = self._effective_encode_length(indexed_chunk_count)
 
         # 不再获取锁：调用者 add_document 已持有 _batch_lock，避免三层嵌套锁开销
         for chunk in chunks:
-            chunk_content = chunk.content[:MAX_ENCODE_LENGTH]
+            chunk_content = chunk.content[:encode_limit]
             if not chunk_content.strip():
                 continue
 
@@ -1194,7 +1387,7 @@ class IndexManager:
                 ),
                 "is_chunk": True,
                 "chunk_index": chunk.chunk_index,
-                "total_chunks": original_chunk_count,
+                "total_chunks": indexed_chunk_count,
                 "chunk_start_pos": chunk.start_pos,
                 "chunk_end_pos": chunk.end_pos,
                 "chunk_content_preview": chunk.content[:200],
@@ -1209,7 +1402,7 @@ class IndexManager:
     def _add_document_single(self, document):
         """传统模式：整个文档作为一个向量存储（使用缓冲批量处理）"""
         content_to_encode = (
-            document["content"][:MAX_ENCODE_LENGTH] if document["content"] else ""
+            document["content"][: self.max_encode_length] if document["content"] else ""
         )
         if not content_to_encode.strip():
             self.logger.warning(f"文档内容为空，跳过向量索引: {document['path']}")
@@ -1248,6 +1441,10 @@ class IndexManager:
 
     def _add_document_chunks(self, document):
         """分块模式：将文档分块后批量编码存储（使用缓冲批量处理）"""
+        if self._should_use_single_vector(document):
+            self._add_document_single(document)
+            return
+
         chunks = self.chunker.chunk_document(
             content=document["content"],
             doc_path=document["path"],
@@ -1266,13 +1463,12 @@ class IndexManager:
             self.logger.warning(f"文档分块结果为空，跳过向量索引: {document['path']}")
             return
 
-        original_chunk_count = len(chunks)
-        if len(chunks) > MAX_CHUNKS_PER_DOC:
-            self.logger.warning(
-                f"文档 {document['path']} 产生过多分块 ({len(chunks)})，"
-                f"已截断至 {MAX_CHUNKS_PER_DOC}"
-            )
-            chunks = chunks[:MAX_CHUNKS_PER_DOC]
+        max_chunks = self._max_chunks_for_document(document, self.max_chunks_per_doc)
+        chunks = self._prepare_chunks_for_vector_index(
+            chunks, document["path"], max_chunks
+        )
+        indexed_chunk_count = len(chunks)
+        encode_limit = self._effective_encode_length(indexed_chunk_count)
 
         self.logger.info(f"文档分块完成: {document['filename']} -> {len(chunks)} 个块")
 
@@ -1280,7 +1476,7 @@ class IndexManager:
         texts_to_encode = []
         chunk_metadatas = []
         for chunk in chunks:
-            chunk_content = chunk.content[:MAX_ENCODE_LENGTH]
+            chunk_content = chunk.content[:encode_limit]
             if not chunk_content.strip():
                 continue
             texts_to_encode.append(chunk_content)
@@ -1296,7 +1492,7 @@ class IndexManager:
                     ),
                     "is_chunk": True,
                     "chunk_index": chunk.chunk_index,
-                    "total_chunks": original_chunk_count,
+                    "total_chunks": indexed_chunk_count,
                     "chunk_start": chunk.start_pos,
                     "chunk_end": chunk.end_pos,
                     "char_count": chunk.char_count,
@@ -1344,7 +1540,11 @@ class IndexManager:
         else:
             chunk = chunk_content_or_chunk
             document = metadata_or_document
-            chunk_content = chunk.content[:MAX_ENCODE_LENGTH]
+            chunk_content = chunk.content[
+                : self._effective_encode_length(
+                    max(1, int(metadata.get("total_chunks", 1) or 1))
+                )
+            ]
             if not chunk_content.strip():
                 return False
             metadata = {
@@ -2528,17 +2728,74 @@ class IndexManager:
             self.logger.info(
                 f"[ENCODE] 开始编码 {len(texts)} 个文本，模型={model_name}"
             )
+            # 1) 先做去重 + 缓存命中
+            dim = getattr(self, "vector_dim", 384)
+            sigs = []
+            unique_texts = []
+            unique_sigs = []
+            cache_hits = 0
+            for t in texts:
+                sig = self._chunk_signature(t)
+                sigs.append(sig)
+                cached = self._embed_cache.get(sig)
+                if cached is not None:
+                    cache_hits += 1
+                    continue
+                if sig not in unique_sigs:
+                    unique_sigs.append(sig)
+                    unique_texts.append(t)
+
+            # 2) 仅对未命中的 unique 文本调用 embed()
+            new_vectors_map: Dict[str, np.ndarray] = {}
             t1 = time.time()
-            vectors = list(self.embedding_model.embed(texts))
+            if unique_texts:
+                # 分片调用 embed()，避免一次性喂入过多文本导致吞吐抖动/峰值内存
+                step = max(1, int(getattr(self, "_embed_call_batch_size", 96)))
+                out_idx = 0
+                for start in range(0, len(unique_texts), step):
+                    part_texts = unique_texts[start : start + step]
+                    part_vecs = list(self.embedding_model.embed(part_texts))
+                    for v in part_vecs:
+                        new_vectors_map[unique_sigs[out_idx]] = np.array(
+                            v, dtype=np.float32
+                        )
+                        out_idx += 1
             t2 = time.time()
             self.logger.info(
-                f"[ENCODE] embed() 调用完成，{len(texts)} 个文本，耗时 {t2 - t1:.3f}s"
+                f"[ENCODE] embed() 完成：总={len(texts)}，unique={len(unique_texts)}，"
+                f"cache_hit={cache_hits}，耗时 {t2 - t1:.3f}s"
             )
-            result = np.array(vectors, dtype=np.float32)
+            with self._perf_lock:
+                self._perf_stats["encode_total_texts"] += float(len(texts))
+                self._perf_stats["encode_unique_texts"] += float(len(unique_texts))
+                self._perf_stats["encode_cache_hits"] += float(cache_hits)
+
+            # 3) 写回缓存（LRU）
+            if new_vectors_map:
+                for sig, vec in new_vectors_map.items():
+                    if sig in self._embed_cache:
+                        continue
+                    self._embed_cache[sig] = vec
+                    self._embed_cache_order.append(sig)
+                # LRU 淘汰
+                while len(self._embed_cache_order) > self._embed_cache_max_size:
+                    oldest = self._embed_cache_order.pop(0)
+                    self._embed_cache.pop(oldest, None)
+
+            # 4) 按原顺序组装结果
+            out = np.zeros((len(texts), dim), dtype=np.float32)
+            for i, sig in enumerate(sigs):
+                vec = self._embed_cache.get(sig)
+                if vec is None:
+                    vec = new_vectors_map.get(sig)
+                if vec is None:
+                    vec = np.zeros(dim, dtype=np.float32)
+                out[i] = vec
+
             self.logger.info(
-                f"[ENCODE] 转换为numpy完成，shape={result.shape}，总耗时 {t2 - t0:.3f}s"
+                f"[ENCODE] 输出组装完成，shape={out.shape}，总耗时 {time.time() - t0:.3f}s"
             )
-            return result
+            return out
         except Exception as e:
             t_err = time.time()
             self.logger.error(
@@ -2564,6 +2821,8 @@ class IndexManager:
             return
 
         t0 = time.time()  # 调试：记录开始时间
+        encode_total_seconds = 0.0
+        hnsw_total_seconds = 0.0
         self.logger.info(
             f"[VECTOR_FLUSH] 开始刷新向量缓冲区，大小={len(self._vector_buffer)}"
         )
@@ -2575,68 +2834,55 @@ class IndexManager:
             self._vector_buffer = []
             return
 
-        count = len(self._vector_buffer)
-        texts = [item[0] for item in self._vector_buffer]
-        metadatas = [item[1] for item in self._vector_buffer]
+        pending_items = list(self._vector_buffer)
+        self._vector_buffer = []
+        count = len(pending_items)
 
         try:
             t1 = time.time()  # 调试时间点
             self.logger.info(
-                f"[VECTOR_FLUSH] 开始批量编码 {count} 个向量 (距开始 {t1 - t0:.3f}s)"
+                f"[VECTOR_FLUSH] 分块写入开始，共 {count} 个向量，块大小={self._vector_batch_size}"
             )
-            vectors = self._encode_texts_batch(texts)
-            t2 = time.time()  # 调试：编码完成时间
-            encode_time = t2 - t1
-            total_time = t2 - t0
+
+            batch_size = max(1, int(self._vector_batch_size))
+            encode_peak_seconds = 0.0
+            hnsw_peak_seconds = 0.0
+            chunk_count = 0
+            for start in range(0, count, batch_size):
+                chunk = pending_items[start : start + batch_size]
+                texts = [item[0] for item in chunk]
+                metadatas = [item[1] for item in chunk]
+                t_encode_start = time.time()
+                vectors = self._encode_texts_batch(texts)
+                encode_elapsed = time.time() - t_encode_start
+                encode_total_seconds += encode_elapsed
+                encode_peak_seconds = max(encode_peak_seconds, encode_elapsed)
+
+                needed = self.next_id + len(vectors)
+                max_elements = self.hnsw.get_max_elements()
+                if needed > max_elements:
+                    self.hnsw.resize_index(needed + 1024)
+
+                ids = np.arange(self.next_id, self.next_id + len(vectors))
+                t_hnsw_start = time.time()
+                self.hnsw.add_items(vectors, ids)
+                hnsw_elapsed = time.time() - t_hnsw_start
+                hnsw_total_seconds += hnsw_elapsed
+                hnsw_peak_seconds = max(hnsw_peak_seconds, hnsw_elapsed)
+                for i, metadata in enumerate(metadatas):
+                    self.vector_metadata[str(self.next_id + i)] = metadata
+                self.next_id += len(vectors)
+                chunk_count += 1
+
             self.logger.info(
-                f"[VECTOR_FLUSH] 编码完成，shape={vectors.shape}，"
-                f"耗时 {encode_time:.3f}s (累计 {total_time:.3f}s)"
+                "[VECTOR_FLUSH] 分块写入完成，"
+                f"chunks={chunk_count}，"
+                f"编码峰值 {encode_peak_seconds:.3f}s，"
+                f"HNSW写入峰值 {hnsw_peak_seconds:.3f}s，"
+                f"总向量数 {count}"
             )
 
-            # 预检查容量
-            needed = self.next_id + len(vectors)
-            max_elements = self.hnsw.get_max_elements()
-            if needed > max_elements:
-                self.logger.info(
-                    f"[VECTOR_FLUSH] HNSW容量不足，"
-                    f"扩展索引: {max_elements} -> {needed + 1024}"
-                )
-                self.hnsw.resize_index(needed + 1024)
-
-            ids = np.arange(self.next_id, self.next_id + len(vectors))
-
-            # HNSW写入需要保护，但只在写入时持有锁
-            # metadata更新在锁外进行（因为commit thread不修改metadata）
-            elapsed = t2 - t0
-            self.logger.info(
-                f"[VECTOR_FLUSH] 开始HNSW写入 {len(vectors)} 个向量 "
-                f"(累计 {elapsed:.3f}s)"
-            )
-            t3 = time.time()  # 调试：HNSW写入开始时间
-            # 注意：调用者已持有 _batch_lock，无需再次获取
-            self.hnsw.add_items(vectors, ids)
-            t4 = time.time()  # 调试：HNSW写入完成时间
-            hnsw_time = t4 - t3
-            total_time = t4 - t0
-            self.logger.info(
-                f"[VECTOR_FLUSH] HNSW写入完成，耗时 {hnsw_time:.3f}s "
-                f"(累计 {total_time:.3f}s)"
-            )
-
-            # 更新metadata（在锁外进行，减少锁持有时间）
-            t5 = time.time()  # 调试：metadata更新开始时间
-            for i, metadata in enumerate(metadatas):
-                self.vector_metadata[str(self.next_id + i)] = metadata
-            self.next_id += len(vectors)
-            t6 = time.time()  # 调试：metadata更新完成时间
-            meta_time = t6 - t5
-            total_time = t6 - t0
-            self.logger.info(
-                f"[VECTOR_FLUSH] metadata更新完成，{len(metadatas)} 条，"
-                f"耗时 {meta_time:.3f}s (累计 {total_time:.3f}s)"
-            )
-
-            total_time = t6 - t0
+            total_time = time.time() - t0
             self.logger.info(
                 f"[VECTOR_FLUSH] 向量批量写入完成: {count} 个向量，"
                 f"总耗时 {total_time:.3f}s"
@@ -2677,14 +2923,16 @@ class IndexManager:
                     )
                     # 重建后重新尝试批量写入（仅当前批次）
                     try:
-                        vectors = self._encode_texts_batch(texts)
+                        retry_texts = [item[0] for item in pending_items]
+                        retry_metadatas = [item[1] for item in pending_items]
+                        vectors = self._encode_texts_batch(retry_texts)
                         ids = np.arange(self.next_id, self.next_id + len(vectors))
                         needed = self.next_id + len(vectors)
                         max_elements = self.hnsw.get_max_elements()
                         if needed > max_elements:
                             self.hnsw.resize_index(needed + 1024)
                         self.hnsw.add_items(vectors, ids)
-                        for i, metadata in enumerate(metadatas):
+                        for i, metadata in enumerate(retry_metadatas):
                             self.vector_metadata[str(self.next_id + i)] = metadata
                         self.next_id += len(vectors)
                         self.logger.info(
@@ -2707,7 +2955,7 @@ class IndexManager:
                     return
 
             # 非损坏错误，回退到逐个写入
-            for text, metadata in self._vector_buffer:
+            for text, metadata in pending_items:
                 try:
                     v = np.array([self._encode_text(text)], dtype=np.float32)
                     doc_id = self.next_id
@@ -2733,8 +2981,20 @@ class IndexManager:
                 except Exception as e2:
                     self.logger.warning(f"单个向量写入失败: {e2}")
 
+        total_flush_seconds = time.time() - t0
+        with self._perf_lock:
+            self._perf_stats["vector_flush_calls"] += 1
+            self._perf_stats["vector_flush_vectors"] += count
+            self._perf_stats["vector_flush_total_seconds"] += total_flush_seconds
+            self._perf_stats["vector_encode_total_seconds"] += encode_total_seconds
+            self._perf_stats["vector_hnsw_total_seconds"] += hnsw_total_seconds
         self._vector_buffer = []
         self.logger.info("[VECTOR_FLUSH] 刷新完成，缓冲区已清空")
+
+    def get_perf_snapshot(self) -> dict:
+        """返回索引层性能统计快照。"""
+        with self._perf_lock:
+            return dict(self._perf_stats)
 
     def save_indexes(self):
         try:

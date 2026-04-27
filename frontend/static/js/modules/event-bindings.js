@@ -226,9 +226,9 @@ const FileToolsEventBindings = (function() {
             githubBtn.onclick = null;
             githubBtn.addEventListener('click', function(event) {
                 if (typeof FileToolsUtils !== 'undefined' && FileToolsUtils.openExternalLink) {
-                    FileToolsUtils.openExternalLink('https://github.com/Dry-U/File-tools', event);
+                    FileToolsUtils.openExternalLink('https://github.com/Dariandai/File-tools', event);
                 } else if (typeof openExternalLink === 'function') {
-                    openExternalLink('https://github.com/Dry-U/File-tools', event);
+                    openExternalLink('https://github.com/Dariandai/File-tools', event);
                 }
             });
         }
@@ -239,9 +239,9 @@ const FileToolsEventBindings = (function() {
             issueBtn.onclick = null;
             issueBtn.addEventListener('click', function(event) {
                 if (typeof FileToolsUtils !== 'undefined' && FileToolsUtils.openExternalLink) {
-                    FileToolsUtils.openExternalLink('https://github.com/Dry-U/File-tools/issues', event);
+                    FileToolsUtils.openExternalLink('https://github.com/Dariandai/File-tools/issues', event);
                 } else if (typeof openExternalLink === 'function') {
-                    openExternalLink('https://github.com/Dry-U/File-tools/issues', event);
+                    openExternalLink('https://github.com/Dariandai/File-tools/issues', event);
                 }
             });
         }
@@ -304,34 +304,6 @@ const FileToolsEventBindings = (function() {
             });
         }
 
-        // 确认添加目录按钮（在添加目录模态框中）
-        const confirmAddDirectoryBtn = document.getElementById('confirmAddDirectoryBtn');
-        if (confirmAddDirectoryBtn) {
-            confirmAddDirectoryBtn.onclick = null;
-            confirmAddDirectoryBtn.addEventListener('click', async function() {
-                const inputEl = document.getElementById('addDirectoryPathInput');
-                if (inputEl) {
-                    const path = inputEl.value.trim();
-                    if (!path) {
-                        if (typeof FileToolsUtils !== 'undefined' && FileToolsUtils.showToast) {
-                            FileToolsUtils.showToast('请输入目录路径', 'warning');
-                        }
-                        return;
-                    }
-                    // 隐藏模态框并调用添加目录函数
-                    const modalEl = document.getElementById('addDirectoryModal');
-                    if (modalEl && typeof FileToolsUtils !== 'undefined' && FileToolsUtils.hideModal) {
-                        FileToolsUtils.hideModal(modalEl);
-                    }
-                    if (typeof FileToolsDirectory !== 'undefined' && FileToolsDirectory.addDirectoryByPath) {
-                        await FileToolsDirectory.addDirectoryByPath(path);
-                    } else if (typeof addDirectoryByPath === 'function') {
-                        await addDirectoryByPath(path);
-                    }
-                }
-            });
-        }
-
         // 添加目录后重建确认弹窗的确定按钮
         const confirmAddDirRebuildBtn = document.getElementById('confirmAddDirRebuildBtn');
         if (confirmAddDirRebuildBtn) {
@@ -347,27 +319,6 @@ const FileToolsEventBindings = (function() {
                     FileToolsSettings.showRebuildModal();
                 } else if (typeof showRebuildModal === 'function') {
                     showRebuildModal();
-                }
-            });
-        }
-
-        // 浏览目录按钮（在添加目录模态框中）
-        const browseDirectoryBtn = document.getElementById('browseDirectoryBtn');
-        if (browseDirectoryBtn) {
-            browseDirectoryBtn.onclick = null;
-            browseDirectoryBtn.addEventListener('click', async function() {
-                if (window.TauriAPI) {
-                    try {
-                        const result = await window.TauriAPI.selectDirectory();
-                        if (!result.canceled && result.success && result.path) {
-                            const inputEl = document.getElementById('addDirectoryPathInput');
-                            if (inputEl) {
-                                inputEl.value = result.path;
-                            }
-                        }
-                    } catch (e) {
-                        console.warn('Tauri browse failed:', e);
-                    }
                 }
             });
         }

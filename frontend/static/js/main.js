@@ -24,6 +24,49 @@
     // 仅加载 tauri-api.js（供 waitForBackend 使用）
     const tauriModule = 'modules/tauri-api.js';
 
+    function normalizeBackendStatus(statusResult) {
+        if (typeof statusResult === 'string') {
+            return statusResult;
+        }
+        if (statusResult && typeof statusResult.status === 'string') {
+            return statusResult.status;
+        }
+        return 'unknown';
+    }
+
+    function statusText(status) {
+        switch (status) {
+            case 'running':
+                return '运行中';
+            case 'starting':
+                return '启动中';
+            case 'failed':
+                return '失败';
+            case 'stopped':
+                return '未运行';
+            case 'error':
+                return '异常';
+            case 'timeout':
+                return '超时';
+            default:
+                return '未知';
+        }
+    }
+
+    function updateBackendStatusUI(rawStatus) {
+        const status = normalizeBackendStatus(rawStatus);
+        const statusEl = document.getElementById('backend-status');
+        const dotEl = document.getElementById('backend-status-dot');
+        if (statusEl) {
+            statusEl.textContent = statusText(status);
+            statusEl.dataset.status = status;
+        }
+        if (dotEl) {
+            dotEl.className = 'status-dot status-' + status;
+        }
+        return status;
+    }
+
     /**
      * 动态加载 JavaScript 文件
      * @param {string} src - 脚本路径
@@ -59,7 +102,11 @@
             console.log('All modules loaded successfully');
 
             // 端口同步：确保前端连接到后端实际端口
-            await syncBackendPort();
+            const redirected = await syncBackendPort();
+            if (redirected) {
+                // 已触发页面跳转，停止当前页后续初始化避免闪烁和双初始化
+                return;
+            }
 
             initializeApp();
         } catch (error) {
@@ -81,11 +128,14 @@
                 const newUrl = `${protocol}//${hostname}:${backendPort}${window.location.pathname}`;
                 console.log(`[PortSync] 后端端口 ${backendPort} 与当前 ${currentPort} 不符，跳转至: ${newUrl}`);
                 window.location.href = newUrl;
+                return true;
             } else {
                 console.log(`[PortSync] 端口一致 (${currentPort})，无需跳转`);
+                return false;
             }
         } catch (e) {
             console.warn('[PortSync] 端口同步跳过:', e);
+            return false;
         }
     }
 
@@ -274,9 +324,9 @@
                         loadingEl.style.display = 'none';
                     }
                     // 显示主界面
-                    const mainContent = document.getElementById('main-content');
-                    if (mainContent) {
-                        mainContent.style.display = '';
+                    const appContainer = document.getElementById('app-container');
+                    if (appContainer) {
+                        appContainer.style.display = '';
                     }
                 },
                 onError: function(errorMsg) {
@@ -290,12 +340,7 @@
                 },
                 onStatusChanged: function(status) {
                     console.log('[App] 后端状态:', status);
-                    // 可选：更新UI状态指示器
-                    const statusEl = document.getElementById('backend-status');
-                    if (statusEl) {
-                        statusEl.textContent = status;
-                        statusEl.className = 'backend-status-' + status;
-                    }
+                    updateBackendStatusUI(status);
                 }
             });
 
@@ -312,16 +357,10 @@
             try {
                 const statusResult = await TauriAPI.getBackendStatus();
                 console.log('[App] 后端状态查询结果:', statusResult);
-                
-                // 根据状态更新UI
-                const statusEl = document.getElementById('backend-status');
-                if (statusEl) {
-                    statusEl.textContent = statusResult.status || 'unknown';
-                    statusEl.className = 'backend-status-' + (statusResult.status || 'unknown');
-                }
+                const status = updateBackendStatusUI(statusResult);
 
                 // 如果后端未运行，显示提示
-                if (statusResult.status === 'stopped' || statusResult.status === 'error') {
+                if (status === 'stopped' || status === 'error' || status === 'failed') {
                     const loadingEl = document.getElementById('backend-loading');
                     if (loadingEl) {
                         loadingEl.style.display = 'none';
@@ -349,7 +388,30 @@
             FileToolsUI.initSidebarToggleBtn();
         }
 
+        checkIndexMigrationNotice();
+
         console.log('Application initialized');
+    }
+
+    async function checkIndexMigrationNotice() {
+        try {
+            const noticeKey = 'index_migration_notice_ack_v1';
+            const res = await fetch('/api/config', { method: 'GET', cache: 'no-cache' });
+            if (!res.ok) return;
+            const config = await res.json();
+            const notice = (config && config.migration_notice) ? String(config.migration_notice).trim() : '';
+            if (!notice) return;
+            const lastAckNotice = localStorage.getItem(noticeKey);
+            if (lastAckNotice === notice) return;
+            localStorage.setItem(noticeKey, notice);
+            if (typeof FileToolsUtils !== 'undefined' && FileToolsUtils.showToast) {
+                FileToolsUtils.showToast(notice, 'warning');
+            } else {
+                console.warn('[App] 索引迁移提示:', notice);
+            }
+        } catch (e) {
+            console.warn('[App] 检查索引迁移提示失败:', e);
+        }
     }
 
     // 启动应用：先加载 tauri-api，等待后端就绪，再加载所有模块

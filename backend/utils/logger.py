@@ -252,6 +252,40 @@ class CustomFormatter(logging.Formatter):
         return formatted
 
 
+class SafeTimedRotatingFileHandler(TimedRotatingFileHandler):
+    """Windows 友好的按时间轮转文件处理器。
+
+    在 Windows 上日志文件可能被短暂占用，导致 doRollover() 的 os.rename 抛出
+    PermissionError(WinError 32)。此处理器会进行短暂重试，重试失败则降级为
+    继续写当前日志文件，避免异常堆栈反复刷屏影响可观测性。
+    """
+
+    def doRollover(self):
+        retries = 3
+        delay_seconds = 0.2
+
+        for attempt in range(retries):
+            try:
+                return super().doRollover()
+            except PermissionError as e:
+                # 最后一轮重试也失败时降级，不再向上抛异常
+                if attempt == retries - 1:
+                    try:
+                        if self.stream:
+                            self.stream.close()
+                    except Exception:
+                        pass
+                    self.stream = self._open()
+                    logging.getLogger("file-tools").warning(
+                        "日志轮转被占用，已降级继续写当前日志文件: %s", e
+                    )
+                    return
+                time.sleep(delay_seconds)
+            except OSError as e:
+                # 非权限类错误仍然抛出，避免掩盖真实问题
+                raise e
+
+
 class EnterpriseLogger:
     """日志记录器类
 
@@ -365,7 +399,7 @@ class EnterpriseLogger:
                 encoding="utf-8",
             )
         else:
-            file_handler = TimedRotatingFileHandler(
+            file_handler = SafeTimedRotatingFileHandler(
                 log_file,
                 when="midnight",
                 interval=1,

@@ -130,6 +130,16 @@ class FileScanner:
             "scan_time": 0,
             "last_scan_time": None,
         }
+        self._perf_lock: threading.Lock = threading.Lock()
+        self._perf_stats: Dict[str, float] = {
+            "parser_calls": 0.0,
+            "doc_parse_total_seconds": 0.0,
+            "pdf_parse_seconds": 0.0,
+            "batch_add_calls": 0.0,
+            "batch_add_docs": 0.0,
+            "batch_add_seconds": 0.0,
+            "end_batch_seconds": 0.0,
+        }
 
         # 文件哈希缓存（避免重复处理未变更文件）
         # value: (quick_key(size:mtime), md5_hash, last_access_time)
@@ -156,6 +166,15 @@ class FileScanner:
         """线程安全地增加统计值"""
         with self._stats_lock:
             self.scan_stats[stat_name] += value
+
+    def _record_perf(self, key: str, value: float) -> None:
+        """线程安全记录性能指标。"""
+        with self._perf_lock:
+            self._perf_stats[key] = self._perf_stats.get(key, 0.0) + float(value)
+
+    def _snapshot_perf(self) -> Dict[str, float]:
+        with self._perf_lock:
+            return dict(self._perf_stats)
 
     def _get_file_hash(self, file_path: str, quick_key: str) -> str:
         """
@@ -479,6 +498,16 @@ class FileScanner:
                 "scan_time": 0,
                 "last_scan_time": None,
             }
+        with self._perf_lock:
+            self._perf_stats = {
+                "parser_calls": 0.0,
+                "doc_parse_total_seconds": 0.0,
+                "pdf_parse_seconds": 0.0,
+                "batch_add_calls": 0.0,
+                "batch_add_docs": 0.0,
+                "batch_add_seconds": 0.0,
+                "end_batch_seconds": 0.0,
+            }
 
         # 初始化进度 - 报告0%开始收集
         if self.progress_callback:
@@ -543,8 +572,16 @@ class FileScanner:
                             # 批量索引：当收集到足够文档时
                             if len(documents_batch) >= 100 and self.index_manager:
                                 try:
+                                    t_batch_add = time.time()
                                     self.index_manager.batch_add_documents(
                                         documents_batch
+                                    )
+                                    self._record_perf(
+                                        "batch_add_seconds", time.time() - t_batch_add
+                                    )
+                                    self._record_perf("batch_add_calls", 1)
+                                    self._record_perf(
+                                        "batch_add_docs", len(documents_batch)
                                     )
                                     documents_batch.clear()
                                 except Exception as e:
@@ -567,7 +604,13 @@ class FileScanner:
                     # 处理剩余未索引的文档
                     if documents_batch and self.index_manager:
                         try:
+                            t_batch_add = time.time()
                             self.index_manager.batch_add_documents(documents_batch)
+                            self._record_perf(
+                                "batch_add_seconds", time.time() - t_batch_add
+                            )
+                            self._record_perf("batch_add_calls", 1)
+                            self._record_perf("batch_add_docs", len(documents_batch))
                         except Exception as e:
                             self.logger.error(f"批量索引失败: {e}")
 
@@ -594,7 +637,13 @@ class FileScanner:
                         # 批量索引
                         if len(documents_batch) >= 100 and self.index_manager:
                             try:
+                                t_batch_add = time.time()
                                 self.index_manager.batch_add_documents(documents_batch)
+                                self._record_perf(
+                                    "batch_add_seconds", time.time() - t_batch_add
+                                )
+                                self._record_perf("batch_add_calls", 1)
+                                self._record_perf("batch_add_docs", len(documents_batch))
                                 documents_batch.clear()
                             except Exception as e:
                                 self.logger.error(f"批量索引失败: {e}")
@@ -615,7 +664,13 @@ class FileScanner:
                 # 处理剩余文档
                 if documents_batch and self.index_manager:
                     try:
+                        t_batch_add = time.time()
                         self.index_manager.batch_add_documents(documents_batch)
+                        self._record_perf(
+                            "batch_add_seconds", time.time() - t_batch_add
+                        )
+                        self._record_perf("batch_add_calls", 1)
+                        self._record_perf("batch_add_docs", len(documents_batch))
                     except Exception as e:
                         self.logger.error(f"批量索引失败: {e}")
 
@@ -628,7 +683,9 @@ class FileScanner:
                         self.progress_callback(96)
                     except Exception:
                         pass
+                t_end_batch = time.time()
                 self.index_manager.end_batch_mode(commit=True)
+                self._record_perf("end_batch_seconds", time.time() - t_end_batch)
                 self.logger.info("批量模式结束，索引已提交")
             except Exception as e:
                 self.logger.error(f"结束批量模式失败: {e}")
@@ -645,6 +702,12 @@ class FileScanner:
             self.scan_stats["scan_time"] = time.time() - start_time
             self.scan_stats["last_scan_time"] = time.time()
             stats = self.scan_stats.copy()
+        stats["perf_breakdown"] = self._snapshot_perf()
+        if self.index_manager and hasattr(self.index_manager, "get_perf_snapshot"):
+            try:
+                stats["index_perf_breakdown"] = self.index_manager.get_perf_snapshot()
+            except Exception as perf_err:
+                self.logger.debug(f"读取索引性能快照失败: {perf_err}")
 
         avg_speed = stats["total_files_scanned"] / max(stats["scan_time"], 0.001)
         scan_info = (
@@ -1566,12 +1629,22 @@ class FileScanner:
         """读取文件内容"""
         try:
             if self.document_parser:
+                t_parse_start = time.time()
+                parsed: Optional[str] = None
                 try:
-                    parsed = self.document_parser.extract_text(file_path)
-                    if isinstance(parsed, str) and parsed.strip():
-                        return parsed
+                    extracted = self.document_parser.extract_text(file_path)
+                    if isinstance(extracted, str) and extracted.strip():
+                        parsed = extracted
                 except Exception:
                     pass
+                finally:
+                    parse_elapsed = time.time() - t_parse_start
+                    self._record_perf("parser_calls", 1)
+                    self._record_perf("doc_parse_total_seconds", parse_elapsed)
+                    if file_ext == ".pdf":
+                        self._record_perf("pdf_parse_seconds", parse_elapsed)
+                if parsed is not None:
+                    return parsed
             # 对于文本类文件，直接读取
             if file_ext in [
                 ".txt",

@@ -8,12 +8,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- 支持多提供商 API Keys 缓存（SiliconFlow、DeepSeek、Custom）
+- 新增 `model_size_params` 自动检测本地模型大小（1B/3B/7B/13B/70B）
 
 ### Changed
+- **配置保存修复**：scan_paths 和 monitor.directories 为空时不再自动填充 Documents 路径
+- **本地模型默认端口**：从 `8000` 改为 `11434`（Ollama 默认端口）
+- 统一采样参数结构：`ai_model.sampling` 和 `ai_model.penalties` 层级
+- ConfigLoader 支持自动创建用户数据目录
 
 ### Fixed
+- 修复配置保存后 scan_paths/directories 被重置为空的问题
+- 修复 `api_key` 返回时未正确掩码的问题
+- 修复文件监控目录遍历攻击安全漏洞
 
 ### Security
+- 目录路径验证增强（防止路径遍历攻击）
+- API Keys 返回时强制掩码处理
 
 ## [1.1.2] - 2026-04-15
 
@@ -139,5 +150,5 @@ Each release follows this format:
 ## Support
 
 For upgrade assistance or questions about changes:
-- GitHub Issues: https://github.com/Dry-U/File-tools/issues
+- GitHub Issues: https://github.com/Dariandai/File-tools/issues
 - Email: Dar1an@126.com

@@ -12,7 +12,8 @@
     "start:all": "npm run dev & sleep 3 && npm run tauri:dev"
   },
   "devDependencies": {
-    "@tauri-apps/cli": "^2.10.1"
+    "@tauri-apps/cli": "^2.10.1",
+    "playwright": "^1.59.1"
   },
   "dependencies": {
     "@tauri-apps/plugin-dialog": "^2.7.0",

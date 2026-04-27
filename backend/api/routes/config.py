@@ -2,6 +2,8 @@
 配置管理相关路由
 """
 
+from pathlib import Path
+
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import ValidationError
 
@@ -11,11 +13,48 @@ from backend.api.models import (
     RAGConfigValidator,
     SearchConfigValidator,
 )
+from backend.utils.app_paths import app_paths
 from backend.utils.config_loader import ConfigLoader
 from backend.utils.logger import get_logger
 
 logger = get_logger(__name__)
 router = APIRouter()
+
+
+def _preserve_existing_api_keys(config_loader: ConfigLoader, body: dict) -> None:
+    """避免前端提交空密钥时覆盖已存储密钥。"""
+    ai_model = body.get("ai_model")
+    if not isinstance(ai_model, dict):
+        return
+
+    api_config = ai_model.get("api")
+    if not isinstance(api_config, dict):
+        return
+
+    existing_single_key = config_loader.get("ai_model", "api.api_key", "")
+    existing_provider_keys = {
+        "siliconflow": config_loader.get("ai_model", "api.keys.siliconflow", ""),
+        "deepseek": config_loader.get("ai_model", "api.keys.deepseek", ""),
+        "custom": config_loader.get("ai_model", "api.keys.custom", ""),
+    }
+
+    incoming_single_key = api_config.get("api_key")
+    if incoming_single_key in ("", None):
+        api_config["api_key"] = existing_single_key
+
+    incoming_keys = api_config.get("keys")
+    if not isinstance(incoming_keys, dict):
+        api_config["keys"] = existing_provider_keys
+        return
+
+    merged_keys = {}
+    for provider, existing_value in existing_provider_keys.items():
+        incoming_value = incoming_keys.get(provider)
+        if incoming_value in ("", None, "***"):
+            merged_keys[provider] = existing_value
+        else:
+            merged_keys[provider] = incoming_value
+    api_config["keys"] = merged_keys
 
 
 def mask_key(key: str) -> str:
@@ -55,6 +94,62 @@ def _migrate_old_config(config_loader: ConfigLoader):
         logger.info("配置已从旧版本迁移到新结构")
 
 
+def _has_index_data(path: Path) -> bool:
+    try:
+        if not path.exists() or not path.is_dir():
+            return False
+        for item in path.iterdir():
+            if item.name.startswith("."):
+                continue
+            return True
+    except Exception:
+        return False
+    return False
+
+
+def _detect_index_path_migration_notice(config_loader: ConfigLoader) -> str:
+    """检测旧索引目录存在数据但新目录为空的场景，返回一次性提示文案。"""
+    try:
+        expected_data_dir = (app_paths.user_data_dir / "data").resolve()
+        expected_tantivy = (expected_data_dir / "tantivy_index").resolve()
+        expected_hnsw = (expected_data_dir / "hnsw_index").resolve()
+        expected_meta = (expected_data_dir / "metadata").resolve()
+
+        current_tantivy = Path(
+            str(config_loader.get("index", "tantivy_path", expected_tantivy))
+        ).expanduser()
+        current_hnsw = Path(
+            str(config_loader.get("index", "hnsw_path", expected_hnsw))
+        ).expanduser()
+        current_meta = Path(
+            str(config_loader.get("index", "metadata_path", expected_meta))
+        ).expanduser()
+
+        old_data_dir = (app_paths.app_dir / "data").resolve()
+        old_tantivy = (old_data_dir / "tantivy_index").resolve()
+        old_hnsw = (old_data_dir / "hnsw_index").resolve()
+        old_meta = (old_data_dir / "metadata").resolve()
+
+        if old_data_dir == expected_data_dir:
+            return ""
+
+        old_has_data = any(
+            _has_index_data(p) for p in (old_tantivy, old_hnsw, old_meta)
+        )
+        current_has_data = any(
+            _has_index_data(p) for p in (current_tantivy, current_hnsw, current_meta)
+        )
+
+        if old_has_data and not current_has_data:
+            return (
+                f"检测到旧索引目录 {old_data_dir} 存在历史数据，而当前索引目录 "
+                f"{expected_data_dir} 为空。可选择迁移旧索引或在“目录管理”执行重建索引。"
+            )
+    except Exception:
+        return ""
+    return ""
+
+
 @router.post("/config")
 async def update_config(
     request: Request, config_loader: ConfigLoader = Depends(get_config_loader)
@@ -65,6 +160,27 @@ async def update_config(
 
         if not isinstance(body, dict):
             raise HTTPException(status_code=400, detail="配置数据必须是JSON对象")
+
+        # 向后兼容：将旧字段映射到当前生效字段，避免“保存成功但不生效”
+        rag_payload = body.get("rag")
+        if isinstance(rag_payload, dict):
+            if "max_history_turns" not in rag_payload and "top_k" in rag_payload:
+                rag_payload["max_history_turns"] = rag_payload.get("top_k")
+            if "max_history_chars" not in rag_payload and "context_length" in rag_payload:
+                rag_payload["max_history_chars"] = rag_payload.get("context_length")
+
+        local_model_payload = body.get("local_model")
+        ai_model_payload = body.get("ai_model")
+        if isinstance(local_model_payload, dict):
+            if not isinstance(ai_model_payload, dict):
+                body["ai_model"] = {}
+                ai_model_payload = body["ai_model"]
+            if not isinstance(ai_model_payload.get("local"), dict):
+                ai_model_payload["local"] = {}
+            if "api_url" in local_model_payload and "api_url" not in ai_model_payload["local"]:
+                ai_model_payload["local"]["api_url"] = local_model_payload.get("api_url")
+
+        _preserve_existing_api_keys(config_loader, body)
 
         def flatten_dict(d: dict, parent_key: str = "", sep: str = ".") -> dict:
             """将嵌套字典扁平化为点号分隔的键"""
@@ -110,7 +226,6 @@ async def update_config(
         valid_sections = {
             "ai_model": {"flat": True},
             "rag": {"flat": True},
-            "local_model": {"flat": True},
             "search": {"flat": True},
         }
 
@@ -135,6 +250,27 @@ async def update_config(
         if updated_sections:
             success = config_loader.save()
             if success:
+                save_warnings = []
+                if hasattr(config_loader, "pop_last_save_warnings"):
+                    try:
+                        save_warnings = config_loader.pop_last_save_warnings()
+                    except Exception:
+                        save_warnings = []
+                if save_warnings is None:
+                    save_warnings = []
+                elif isinstance(save_warnings, str):
+                    save_warnings = [save_warnings]
+                elif isinstance(save_warnings, (list, tuple, set)):
+                    try:
+                        save_warnings = list(save_warnings)
+                    except TypeError:
+                        save_warnings = []
+                else:
+                    save_warnings = []
+                save_warnings = [
+                    str(item).strip() for item in save_warnings if str(item).strip()
+                ]
+
                 # 如果AI模型配置变更，异步触发RAGPipeline重新初始化
                 if "ai_model" in updated_sections:
                     import threading
@@ -166,11 +302,18 @@ async def update_config(
                     )
                     reload_thread.start()
 
-                return {
-                    "status": "success",
-                    "message": "配置已保存",
-                    "updated_sections": updated_sections,
-                }
+                if save_warnings:
+                    return {
+                        "status": "warning",
+                        "message": "配置已保存，但存在注意事项：" + "；".join(save_warnings),
+                        "updated_sections": updated_sections,
+                    }
+                else:
+                    return {
+                        "status": "success",
+                        "message": "配置已保存",
+                        "updated_sections": updated_sections,
+                    }
             else:
                 raise HTTPException(status_code=500, detail="保存配置文件失败")
         else:
@@ -287,13 +430,35 @@ async def get_config(config_loader: ConfigLoader = Depends(get_config_loader)):
             },
             "rag": {
                 "max_history_turns": config_loader.getint(
-                    "rag", "max_history_turns", 3
+                    "rag",
+                    "max_history_turns",
+                    config_loader.getint("rag", "top_k", 3),
                 ),
                 "max_history_chars": config_loader.getint(
-                    "rag", "max_history_chars", 1000
+                    "rag",
+                    "max_history_chars",
+                    config_loader.getint("rag", "context_length", 1000),
                 ),
             },
+            "file_scanner": {
+                "scan_paths": config_loader.get("file_scanner", "scan_paths", []),
+            },
+            "migration_notice": _detect_index_path_migration_notice(config_loader),
         }
+        scan_paths = config["file_scanner"]["scan_paths"]
+        if isinstance(scan_paths, str):
+            config["file_scanner"]["scan_paths"] = [
+                p.strip() for p in scan_paths.split(";") if p.strip()
+            ]
+        elif isinstance(scan_paths, list):
+            config["file_scanner"]["scan_paths"] = [
+                str(p).strip() for p in scan_paths if str(p).strip()
+            ]
+        else:
+            config["file_scanner"]["scan_paths"] = []
+        # 兼容旧前端字段读取；写入统一走 max_history_*。
+        config["rag"]["top_k"] = config["rag"]["max_history_turns"]
+        config["rag"]["context_length"] = config["rag"]["max_history_chars"]
         return config
     except Exception as e:
         logger.error(f"获取配置错误: {str(e)}")

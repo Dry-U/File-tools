@@ -123,8 +123,8 @@ if (portableFiles.length >= 2) {
 - filetools_backend.exe - 后端服务 (Python)
 - README.txt           - 本说明文件
 
-官方文档: https://github.com/Dry-U/File-tools#readme
-问题反馈: https://github.com/Dry-U/File-tools/issues
+官方文档: https://github.com/Dariandai/File-tools#readme
+问题反馈: https://github.com/Dariandai/File-tools/issues
 `;
   fs.writeFileSync(path.join(portableDir, 'README.txt'), readme);
   console.log('  + README.txt');

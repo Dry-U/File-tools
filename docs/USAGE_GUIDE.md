@@ -24,7 +24,7 @@ File Tools 是一个基于Python的本地文件智能管理工具，提供高效
 
 ### 1. 克隆项目
 ```bash
-git clone https://github.com/Dry-U/File-tools.git
+git clone https://github.com/Dariandai/File-tools.git
 cd File-tools
 ```
 
@@ -43,25 +43,35 @@ pip install -e .
 ```yaml
 ai_model:
   enabled: true  # 启用 AI 问答功能
-  interface_type: "api"  # 模式: "wsl" (本地) 或 "api" (远程)
+  mode: "local"  # 模式: "local" (本地) 或 "api" (远程)
   api:
     provider: "siliconflow"  # 或 "deepseek", "custom"
     api_url: "https://api.siliconflow.cn/v1/chat/completions"
-    api_key: "your-api-key"
     model_name: "deepseek-ai/DeepSeek-V2.5"
-    keys:  # 多提供商 API Keys (已掩码返回)
+    # 多提供商 API Keys (返回时已掩码)
+    keys:
       siliconflow: ""
       deepseek: ""
       custom: ""
   local:
-    api_url: "http://localhost:8000/v1/chat/completions"
+    # 本地模型服务地址
+    # Ollama 默认: http://localhost:11434/v1/chat/completions
+    # llama.cpp server 默认: http://localhost:8080/v1/chat/completions
+    api_url: "http://localhost:11434/v1/chat/completions"
     max_context: 4096
     max_tokens: 512
+    model_name: "local"  # 自动检测或手动指定
   sampling:
     temperature: 0.7
     top_p: 0.9
     top_k: 40
+    min_p: 0.05
     max_tokens: 2048
+    seed: -1
+  penalties:
+    repeat_penalty: 1.1
+    frequency_penalty: 0.0
+    presence_penalty: 0.0
   security:
     verify_ssl: true
     timeout: 120
@@ -315,15 +325,25 @@ POST /api/directories/browse
 
 ### AI模型配置 (ai_model)
 - `enabled`: 是否启用AI功能
-- `interface_type`: 运行模式 ("wsl" 本地 或 "api" 远程)
+- `mode`: 运行模式 ("local" 本地 或 "api" 远程)
+- `local.api_url`: 本地模型服务地址（Ollama 默认端口 11434，llama.cpp 默认 8080）
+- `local.model_name`: 本地模型名称（自动检测或手动指定）
 - `api.provider`: API 提供商 ("siliconflow"/"deepseek"/"custom")
 - `api.api_url`: API 地址
-- `api.api_key`: 当前提供商的 API Key (返回时已掩码)
+- `api.model_name`: 远程模型名称
 - `api.keys`: 各提供商的 API Keys 集合 (返回时已掩码)
 - `sampling.temperature`: 生成温度
+- `sampling.top_p`: 核采样参数
+- `sampling.top_k`: Top K 采样参数
+- `sampling.min_p`: 最小概率参数（Ollama/lmstudio 支持）
 - `sampling.max_tokens`: 最大生成 token 数
+- `sampling.seed`: 随机种子（-1 表示随机）
+- `penalties.repeat_penalty`: 重复惩罚
+- `penalties.frequency_penalty`: 频率惩罚
+- `penalties.presence_penalty`: 存在惩罚
 - `security.timeout`: 请求超时时间
 - `security.retry_count`: 重试次数
+- `security.verify_ssl`: 是否验证 SSL 证书
 
 ## 性能指标
 
@@ -379,4 +399,4 @@ MIT License - 详见 [LICENSE](../LICENSE) 文件
 
 - 作者：Darian
 - 邮箱：Dar1an@126.com
-- 项目主页：https://github.com/Dry-U/File-tools
+- 项目主页：https://github.com/Dariandai/File-tools

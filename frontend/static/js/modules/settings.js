@@ -3,10 +3,12 @@
  * 提供设置加载、保存、重置、API 测试等功能
  */
 
-const FileToolsSettings = (function() {
+const FileToolsSettings = (function () {
     'use strict';
 
     let initialSettings = null;
+    // 缓存设置面板初始模板，避免 modal body 被意外清空后无法恢复
+    let settingsBodyTemplate = null;
     // 缓存完整的 provider keys，避免切换 provider 后其他 keys 丢失
     let cachedProviderKeys = { siliconflow: '', deepseek: '', custom: '' };
 
@@ -36,10 +38,13 @@ const FileToolsSettings = (function() {
                 throw new Error('HTTP ' + response.status);
             }
             const config = await response.json();
+            console.log('loadSettings: fetched config', config);
             applySettingsToUI(config);
+            return config;
         } catch (error) {
             console.error('加载设置失败:', error);
             FileToolsUtils.showToast('加载设置失败: ' + error.message, 'error');
+            return null;
         }
     }
 
@@ -48,6 +53,7 @@ const FileToolsSettings = (function() {
      * @param {Object} config - 配置对象
      */
     function applySettingsToUI(config) {
+        console.log('applySettingsToUI called with config:', config);
         const setValue = (id, value) => {
             const el = document.getElementById(id);
             if (el) {
@@ -119,18 +125,18 @@ const FileToolsSettings = (function() {
             setValue('presencePenaltyValue', penalties.presence_penalty ?? 0.0);
         }
 
-        // 本地模型设置 - 支持嵌套结构
+        // 本地模型设置：统一使用 ai_model.local（减少重复配置）
         if (config.ai_model && config.ai_model.local) {
             setValue('localApiUrlInput', config.ai_model.local.api_url || 'http://localhost:8000/v1/chat/completions');
         } else if (config.local_model) {
-            // 向后兼容
+            // 向后兼容（旧配置）
             setValue('localApiUrlInput', config.local_model.api_url || 'http://localhost:8000/v1/chat/completions');
         }
 
-        // RAG 设置
+        // RAG 设置：统一字段为 max_history_turns / max_history_chars
         if (config.rag) {
-            setValue('ragTopKInput', config.rag.top_k ?? config.rag.max_history_turns ?? 5);
-            setValue('ragContextLengthInput', config.rag.context_length ?? config.rag.max_history_chars ?? 2048);
+            setValue('ragTopKInput', config.rag.max_history_turns ?? config.rag.top_k ?? 5);
+            setValue('ragContextLengthInput', config.rag.max_history_chars ?? config.rag.context_length ?? 2048);
         }
 
         // 搜索设置
@@ -194,14 +200,16 @@ const FileToolsSettings = (function() {
                     repeat_penalty: getFloat('repeatPenaltyRange', 1.1),
                     frequency_penalty: getFloat('freqPenaltyRange', 0.0),
                     presence_penalty: getFloat('presencePenaltyRange', 0.0)
+                },
+                local: {
+                    api_url: getValue('localApiUrlInput', 'http://localhost:8000/v1/chat/completions')
                 }
             },
-            local_model: {
-                api_url: getValue('localApiUrlInput', 'http://localhost:8000/v1/chat/completions')
-            },
+            // 统一写入 ai_model.local，避免 local_model 双写导致参数不生效
+            // 保留 local_model 读取兼容，但不再作为写入主字段
             rag: {
-                top_k: getInt('ragTopKInput', 5),
-                context_length: getInt('ragContextLengthInput', 2048)
+                max_history_turns: getInt('ragTopKInput', 5),
+                max_history_chars: getInt('ragContextLengthInput', 2048)
             },
             search: {
                 text_weight: getFloat('searchTextWeightInput', 0.6),
@@ -216,27 +224,27 @@ const FileToolsSettings = (function() {
      */
     function validateSettingsFields() {
         const mode = document.getElementById('modeAPI')?.checked ? 'api' : 'local';
-        
+
         if (mode === 'api') {
             const apiUrl = document.getElementById('apiUrlInput')?.value?.trim();
             const modelName = document.getElementById('modelNameInput')?.value?.trim();
-            
+
             if (!apiUrl) {
                 return 'API URL 不能为空';
             }
-            
+
             // 检查 URL 格式
             try {
                 new URL(apiUrl);
             } catch (e) {
                 return 'API URL 格式不正确，请输入完整的 URL（如 https://api.example.com）';
             }
-            
+
             if (!modelName) {
                 return '模型名称 不能为空';
             }
         }
-        
+
         return null;
     }
 
@@ -259,7 +267,7 @@ const FileToolsSettings = (function() {
             if (noChangesModalEl) {
                 FileToolsUtils.showModal(noChangesModalEl);
                 // 2秒后自动关闭
-                setTimeout(function() {
+                setTimeout(function () {
                     FileToolsUtils.hideModal(noChangesModalEl);
                 }, 2000);
             }
@@ -270,6 +278,7 @@ const FileToolsSettings = (function() {
         const validationError = validateSettingsFields();
         if (validationError) {
             FileToolsUtils.showToast(validationError, 'error');
+            if (saveBtn) saveBtn.disabled = false;
             return;
         }
 
@@ -286,7 +295,7 @@ const FileToolsSettings = (function() {
 
             if (response.ok && result.status === 'success') {
                 FileToolsUtils.hideModal(document.getElementById('settingsModal'));
-                setTimeout(function() {
+                setTimeout(function () {
                     FileToolsUtils.showToast('设置已保存', 'success');
                 }, 300);
                 initialSettings = getCurrentSettings();
@@ -404,7 +413,7 @@ const FileToolsSettings = (function() {
      * 安全显示测试结果（只用 toast，不弹 modal）
      */
     function showTestResultModalSafe(title, message, isSuccess) {
-        console.log('showTestResultModalSafe called:', {title, message, isSuccess});
+        console.log('showTestResultModalSafe called:', { title, message, isSuccess });
 
         // 只使用 toast 显示结果（message 可能是带 <br> 的 HTML，转成纯文本）
         const cleanMessage = message ? message.replace(/<br\s*\/?>/gi, ' ') : '';
@@ -426,7 +435,7 @@ const FileToolsSettings = (function() {
         tabContent.style.flexDirection = 'column';
 
         // 强制所有 pane 高度一致
-        panes.forEach(function(pane) {
+        panes.forEach(function (pane) {
             pane.style.flex = '1';
             pane.style.minHeight = '0';
             pane.style.overflowY = 'auto';
@@ -494,7 +503,7 @@ const FileToolsSettings = (function() {
         const saveSettingsBtn = document.getElementById('saveSettingsBtn');
         if (saveSettingsBtn) {
             saveSettingsBtn.onclick = null;
-            saveSettingsBtn.addEventListener('click', function() {
+            saveSettingsBtn.addEventListener('click', function () {
                 console.log('Save button clicked');
                 if (typeof FileToolsSettings !== 'undefined' && FileToolsSettings.saveSettings) {
                     FileToolsSettings.saveSettings();
@@ -510,7 +519,7 @@ const FileToolsSettings = (function() {
         const testConnBtn = document.getElementById('testConnectionBtn');
         if (testConnBtn) {
             testConnBtn.onclick = null;
-            testConnBtn.addEventListener('click', function() {
+            testConnBtn.addEventListener('click', function () {
                 if (typeof FileToolsSettings !== 'undefined' && FileToolsSettings.testAPIConnection) {
                     FileToolsSettings.testAPIConnection();
                 } else if (typeof testAPIConnection === 'function') {
@@ -523,7 +532,7 @@ const FileToolsSettings = (function() {
         const resetSettingsBtn = document.getElementById('resetSettingsBtn');
         if (resetSettingsBtn) {
             resetSettingsBtn.onclick = null;
-            resetSettingsBtn.addEventListener('click', function() {
+            resetSettingsBtn.addEventListener('click', function () {
                 if (typeof FileToolsSettings !== 'undefined' && FileToolsSettings.resetSettings) {
                     FileToolsSettings.resetSettings();
                 } else if (typeof resetSettings === 'function') {
@@ -534,12 +543,12 @@ const FileToolsSettings = (function() {
 
         // 重新绑定滑块事件（采样参数 + 惩罚参数）
         const sliderIds = ['tempRange', 'topPRange', 'topKRange', 'minPRange', 'repeatPenaltyRange', 'freqPenaltyRange', 'presencePenaltyRange'];
-        sliderIds.forEach(function(sliderId) {
+        sliderIds.forEach(function (sliderId) {
             const slider = document.getElementById(sliderId);
             if (slider) {
                 slider.oninput = null;
                 const valueElementId = sliderId.replace('Range', 'Value');
-                slider.addEventListener('input', function() {
+                slider.addEventListener('input', function () {
                     const valueElement = document.getElementById(valueElementId);
                     if (valueElement) {
                         valueElement.innerText = this.value;
@@ -547,19 +556,6 @@ const FileToolsSettings = (function() {
                 });
             }
         });
-
-        // 重新绑定添加目录按钮
-        const addDirectoryBtn = document.getElementById('addDirectoryBtn');
-        if (addDirectoryBtn) {
-            addDirectoryBtn.onclick = null;
-            addDirectoryBtn.addEventListener('click', function() {
-                if (typeof FileToolsDirectory !== 'undefined' && FileToolsDirectory.browseAndAddDirectory) {
-                    FileToolsDirectory.browseAndAddDirectory();
-                } else if (typeof FileToolsDirectory !== 'undefined' && FileToolsDirectory.addDirectory) {
-                    FileToolsDirectory.addDirectory();
-                }
-            });
-        }
 
         // 重新绑定接入模式切换事件
         const modeLocal = document.getElementById('modeLocal');
@@ -571,14 +567,14 @@ const FileToolsSettings = (function() {
             modeLocal.onchange = null;
             modeAPI.onchange = null;
 
-            modeLocal.addEventListener('change', function() {
+            modeLocal.addEventListener('change', function () {
                 if (this.checked) {
                     if (localSettings) localSettings.style.display = 'block';
                     if (apiSettings) apiSettings.style.display = 'none';
                 }
             });
 
-            modeAPI.addEventListener('change', function() {
+            modeAPI.addEventListener('change', function () {
                 if (this.checked) {
                     if (localSettings) localSettings.style.display = 'none';
                     if (apiSettings) apiSettings.style.display = 'block';
@@ -590,7 +586,7 @@ const FileToolsSettings = (function() {
         const apiProviderSelect = document.getElementById('apiProviderSelect');
         if (apiProviderSelect) {
             apiProviderSelect.onchange = null;
-            apiProviderSelect.addEventListener('change', function() {
+            apiProviderSelect.addEventListener('change', function () {
                 if (typeof FileToolsSettings !== 'undefined' && FileToolsSettings.onProviderChange) {
                     FileToolsSettings.onProviderChange();
                 } else if (typeof onProviderChange === 'function') {
@@ -600,12 +596,12 @@ const FileToolsSettings = (function() {
         }
 
         // 重新绑定目录列表删除按钮事件委托
-        document.querySelectorAll('.directory-list').forEach(function(list) {
+        document.querySelectorAll('.directory-list').forEach(function (list) {
             // 先移除旧的事件监听器（通过克隆替换）
             const newList = list.cloneNode(true);
             list.parentNode.replaceChild(newList, list);
 
-            newList.addEventListener('click', function(e) {
+            newList.addEventListener('click', function (e) {
                 const deleteBtn = e.target.closest('.directory-delete');
                 if (deleteBtn) {
                     e.stopPropagation();
@@ -617,12 +613,34 @@ const FileToolsSettings = (function() {
             });
         });
 
+        // 重新绑定添加目录按钮（settings modal 内容重建后需要重绑）
+        const addDirectoryBtn = document.getElementById('addDirectoryBtn');
+        if (addDirectoryBtn) {
+            // 用克隆替换确保移除所有历史监听，避免某些场景下点击事件失效
+            const freshAddBtn = addDirectoryBtn.cloneNode(true);
+            addDirectoryBtn.parentNode.replaceChild(freshAddBtn, addDirectoryBtn);
+            freshAddBtn.onclick = null;
+            freshAddBtn.addEventListener('click', function () {
+                console.log('[Settings] addDirectoryBtn clicked');
+                if (typeof FileToolsDirectory !== 'undefined' && FileToolsDirectory.browseAndAddDirectory) {
+                    FileToolsDirectory.browseAndAddDirectory();
+                } else if (typeof browseAndAddDirectory === 'function') {
+                    browseAndAddDirectory();
+                } else {
+                    console.error('browseAndAddDirectory function not found');
+                    if (typeof FileToolsUtils !== 'undefined' && FileToolsUtils.showToast) {
+                        FileToolsUtils.showToast('目录功能未就绪，请重试', 'error');
+                    }
+                }
+            });
+        }
+
         // 重新绑定密码显示切换按钮
         const toggleApiKeyBtn = document.getElementById('toggleApiKeyBtn');
         const apiKeyInput = document.getElementById('apiKeyInput');
         if (toggleApiKeyBtn && apiKeyInput) {
             toggleApiKeyBtn.onclick = null;
-            toggleApiKeyBtn.addEventListener('click', function() {
+            toggleApiKeyBtn.addEventListener('click', function () {
                 const type = apiKeyInput.type === 'password' ? 'text' : 'password';
                 apiKeyInput.type = type;
                 // 只切换图标，不显示中文文字
@@ -652,11 +670,28 @@ const FileToolsSettings = (function() {
 
         // 先恢复内容（让用户可以立即看到界面）
         const modalBody = modalEl.querySelector('.modal-body');
-        const originalContent = modalBody.innerHTML;
+        const currentContent = modalBody ? modalBody.innerHTML : '';
+        const hasCurrentContent = !!(currentContent && currentContent.trim());
 
-        // 如果之前有内容，先显示原始内容
-        if (originalContent && originalContent.trim()) {
-            modalBody.innerHTML = originalContent;
+        // 首次捕获可用模板
+        if (!settingsBodyTemplate && hasCurrentContent) {
+            settingsBodyTemplate = currentContent;
+        }
+
+        console.log(
+            'openSettingsModal: currentContent length=',
+            hasCurrentContent ? currentContent.length : 0,
+            'template length=',
+            settingsBodyTemplate ? settingsBodyTemplate.length : 0
+        );
+
+        // 优先使用当前内容；为空时回退到模板，避免出现“设置面板空白”
+        if (modalBody) {
+            if (hasCurrentContent) {
+                modalBody.innerHTML = currentContent;
+            } else if (settingsBodyTemplate) {
+                modalBody.innerHTML = settingsBodyTemplate;
+            }
         }
 
         // 初始化 tabs 和事件（不等待数据加载）
@@ -857,7 +892,7 @@ const FileToolsSettings = (function() {
         // 绑定确认按钮事件
         const confirmBtn = document.getElementById('rebuildConfirmBtn');
         if (confirmBtn) {
-            confirmBtn.addEventListener('click', function() {
+            confirmBtn.addEventListener('click', function () {
                 confirmRebuild();
             });
         }
@@ -865,7 +900,7 @@ const FileToolsSettings = (function() {
         // 绑定取消按钮点击事件 - 关闭时也取消后端任务
         if (closeBtn) {
             closeBtn.onclick = null; // 清除之前的绑定
-            closeBtn.addEventListener('click', function() {
+            closeBtn.addEventListener('click', function () {
                 cancelRebuild();
             });
         }
@@ -924,6 +959,9 @@ const FileToolsSettings = (function() {
 
         let eventSource = null;
         let sseFinished = false;
+        let latestProgress = 0;
+        let lastSseMessageAt = Date.now();
+        let sseErrorCheckPending = false;
 
         // 显示进度条UI - 现代化设计
         modalBody.innerHTML = `
@@ -997,13 +1035,15 @@ const FileToolsSettings = (function() {
             eventSource = new EventSource('/api/rebuild-index/stream');
             console.log('SSE: EventSource 已创建, readyState:', eventSource.readyState);
 
-            eventSource.onopen = function() {
+            eventSource.onopen = function () {
                 console.log('SSE: 连接已打开, readyState:', eventSource.readyState);
+                lastSseMessageAt = Date.now();
             };
 
-            eventSource.onmessage = function(event) {
+            eventSource.onmessage = function (event) {
                 console.log('[SSE RAW]', event.data, 'lastEventId:', event.lastEventId);
                 console.log('SSE: 收到消息:', event.data);
+                lastSseMessageAt = Date.now();
                 try {
                     const data = JSON.parse(event.data);
 
@@ -1047,6 +1087,7 @@ const FileToolsSettings = (function() {
                     } else if (data.status === 'progress') {
                         // 更新进度条
                         const progress = data.progress || 0;
+                        latestProgress = progress;
                         updateRebuildUI(
                             progress,
                             '正在重建索引...',
@@ -1057,8 +1098,46 @@ const FileToolsSettings = (function() {
                         );
 
                     } else if (data.status === 'keepalive') {
-                        // 保持连接活跃，不做处理（只更新最后活跃时间）
-                        // console.debug('SSE keepalive received');
+                        // 95% 后通常处于索引提交/收尾阶段，避免用户误判“卡死”
+                        if (data.phase === 'committing' || latestProgress >= 95) {
+                            const progress = data.progress || latestProgress || 95;
+                            latestProgress = progress;
+                            const elapsed = Number.isFinite(data.elapsed_seconds)
+                                ? `（已持续 ${data.elapsed_seconds}s）`
+                                : '';
+                            updateRebuildUI(
+                                progress,
+                                '正在提交索引...',
+                                `文档较多时此阶段可能持续一段时间，请稍候${elapsed}`,
+                                'spinner',
+                                '',
+                                ''
+                            );
+                        }
+
+                    } else if (data.status === 'committing') {
+                        const progress = data.progress || latestProgress || 95;
+                        latestProgress = progress;
+                        updateRebuildUI(
+                            progress,
+                            '正在提交索引...',
+                            data.message || '文档较多时此阶段可能持续一段时间，请稍候',
+                            'spinner',
+                            '',
+                            ''
+                        );
+
+                    } else if (data.status === 'finalizing') {
+                        const progress = data.progress || 99;
+                        latestProgress = progress;
+                        updateRebuildUI(
+                            progress,
+                            '正在完成最后收尾...',
+                            data.message || '即将完成，请稍候',
+                            'spinner',
+                            '',
+                            ''
+                        );
 
                     } else if (data.status === 'error') {
                         clearTimeout(sseTimeout);
@@ -1106,12 +1185,17 @@ const FileToolsSettings = (function() {
                 }
             };
 
-            eventSource.onerror = function(event) {
+            eventSource.onerror = function (event) {
                 console.warn('SSE: 连接错误, readyState:', event.target.readyState, ', sseFinished:', sseFinished);
                 if (sseFinished) {
                     console.log('SSE: 已完成，忽略错误');
                     return;
                 }
+                // 避免并发错误检查导致重复降级/重复请求
+                if (sseErrorCheckPending) {
+                    return;
+                }
+                sseErrorCheckPending = true;
                 // 根据错误状态决定延迟时间
                 const isClosed = event.target.readyState === EventSource.CLOSED;
                 const checkDelay = isClosed ? 1000 : 3000;
@@ -1125,8 +1209,16 @@ const FileToolsSettings = (function() {
 
                 // 统一的降级检查逻辑
                 setTimeout(async () => {
+                    sseErrorCheckPending = false;
                     if (sseFinished) {
                         console.log('SSE: 任务已完成，无需降级');
+                        return;
+                    }
+                    // committing/finalizing 阶段 EventSource 可能短暂报错后自动恢复。
+                    // 若最近仍持续收到SSE消息，则不应触发降级。
+                    const silenceMs = Date.now() - lastSseMessageAt;
+                    if (silenceMs < 15000) {
+                        console.log(`SSE: 最近 ${silenceMs}ms 内仍有消息，保持SSE连接，不降级`);
                         return;
                     }
                     // 检查后端是否存活
@@ -1178,7 +1270,7 @@ const FileToolsSettings = (function() {
         }
 
         // 添加模态框关闭事件监听，以便在用户点击X或外部区域时取消重建
-        const handleModalHidden = function() {
+        const handleModalHidden = function () {
             clearTimeout(sseTimeout);
             finishSSE();
             closeBtn.removeEventListener('click', cancelRebuild);
@@ -1595,7 +1687,7 @@ const FileToolsSettings = (function() {
 
         if (btn) {
             btn.onclick = null;
-            btn.addEventListener('click', function() {
+            btn.addEventListener('click', function () {
                 console.log('[initAboutButtons] checkUpdateBtn clicked!');
                 checkForUpdate();
             });
@@ -1603,26 +1695,26 @@ const FileToolsSettings = (function() {
 
         if (githubBtn) {
             githubBtn.onclick = null;
-            githubBtn.addEventListener('click', function(event) {
+            githubBtn.addEventListener('click', function (event) {
                 console.log('[initAboutButtons] githubBtn clicked!');
                 event.preventDefault();
-                window.TauriAPI.openExternal('https://github.com/Dry-U/File-tools')
+                window.TauriAPI.openExternal('https://github.com/Dariandai/File-tools')
                     .catch(err => {
                         console.warn('[initAboutButtons] openExternal failed:', err);
-                        window.open('https://github.com/Dry-U/File-tools', '_blank');
+                        window.open('https://github.com/Dariandai/File-tools', '_blank');
                     });
             });
         }
 
         if (issueBtn) {
             issueBtn.onclick = null;
-            issueBtn.addEventListener('click', function(event) {
+            issueBtn.addEventListener('click', function (event) {
                 console.log('[initAboutButtons] issueBtn clicked!');
                 event.preventDefault();
-                window.TauriAPI.openExternal('https://github.com/Dry-U/File-tools/issues')
+                window.TauriAPI.openExternal('https://github.com/Dariandai/File-tools/issues')
                     .catch(err => {
                         console.warn('[initAboutButtons] openExternal failed:', err);
-                        window.open('https://github.com/Dry-U/File-tools/issues', '_blank');
+                        window.open('https://github.com/Dariandai/File-tools/issues', '_blank');
                     });
             });
         }

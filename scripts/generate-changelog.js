@@ -16,7 +16,7 @@ const VERSION = process.env.VERSION;
 const GITHUB_TOKEN = process.env.GITHUB_TOKEN;
 const IS_DRY_RUN = process.argv.includes('--dry');
 const IS_RELEASE = process.argv.includes('--release');
-const REPO = process.env.GITHUB_REPOSITORY || 'Dry-U/File-tools';
+const REPO = process.env.GITHUB_REPOSITORY || 'Dariandai/File-tools';
 const REPO_URL = 'https://github.com/' + REPO;
 
 function log(msg) {

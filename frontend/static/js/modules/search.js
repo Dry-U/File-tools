@@ -8,9 +8,61 @@ const FileToolsSearch = (function() {
 
     // 防重入标志
     let isSearching = false;
+    const scanPathCheckCache = {
+        value: true,
+        timestamp: 0,
+        pending: null
+    };
+    const SCAN_PATH_CACHE_TTL = 5000;
 
-    // 防抖处理的搜索函数（300ms延迟）
-    const debouncedSearch = FileToolsUtils.debounce(performSearch, 300);
+    async function hasConfiguredScanPaths() {
+        const now = Date.now();
+        if (scanPathCheckCache.pending) {
+            return scanPathCheckCache.pending;
+        }
+        if ((now - scanPathCheckCache.timestamp) < SCAN_PATH_CACHE_TTL) {
+            return scanPathCheckCache.value;
+        }
+
+        const checkPromise = (async () => {
+            const response = await fetchWithTimeout(
+                '/api/config',
+                { method: 'GET', cache: 'no-store' },
+                8000
+            );
+            if (!response.ok) return true;
+            const config = await response.json();
+            const paths = config?.file_scanner?.scan_paths;
+            return Array.isArray(paths) ? paths.length > 0 : !!paths;
+        })();
+        scanPathCheckCache.pending = checkPromise;
+
+        try {
+            const hasPaths = await checkPromise;
+            scanPathCheckCache.value = hasPaths;
+            scanPathCheckCache.timestamp = Date.now();
+            return hasPaths;
+        } catch (e) {
+            // 配置检查失败时不阻断搜索主流程
+            scanPathCheckCache.value = true;
+            scanPathCheckCache.timestamp = Date.now();
+            return true;
+        } finally {
+            scanPathCheckCache.pending = null;
+        }
+    }
+
+    function openDirectorySettings() {
+        if (typeof openSettingsModal === 'function') {
+            openSettingsModal();
+            setTimeout(() => {
+                const tabBtn = document.getElementById('v-pills-directories-tab');
+                if (tabBtn) tabBtn.click();
+            }, 0);
+        } else {
+            FileToolsUtils.showToast('请先打开设置，进入目录管理添加目录', 'warning');
+        }
+    }
 
     /**
      * 执行搜索
@@ -22,6 +74,7 @@ const FileToolsSearch = (function() {
 
         const input = document.getElementById('searchInput');
         const query = input.value.trim();
+        const resultsContainer = document.getElementById('resultsContainer');
         if (!query) {
             isSearching = false;
             return;
@@ -47,12 +100,15 @@ const FileToolsSearch = (function() {
         
         if (activeTypeBtns.length === 0) {
             // 全不选时显示提示并返回空结果
-            resultsContainer.innerHTML = `
-                <div class="text-center text-warning mt-5">
-                    <i class="bi bi-exclamation-triangle display-4"></i>
-                    <p class="mt-3">请至少选择一种文件类型</p>
-                </div>
-            `;
+            if (resultsContainer) {
+                resultsContainer.innerHTML = `
+                    <div class="text-center text-warning mt-5">
+                        <i class="bi bi-exclamation-triangle display-4"></i>
+                        <p class="mt-3">请至少选择一种文件类型</p>
+                    </div>
+                `;
+                resultsContainer.style.display = 'block';
+            }
             isSearching = false;
             return;
         }
@@ -82,10 +138,29 @@ const FileToolsSearch = (function() {
         // 4. 搜索选项
         filters.search_content = document.getElementById('searchContent').checked;
 
+        const hasPaths = await hasConfiguredScanPaths();
+        if (!hasPaths) {
+            resultsContainer.style.display = 'block';
+            resultsContainer.innerHTML = `
+                <div class="text-center text-warning mt-5">
+                    <i class="bi bi-folder-x display-4"></i>
+                    <p class="mt-3 mb-2">还未添加扫描目录，暂时无法搜索</p>
+                    <button id="searchAddDirCta" class="btn btn-sm btn-outline-warning">
+                        去目录管理添加并重建索引
+                    </button>
+                </div>
+            `;
+            const ctaBtn = document.getElementById('searchAddDirCta');
+            if (ctaBtn) {
+                ctaBtn.addEventListener('click', openDirectorySettings, { once: true });
+            }
+            isSearching = false;
+            return;
+        }
+
         // 切换 UI
         const welcomeContainer = document.getElementById('search-welcome-container');
         const inputArea = document.getElementById('search-input-area');
-        const resultsContainer = document.getElementById('resultsContainer');
 
         welcomeContainer.style.display = 'none';
         resultsContainer.style.display = 'block';
@@ -301,36 +376,20 @@ const FileToolsSearch = (function() {
                 if (isMarkdown && typeof marked !== 'undefined' && typeof DOMPurify !== 'undefined') {
                     // Markdown渲染
                     const rawHtml = marked.parse(content);
-                    modalContent.innerHTML = headerHtml + DOMPurify.sanitize(rawHtml, {
+                    const sanitizedHtml = DOMPurify.sanitize(rawHtml, {
                         ALLOWED_TAGS: ['h1','h2','h3','h4','h5','h6','p','br','hr','ul','ol','li',
                                        'blockquote','pre','code','em','strong','a','img','table',
                                        'thead','tbody','tr','th','td','div','span'],
                         ALLOWED_ATTR: ['href','src','alt','title','class','id']
                     });
+                    modalContent.innerHTML = `${headerHtml}<div class="preview-markdown-content">${sanitizedHtml}</div>`;
                 } else {
-                    // 代码/文本预览：带行号
-                    const lines = content.split('\n');
-                    const maxLineNumWidth = String(lines.length).length;
-
+                    // 代码/文本预览：纯内容显示（无行号、无分隔线）
                     let codeHtml = '<div class="code-preview-container">';
                     codeHtml += headerHtml;
                     codeHtml += '<div class="code-preview-wrapper">';
-                    codeHtml += '<table class="code-preview-table">';
-                    codeHtml += '<tbody>';
-
-                    lines.forEach((line, index) => {
-                        const lineNum = index + 1;
-                        // 转义HTML特殊字符
-                        const escapedLine = FileToolsUtils.escapeHtml(line);
-                        codeHtml += `
-                            <tr class="code-line">
-                                <td class="line-number" style="width: ${maxLineNumWidth * 0.8 + 2}em">${lineNum}</td>
-                                <td class="line-content"><pre>${escapedLine || ' '}</pre></td>
-                            </tr>
-                        `;
-                    });
-
-                    codeHtml += '</tbody></table>';
+                    const escapedContent = FileToolsUtils.escapeHtml(content);
+                    codeHtml += `<pre class="code-plain-pre">${escapedContent || ' '}</pre>`;
                     codeHtml += '</div>'; // code-preview-wrapper
 
                     // 截断提示
@@ -409,16 +468,7 @@ const FileToolsSearch = (function() {
             searchInput.addEventListener('keydown', function(e) {
                 if (e.key === 'Enter') {
                     e.preventDefault();
-                    debouncedSearch.cancel();
                     performSearch();
-                }
-            });
-
-            // 输入防抖搜索
-            searchInput.addEventListener('input', function(e) {
-                const query = e.target.value.trim();
-                if (query.length >= 2) {
-                    debouncedSearch();
                 }
             });
         }

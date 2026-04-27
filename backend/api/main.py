@@ -236,8 +236,9 @@ async def add_security_headers(request, call_next):
         "script-src 'self' 'unsafe-inline'; "
         "style-src 'self' 'unsafe-inline'; "
         "font-src 'self'; "
-        "img-src 'self' data:; "
-        "connect-src 'self' ipc: http://ipc.localhost; "
+        "img-src 'self' data: static/; "
+        # 与 frontend/index.html meta CSP 保持一致：允许连接到本机动态端口
+        "connect-src 'self' ipc: http://ipc.localhost http://127.0.0.1:* http://localhost:*; "
         "frame-ancestors 'none'; "
         "form-action 'self'"
     )

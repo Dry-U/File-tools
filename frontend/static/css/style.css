@@ -1233,7 +1233,7 @@ input[type="date"]::-webkit-calendar-picker-indicator {
 
 /* Tab panes need to be scrollable - forced to equal height */
 #v-pills-tabContent {
-    height: 100% !important;
+    height: auto !important;
     min-height: 0 !important;
     flex: 1 !important;
 }
@@ -1252,6 +1252,7 @@ input[type="date"]::-webkit-calendar-picker-indicator {
     display: block !important;
     flex-direction: column !important;
     overflow-y: auto !important;
+    min-height: 320px !important;
 }
 
 /* Mode settings card - let parent tab-pane handle scrolling */
@@ -1272,7 +1273,8 @@ input[type="date"]::-webkit-calendar-picker-indicator {
     flex-direction: row !important;
     align-items: stretch !important;
     width: 100% !important;
-    height: 100% !important;
+    height: auto !important;
+    min-height: 320px !important;
     max-height: none !important;
     overflow: hidden !important;
 }
@@ -1298,10 +1300,10 @@ input[type="date"]::-webkit-calendar-picker-indicator {
 #settingsModal #v-pills-tabContent {
     flex: 1 !important;
     min-height: 0 !important;
+    height: auto !important;
     padding-left: 20px !important;
     border-left: 1px solid var(--llama-border) !important;
     overflow: visible !important;
-    height: 100% !important;
     max-height: none !important;
     display: flex !important;
     flex-direction: column !important;
@@ -2377,6 +2379,21 @@ input[type="date"]::-webkit-calendar-picker-indicator {
     background-color: #22c55e;
 }
 
+.status-dot.status-running {
+    background-color: #22c55e;
+}
+
+.status-dot.status-starting {
+    background-color: #f59e0b;
+}
+
+.status-dot.status-stopped,
+.status-dot.status-failed,
+.status-dot.status-error,
+.status-dot.status-timeout {
+    background-color: #ef4444;
+}
+
 /* 历史记录列表样式 */
 .history-list {
     display: flex;
@@ -2703,7 +2720,7 @@ input[type="date"]::-webkit-calendar-picker-indicator {
 
 #previewModalContent {
     display: block !important;
-    white-space: pre-wrap !important;
+    white-space: normal !important;
     word-wrap: break-word !important;
     word-break: break-word !important;
     overflow-x: visible !important;
@@ -2942,6 +2959,12 @@ input[type="date"]::-webkit-calendar-picker-indicator {
     width: 100% !important;
 }
 
+/* Hide WebView2/Edge built-in password reveal button (prevents double-eye) */
+#settingsModal input[type="password"]::-ms-reveal,
+#settingsModal input[type="password"]::-ms-clear {
+    display: none !important;
+}
+
 #settingsModal .password-toggle-btn {
     position: absolute !important;
     right: 10px !important;
@@ -3026,6 +3049,7 @@ input[type="date"]::-webkit-calendar-picker-indicator {
     background-color: var(--llama-bg-main);
     border-radius: 8px;
     overflow: hidden;
+    padding-bottom: 4px;
 }
 
 .preview-header {
@@ -3034,7 +3058,7 @@ input[type="date"]::-webkit-calendar-picker-indicator {
     gap: 12px;
     padding: 10px 16px;
     background-color: var(--llama-input-bg);
-    border-bottom: 1px solid var(--llama-border);
+    border-bottom: none;
     font-size: 0.85em;
     color: var(--llama-text-sub);
 }
@@ -3067,6 +3091,7 @@ input[type="date"]::-webkit-calendar-picker-indicator {
     max-height: 70vh;
     overflow: auto;
     background-color: var(--llama-bg-main);
+    padding: 8px 12px 12px;
 }
 
 .code-preview-table {
@@ -3094,8 +3119,8 @@ input[type="date"]::-webkit-calendar-picker-indicator {
     text-align: right;
     padding: 2px 12px 2px 16px;
     color: var(--llama-text-sub);
-    background-color: var(--llama-input-bg);
-    border-right: 1px solid var(--llama-border);
+    background-color: rgba(255, 255, 255, 0.03);
+    border-right: none;
     user-select: none;
     font-size: 0.85em;
     line-height: 1.5;
@@ -3130,10 +3155,33 @@ input[type="date"]::-webkit-calendar-picker-indicator {
 .preview-truncated-notice {
     padding: 12px 16px;
     background-color: var(--llama-input-bg);
-    border-top: 1px solid var(--llama-border);
+    border-top: none;
     color: var(--llama-text-sub);
     font-size: 0.85em;
     text-align: center;
+}
+
+.code-plain-pre {
+    margin: 0;
+    padding: 0;
+    background: transparent;
+    border: none;
+    color: var(--llama-text-main);
+    font-family: 'Consolas', 'Monaco', 'Courier New', 'DejaVu Sans Mono', monospace;
+    font-size: 0.92em;
+    line-height: 1.65;
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+
+.preview-markdown-content {
+    padding: 6px 2px;
+}
+
+.preview-markdown-content hr {
+    border: none;
+    height: 0;
+    margin: 0.75em 0;
 }
 
 /* 加载进度条样式 */

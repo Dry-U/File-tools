@@ -48,7 +48,7 @@
 ### 1. 克隆项目
 
 ```bash
-git clone https://github.com/Dry-U/File-tools.git
+git clone https://github.com/Dariandai/File-tools.git
 cd File-tools
 ```
 
@@ -323,7 +323,7 @@ flowchart TB
 ### 联系方式
 
 - 邮箱：Dar1an@126.com
-- GitHub：https://github.com/Dry-U/File-tools
+- GitHub：https://github.com/Dariandai/File-tools
 
 ---
 

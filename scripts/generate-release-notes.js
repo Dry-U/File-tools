@@ -15,7 +15,7 @@ const VERSION = process.env.VERSION;
 const CHANGELOG_PATH = process.env.CHANGELOG_PATH || 'CHANGELOG.md';
 const OUTPUT_PATH = process.env.OUTPUT_PATH || 'release-body.md';
 const GITHUB_TOKEN = process.env.GITHUB_TOKEN;
-const REPO = process.env.GITHUB_REPOSITORY || 'Dry-U/File-tools';
+const REPO = process.env.GITHUB_REPOSITORY || 'Dariandai/File-tools';
 
 const REPO_URL = 'https://github.com/' + REPO;
 

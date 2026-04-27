@@ -887,6 +887,39 @@ class SearchEngine:
             return words
         return []
 
+    def _get_query_alpha_tokens(self, query: str) -> list[str]:
+        """提取查询中的英文/数字关键 token（如 rag、bert、faiss）"""
+        if not query:
+            return []
+        tokens = re.findall(r"[a-zA-Z0-9]+", query.lower())
+        # 过滤 1 字符噪音 token，保留真正有区分度的关键词
+        return [t for t in tokens if len(t) >= 2]
+
+    def _normalize_for_match(self, text: str) -> str:
+        """统一文本用于短语匹配：仅保留中英文和数字"""
+        if not text:
+            return ""
+        return "".join(re.findall(r"[a-z0-9\u4e00-\u9fff]+", text.lower()))
+
+    def _get_query_cjk_tokens(self, query: str) -> list[str]:
+        """提取中文 token，并补充双字切片用于提升召回鲁棒性"""
+        if not query:
+            return []
+        tokens = []
+        seen = set()
+        for chunk in re.findall(r"[\u4e00-\u9fff]{2,}", query):
+            if chunk not in seen:
+                seen.add(chunk)
+                tokens.append(chunk)
+            # 为 3+ 长度中文词增加双字切片（避免分词边界不一致）
+            if len(chunk) >= 3:
+                for i in range(len(chunk) - 1):
+                    bi = chunk[i : i + 2]
+                    if bi not in seen:
+                        seen.add(bi)
+                        tokens.append(bi)
+        return tokens
+
     def _rerank_results(
         self, query: str, results: List[Dict[str, Any]]
     ) -> List[Dict[str, Any]]:
@@ -946,6 +979,9 @@ class SearchEngine:
 
         query_lower = query.lower()
         query_words = set(re.findall(r"\w+", query_lower))
+        alpha_tokens = self._get_query_alpha_tokens(query)
+        cjk_tokens = self._get_query_cjk_tokens(query)
+        normalized_query = self._normalize_for_match(query)
 
         # 获取权重配置
         w = self.rerank_weights
@@ -959,11 +995,17 @@ class SearchEngine:
 
             # 2. 文件名匹配度
             filename = os.path.basename(result.get("path", "")).lower()
+            filename_norm = self._normalize_for_match(filename)
+            snippet_text = (result.get("snippet", "") or "").lower()
+            snippet_norm = self._normalize_for_match(snippet_text)
             filename_score = 0.0
 
             # 完整查询匹配文件名
             if query_lower in filename:
                 filename_score = 100.0
+            elif normalized_query and normalized_query in filename_norm:
+                # 处理中英文混合查询（如“基于rag的实现”）的强短语匹配
+                filename_score = 98.0
             else:
                 # 部分匹配
                 matched_words = sum(1 for word in query_words if word in filename)
@@ -980,6 +1022,32 @@ class SearchEngine:
                         break
 
             new_score += filename_score * w["filename"]
+
+            # 2.1 英文关键 token 匹配增强（如 rag/bert/faiss）
+            # 语义融合在中文论文场景下容易把“相关但不含关键术语”的结果抬高，
+            # 这里对文件名中包含 query 关键术语的文档做显式增强。
+            if alpha_tokens:
+                alpha_hits = sum(1 for token in alpha_tokens if token in filename)
+                alpha_ratio = alpha_hits / len(alpha_tokens)
+                if alpha_hits > 0:
+                    new_score += 18.0 * alpha_ratio
+                    # 所有关键 token 全命中时，给一个强保底，保证直觉排序
+                    if alpha_hits == len(alpha_tokens):
+                        result["score"] = max(result.get("score", 0.0), 88.0)
+                else:
+                    # 查询包含明确英文术语但文件名完全不含时轻微降权
+                    new_score -= 8.0
+
+            # 2.2 中文关键词覆盖增强（文件名 + 摘要）
+            if cjk_tokens:
+                lexical_text = f"{filename_norm} {snippet_norm}"
+                cjk_hits = sum(1 for token in cjk_tokens if token in lexical_text)
+                if cjk_hits > 0:
+                    new_score += min(16.0, 4.0 * cjk_hits)
+                else:
+                    # 语义命中但中文关键词零覆盖时，适度降权避免“跑题文档”上浮
+                    if result.get("search_type") == "vector":
+                        new_score -= 6.0
 
             # 3. 关键词密度
             content = (result.get("content", "") or result.get("snippet", "")).lower()

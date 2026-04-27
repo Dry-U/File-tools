@@ -399,7 +399,7 @@ python scripts/run_tests.py unit --allure
 
 ```bash
 # 1. 克隆项目
-git clone https://github.com/Dry-U/File-tools.git
+git clone https://github.com/Dariandai/File-tools.git
 cd File-tools
 
 # 2. 安装 Python 依赖

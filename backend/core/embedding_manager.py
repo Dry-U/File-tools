@@ -126,31 +126,41 @@ class EmbeddingModelManager:
 
     def is_embedding_model_cached(self) -> bool:
         """检测 Embedding 模型是否已缓存"""
-        # 检查 FastEmbed 缓存目录
-        model_cache_path = os.path.join(
-            self.embedding_cache_dir, self.embedding_model_name.replace("/", "_")
+        model_cache_path = self._get_model_cache_path(
+            self.embedding_model_name, self.embedding_cache_dir
         )
-
-        # 也检查 HuggingFace 默认缓存
-        hf_cache = Path.home() / ".cache" / "huggingface" / "hub"
-        hf_model_path = (
-            hf_cache / f"models--{self.embedding_model_name.replace('/', '--')}"
-        )
-
-        return os.path.exists(model_cache_path) or os.path.exists(hf_model_path)
+        return os.path.exists(model_cache_path)
 
     def _get_model_cache_path(self, model_name: str, cache_dir: str) -> str:
         """获取模型的缓存路径（优先本地缓存，其次 HF 缓存）"""
-        local_path = os.path.join(cache_dir, model_name.replace("/", "_"))
-        if os.path.exists(local_path):
-            return local_path
+        normalized_name = model_name.replace("/", "--")
+        flat_name = model_name.replace("/", "_")
+        model_tail = model_name.split("/")[-1]
 
-        hf_cache = Path.home() / ".cache" / "huggingface" / "hub"
-        hf_path = hf_cache / f"models--{model_name.replace('/', '--')}"
-        if os.path.exists(hf_path):
-            return str(hf_path)
+        candidate_paths = [
+            Path(cache_dir) / flat_name,
+            Path(cache_dir) / f"models--{normalized_name}",
+            Path.home() / ".cache" / "huggingface" / "hub" / f"models--{normalized_name}",
+        ]
 
-        return local_path  # 返回本地路径，即使不存在
+        # FastEmbed / HF 可能将模型放在 snapshots 子目录
+        for base in list(candidate_paths):
+            candidate_paths.extend(sorted(base.glob("snapshots/*")))
+
+        # 兜底：按模型名尾部在 cache_dir 中模糊匹配
+        cache_root = Path(cache_dir)
+        if cache_root.exists():
+            lowered_tail = model_tail.lower()
+            for entry in cache_root.iterdir():
+                if lowered_tail in entry.name.lower():
+                    candidate_paths.append(entry)
+                    candidate_paths.extend(sorted(entry.glob("snapshots/*")))
+
+        for path in candidate_paths:
+            if path.exists():
+                return str(path)
+
+        return str(Path(cache_dir) / flat_name)  # 返回本地目标路径（即使不存在）
 
     def _verify_model_integrity(self, model_name: str, cache_dir: str) -> bool:
         """验证模型文件完整性：检查文件存在且大小 > 1MB
@@ -296,16 +306,10 @@ class EmbeddingModelManager:
 
     def is_reranker_model_cached(self) -> bool:
         """检测 Reranker 模型是否已缓存"""
-        model_cache_path = os.path.join(
-            self.reranker_cache_dir, self.reranker_model_name.replace("/", "_")
+        model_cache_path = self._get_model_cache_path(
+            self.reranker_model_name, self.reranker_cache_dir
         )
-
-        hf_cache = Path.home() / ".cache" / "huggingface" / "hub"
-        hf_model_path = (
-            hf_cache / f"models--{self.reranker_model_name.replace('/', '--')}"
-        )
-
-        return os.path.exists(model_cache_path) or os.path.exists(hf_model_path)
+        return os.path.exists(model_cache_path)
 
     def _load_reranker_model(self) -> bool:
         """加载 Reranker 模型"""

@@ -3,6 +3,7 @@
 
 use log::{error, info, warn};
 use parking_lot::Mutex;
+use std::process::Stdio;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 use tauri::{AppHandle, Emitter, Manager, RunEvent};
@@ -159,6 +160,12 @@ fn start_python_backend(app: &tauri::App) -> Result<BackendProcess, Box<dyn std:
     // 状态流转: -> Starting
     set_backend_status(BackendStatus::Starting);
     let _ = app.emit("backend-status-changed", "starting");
+    // 启动前清理旧端口文件，避免读取到上次进程残留端口
+    if let Err(e) = std::fs::remove_file(backend_port_file_path()) {
+        if e.kind() != std::io::ErrorKind::NotFound {
+            warn!("清理旧端口文件失败: {}", e);
+        }
+    }
 
     #[cfg(debug_assertions)]
     {
@@ -188,6 +195,12 @@ fn start_python_backend(app: &tauri::App) -> Result<BackendProcess, Box<dyn std:
             cmd.arg(&main_py).current_dir(&project_root);
             // 设置环境变量，优先使用固定端口
             cmd.env("FILETOOLS_PORT", "18642");
+            // 开发模式禁用静态资源缓存，避免前端改动不生效
+            cmd.env("FILETOOLS_DEV_MODE", "1");
+            // 开发模式下强制无缓冲输出，确保 tauri dev 终端实时显示 Python 日志
+            cmd.env("PYTHONUNBUFFERED", "1");
+            cmd.stdout(Stdio::inherit());
+            cmd.stderr(Stdio::inherit());
 
             match cmd.spawn() {
                 Ok(child) => {
@@ -213,7 +226,9 @@ fn start_python_backend(app: &tauri::App) -> Result<BackendProcess, Box<dyn std:
     {
         // 发布模式：运行 PyInstaller 打包的 sidecar
         use tauri_plugin_shell::ShellExt;
-        let sidecar = app.shell().sidecar("filetools_backend")?;
+        let mut sidecar = app.shell().sidecar("filetools_backend")?;
+        // 发布模式也固定后端端口，避免窗口 URL 与后端实际端口不一致
+        sidecar = sidecar.env("FILETOOLS_PORT", "18642");
         info!("Sidecar 路径: {:?}", sidecar);
 
         // Tauri v2: 直接 spawn sidecar
@@ -229,15 +244,20 @@ fn start_python_backend(app: &tauri::App) -> Result<BackendProcess, Box<dyn std:
 }
 
 /// 从 Python 写入的端口文件读取实际端口
+fn backend_port_file_path() -> std::path::PathBuf {
+    std::env::temp_dir().join("filetools_backend_port.txt")
+}
+
+/// 从 Python 写入的端口文件读取实际端口
 fn read_backend_port() -> Option<u16> {
     use std::io::Read;
 
     // 与 Python 保持一致的端口文件路径
-    let temp_dir = std::env::temp_dir();
-    let port_file = temp_dir.join("filetools_backend_port.txt");
+    let port_file = backend_port_file_path();
 
     if !port_file.exists() {
-        warn!("端口文件不存在: {:?}", port_file);
+        // 启动前几秒端口文件不存在是正常现象，避免误报噪音
+        log::debug!("端口文件不存在: {:?}", port_file);
         return None;
     }
 
@@ -245,11 +265,7 @@ fn read_backend_port() -> Option<u16> {
         Ok(mut file) => {
             let mut contents = String::new();
             if file.read_to_string(&mut contents).is_ok() {
-                let port = contents.trim().parse::<u16>().ok();
-                if port.is_some() {
-                    info!("从 {:?} 读取到后端端口: {}", port_file, port.unwrap());
-                }
-                return port;
+                return contents.trim().parse::<u16>().ok();
             }
         }
         Err(e) => {
@@ -591,11 +607,23 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     tauri::async_runtime::spawn(async move {
                         // 等待后端就绪（最多60秒）
                         let max_wait = 60;
-                        let port = read_backend_port().unwrap_or(18642);
-
-                        info!("等待后端就绪于端口 {}...", port);
+                        let mut last_seen_port: Option<u16> = None;
+                        info!("等待后端写入端口并就绪...");
 
                         for i in 0..max_wait {
+                            let Some(port) = read_backend_port() else {
+                                if i % 5 == 0 {
+                                    info!("等待后端写入端口文件（第 {} 秒）...", i);
+                                }
+                                std::thread::sleep(std::time::Duration::from_secs(1));
+                                continue;
+                            };
+
+                            if last_seen_port != Some(port) {
+                                info!("检测到后端端口: {}", port);
+                                last_seen_port = Some(port);
+                            }
+
                             // 使用 TcpStream 检查端口是否可用
                             if std::net::TcpStream::connect_timeout(
                                 &std::net::SocketAddr::from(([127, 0, 0, 1], port)),

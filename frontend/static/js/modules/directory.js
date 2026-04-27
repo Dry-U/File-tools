@@ -75,8 +75,12 @@ const FileToolsDirectory = (function() {
      * 使用 Tauri 原生对话框，降级到 Bootstrap 模态框
      */
     async function browseAndAddDirectory() {
-        if (isBrowsing) return;
+        if (isBrowsing) {
+            console.log('[Directory] browse ignored: already browsing');
+            return;
+        }
         isBrowsing = true;
+        console.log('[Directory] browseAndAddDirectory start');
         try {
             let selectedPath = null;
 

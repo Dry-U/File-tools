@@ -115,6 +115,8 @@
         // 后端状态事件监听
         backendEvents: {
             _listeners: {},
+            _warnedUnavailable: false,
+            _warnedListenFailures: {},
 
             /**
              * 监听后端事件
@@ -124,19 +126,59 @@
              */
             listen: function(eventName, callback) {
                 if (!isTauri) {
-                    console.warn('[TauriAPI] 非 Tauri 环境，无法监听后端事件');
+                    // 非 Tauri 环境下属于正常情况，静默降级避免刷屏
                     return () => {};
                 }
 
-                window.__TAURI__.event.listen(eventName, (event) => {
+                const eventApi = window.__TAURI__ && window.__TAURI__.event;
+                if (!eventApi || typeof eventApi.listen !== 'function') {
+                    if (!this._warnedUnavailable) {
+                        // 只在 debug 时提示一次即可（否则会在浏览器/降级环境刷屏）
+                        if (console && typeof console.debug === 'function') {
+                            console.debug('[TauriAPI] 事件监听 API 不可用，已自动降级为轮询/直连方式');
+                        }
+                        this._warnedUnavailable = true;
+                    }
+                    return () => {};
+                }
+
+                let unlisten = null;
+                const unlistenPromise = eventApi.listen(eventName, (event) => {
                     console.log(`[TauriAPI] 后端事件: ${eventName}`, event.payload);
                     callback(event.payload);
                 }).catch((err) => {
-                    console.warn(`[TauriAPI] 事件监听失败 (${eventName}):`, err.message);
+                    // 某些运行时下会以 undefined reject，属于“事件不可用”而非真正异常
+                    const errMsg = (err && err.message) ? err.message : '';
+                    if (!this._warnedListenFailures[eventName]) {
+                        // 降级是预期行为：改为 debug 一次，避免用户误以为是错误
+                        if (console && typeof console.debug === 'function') {
+                            if (errMsg) {
+                                console.debug(`[TauriAPI] 事件监听不可用 (${eventName})，已自动降级:`, errMsg);
+                            } else {
+                                console.debug(`[TauriAPI] 事件监听不可用 (${eventName})，已自动降级`);
+                            }
+                        }
+                        this._warnedListenFailures[eventName] = true;
+                    }
+                    return null;
                 });
 
-                // 返回空函数（监听失败时无可需取消）
-                return () => {};
+                // 支持后续取消监听（即便 listen 是异步返回）
+                unlistenPromise.then((fn) => {
+                    if (typeof fn === 'function') {
+                        unlisten = fn;
+                    }
+                });
+
+                return () => {
+                    if (typeof unlisten === 'function') {
+                        try {
+                            unlisten();
+                        } catch (e) {
+                            console.warn('[TauriAPI] 取消事件监听失败:', e);
+                        }
+                    }
+                };
             },
 
             /**
@@ -178,7 +220,7 @@
              */
             init: function(handlers = {}) {
                 if (!isTauri) {
-                    console.warn('[TauriAPI] 非 Tauri 环境，跳过后端事件监听初始化');
+                    // 非 Tauri 环境静默跳过
                     return;
                 }
 
