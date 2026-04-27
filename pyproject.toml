@@ -66,7 +66,7 @@ dependencies = [
     "typing-extensions>=4.0.0,<5.0.0",
     "six>=1.16.0",
     "numpy>=1.26.0,<3.0.0", # hnswlib/pandas/sklearn 需要
-    "scikit-learn>=1.0.0,<2.0.0", # RAG 需要
+    "scikit-learn>=1.6.1,<2.0.0", # RAG 需要
     "fastembed>=0.7.3",
 ]
 
