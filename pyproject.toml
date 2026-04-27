@@ -85,6 +85,10 @@ dev = [
     "bandit>=1.7.0",
     "pyinstaller>=6.0.0",
     "httpx>=0.25.0,<1.0.0",
+    "types-pyyaml>=6.0.12.20250915",
+    "types-aiofiles>=25.1.0.20251011",
+    "types-requests>=2.32.4.20260107",
+    "types-cachetools>=6.2.0.20251022",
 ]
 
 # 可选依赖（向后兼容，pip 用户可用 pip install -e ".[dev]"）

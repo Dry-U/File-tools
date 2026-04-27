@@ -50,10 +50,10 @@ class PrivacyGuard:
         Returns:
             List of (类型, 原文, 位置) 元组
         """
-        findings = []
+        findings: list[tuple[str, str, str]] = []
         for ptype, (pattern, _) in self.patterns.items():
             for match in re.finditer(pattern, text):
-                findings.append((ptype, match.group(), match.span()))
+                findings.append((ptype, match.group(), str(match.span())))
         return findings
 
     def _cleanup_old_mappings(self):

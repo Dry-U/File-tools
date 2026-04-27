@@ -106,7 +106,7 @@ class RAGPipeline:
         # 会话清理配置
         self._max_session_age_days = int(rag_config.get("max_session_age_days", 30))
         self._max_sessions = int(rag_config.get("max_sessions", 1000))
-        self._last_cleanup_time = 0
+        self._last_cleanup_time: float = 0.0
         self._cleanup_interval = 3600  # 每小时检查一次
 
         # 启动后台会话清理线程
@@ -117,6 +117,7 @@ class RAGPipeline:
         self._cleanup_thread.start()
 
         # 初始化查询处理器
+        self.query_processor: Optional[QueryProcessor] = None
         try:
             self.query_processor = QueryProcessor(config_loader)
             logger.info("查询处理器初始化完成")

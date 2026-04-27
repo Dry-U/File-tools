@@ -26,10 +26,10 @@ try:
     PBKDF2 = PBKDF2HMAC
 except ImportError:
     CRYPTO_AVAILABLE = False
-    Fernet = None
-    PBKDF2 = None
-    PBKDF2HMAC = None
-    hashes = None
+    Fernet = None  # type: ignore[misc,assignment]
+    PBKDF2 = None  # type: ignore[misc,assignment]
+    PBKDF2HMAC = None  # type: ignore[misc,assignment]
+    hashes = None  # type: ignore[assignment]
 
 # 延迟检查：只在实际需要时检查并显示警告
 _CRYPTO_CHECKED = False
@@ -130,6 +130,8 @@ class ConfigLoader:
         # 当 cryptography 不可用时，保存阶段会把敏感字段置空以防明文落盘；
         # 保存结束后再恢复这些值到内存。
         self._pending_sensitive_restore: List[Tuple[str, str, Any]] = []
+        # 缓存的加密密钥（动态设置，见 _get_encryption_key）
+        self._cached_encryption_key: Optional[bytes] = None
 
     def _get_or_create_salt(self) -> bytes:
         """获取或创建盐值（存储在用户数据目录中）"""
@@ -263,8 +265,9 @@ class ConfigLoader:
         结合随机盐值，提高安全性。
         """
         # 缓存密钥，避免每次都执行昂贵的 PBKDF2 运算
-        if hasattr(self, "_cached_encryption_key"):
-            return self._cached_encryption_key
+        cached_key = getattr(self, "_cached_encryption_key", None)
+        if cached_key is not None:
+            return cached_key  # type: ignore[return-value]
 
         # 收集机器特定信息
         machine_info = self._get_machine_fingerprint()
@@ -280,7 +283,7 @@ class ConfigLoader:
         # 获取盐值（随机生成或从文件读取）
         salt = self._get_or_create_salt()
 
-        if _ensure_crypto_check() and PBKDF2 and hashes:
+        if _ensure_crypto_check() and PBKDF2 is not None and hashes is not None:
             # 使用 PBKDF2 派生密钥，符合 OWASP 2023 推荐
             kdf = PBKDF2(
                 algorithm=hashes.SHA256(),
@@ -312,7 +315,7 @@ class ConfigLoader:
         try:
             key = self._get_encryption_key()
 
-            if _ensure_crypto_check() and Fernet:
+            if _ensure_crypto_check() and Fernet is not None:
                 f = Fernet(key)
                 encrypted = f.encrypt(value.encode("utf-8"))
                 return f"enc:{encrypted.decode('utf-8')}"
@@ -328,7 +331,7 @@ class ConfigLoader:
                 return "enc:REQUIRE_CRYPTOGRAPHY"
         except Exception as e:
             logger.error(f"加密失败: {e}")
-            return None
+            return None  # type: ignore[return-value]
 
     def _decrypt_value(self, value: str) -> str:
         """解密单个值"""
@@ -348,7 +351,7 @@ class ConfigLoader:
                 obfuscated = encrypted_data[4:]
                 return base64.b64decode(obfuscated).decode("utf-8")
 
-            if _ensure_crypto_check() and Fernet:
+            if _ensure_crypto_check() and Fernet is not None:
                 f = Fernet(key)
                 decrypted = f.decrypt(encrypted_data.encode("utf-8"))
                 return decrypted.decode("utf-8")
@@ -1098,13 +1101,13 @@ class ConfigLoader:
                 return default
 
         if key is None:
-            return self.config[section]
+            return self.config[section]  # type: ignore[index]
 
         # 支持点分隔符访问嵌套配置
         # (如 "local.api_url" → config[section]["local"]["api_url"])
         if "." in key:
             keys = key.split(".")
-            value = self.config[section]
+            value = self.config[section]  # type: ignore[index]
             for k in keys:
                 if isinstance(value, dict) and k in value:
                     value = value[k]
@@ -1112,7 +1115,7 @@ class ConfigLoader:
                     return default
             return value
 
-        return self.config[section].get(key, default)
+        return self.config[section].get(key, default)  # type: ignore[index]
 
     def getint(self, section: str, key: str, default: int = 0) -> int:
         """获取整数值的配置"""

@@ -14,7 +14,10 @@ import re
 import time
 import traceback
 from datetime import datetime
-from typing import Any, Dict, List, Optional, Tuple
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
+
+if TYPE_CHECKING:
+    from backend.core.embedding_manager import EmbeddingModelManager
 
 from backend.core.constants import (
     DEFAULT_CACHE_SIZE,
@@ -126,7 +129,11 @@ class SearchEngine:
             self.text_weight /= total_weight
             self.vector_weight /= total_weight
 
+        # 初始化 reranker_manager（早期声明以满足类型检查）
+        self.reranker_manager: Optional["EmbeddingModelManager"] = None
+
         # 初始化缓存（使用分片缓存提高并发性能）
+        self.cache: Optional["ShardedCache"] = None
         if self.enable_cache:
             self.cache = ShardedCache(max_size=self.cache_size)
             self.cache.set_ttl(self.cache_ttl)
@@ -135,7 +142,6 @@ class SearchEngine:
                 f"向量权重: {self.vector_weight}, 分片缓存已启用"
             )
         else:
-            self.cache = None
             self.logger.info(
                 f"搜索引擎初始化完成，文本权重: {self.text_weight}, "
                 f"向量权重: {self.vector_weight}, 缓存已禁用"

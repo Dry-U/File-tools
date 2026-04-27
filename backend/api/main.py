@@ -31,7 +31,7 @@ class RateLimiter:
     DEFAULT_CLEANUP_INTERVAL = 300  # 5 分钟清理一次（降低频率）
 
     def __init__(self, max_entries: Optional[int] = None):
-        self._requests = OrderedDict()  # 使用 OrderedDict 支持 LRU 清理
+        self._requests: OrderedDict[str, list[float]] = OrderedDict()
         self._requests_lock = threading.Lock()  # 保护 _requests 的线程安全
         self._max_entries = max_entries or self.DEFAULT_MAX_ENTRIES
         self._cleanup_interval = self.DEFAULT_CLEANUP_INTERVAL

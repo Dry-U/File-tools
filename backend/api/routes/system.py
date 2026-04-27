@@ -183,7 +183,7 @@ async def rebuild_index_stream(
             )
 
     # 用于线程间通信的队列
-    progress_queue = queue.Queue()
+    progress_queue: queue.Queue[str] = queue.Queue()
 
     async def event_generator():
         """SSE事件生成器"""

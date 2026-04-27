@@ -52,7 +52,7 @@ class ThreadSafeTTLCache:
     """
 
     def __init__(self, max_size: int = 1000, ttl: float = 3600):
-        self._cache = TTLCache(maxsize=max_size, ttl=ttl)
+        self._cache: TTLCache[str, Any] = TTLCache(maxsize=max_size, ttl=ttl)
         self._lock = threading.Lock()
         self._stats = {"hits": 0, "misses": 0}
 
@@ -116,7 +116,7 @@ class LRUCache:
     def __init__(self, max_size: int = 100, ttl: float = 3600):
         from cachetools import LRUCache as _LRUCache
 
-        self._cache = _LRUCache(maxsize=max_size)
+        self._cache: _LRUCache[str, Any] = _LRUCache(maxsize=max_size)
         self._ttl = ttl
         self._lock = threading.Lock()
         self._stats = {"hits": 0, "misses": 0}

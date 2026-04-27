@@ -199,7 +199,7 @@ class TextChunker:
         sentences = re.split(f"({sentence_endings})", content)
 
         chunks = []
-        current_chunk = []
+        current_chunk: list[str] = []
         current_length = 0
         chunk_start = 0
         current_pos = 0
@@ -265,7 +265,7 @@ class TextChunker:
         paragraphs = re.split(r"\n\s*\n", content)
 
         chunks = []
-        current_chunk_paras = []
+        current_chunk_paras: list[str] = []
         current_length = 0
         chunk_start = 0
         current_pos = 0
@@ -323,7 +323,7 @@ class TextChunker:
         # 优先按句子切分
         sentences = re.split(r"([。！？\.\!\?]\s*)", paragraph)
 
-        current_chunk = []
+        current_chunk: list[str] = []
         current_length = 0
         chunk_start = 0
         pos = 0

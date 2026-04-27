@@ -486,7 +486,7 @@ class ConfigValidator:
                 pass
         else:
             try:
-                if os.geteuid() == 0:
+                if getattr(os, "geteuid", lambda: -1)() == 0:
                     result.add_warning(
                         message="应用以 root 权限运行，存在安全风险",
                         section="system",

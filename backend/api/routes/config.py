@@ -3,6 +3,7 @@
 """
 
 from pathlib import Path
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import ValidationError
@@ -194,7 +195,7 @@ async def update_config(
 
         def flatten_dict(d: dict, parent_key: str = "", sep: str = ".") -> dict:
             """将嵌套字典扁平化为点号分隔的键"""
-            items = []
+            items: list[tuple[str, Any]] = []
             for k, v in d.items():
                 new_key = f"{parent_key}{sep}{k}" if parent_key else k
                 if isinstance(v, dict):
@@ -204,7 +205,7 @@ async def update_config(
             return dict(items)
 
         # 验证配置数据
-        validated_data = {}
+        validated_data: dict[str, Any] = {}
         if "ai_model" in body:
             try:
                 validated_data["ai_model"] = AIModelConfigValidator(**body["ai_model"])
@@ -458,20 +459,20 @@ async def get_config(config_loader: ConfigLoader = Depends(get_config_loader)):
             },
             "migration_notice": _detect_index_path_migration_notice(config_loader),
         }
-        scan_paths = config["file_scanner"]["scan_paths"]
+        scan_paths = config["file_scanner"]["scan_paths"]  # type: ignore[index]
         if isinstance(scan_paths, str):
-            config["file_scanner"]["scan_paths"] = [
+            config["file_scanner"]["scan_paths"] = [  # type: ignore[index]
                 p.strip() for p in scan_paths.split(";") if p.strip()
             ]
         elif isinstance(scan_paths, list):
-            config["file_scanner"]["scan_paths"] = [
+            config["file_scanner"]["scan_paths"] = [  # type: ignore[index]
                 str(p).strip() for p in scan_paths if str(p).strip()
             ]
         else:
-            config["file_scanner"]["scan_paths"] = []
+            config["file_scanner"]["scan_paths"] = []  # type: ignore[index]
         # 兼容旧前端字段读取；写入统一走 max_history_*。
-        config["rag"]["top_k"] = config["rag"]["max_history_turns"]
-        config["rag"]["context_length"] = config["rag"]["max_history_chars"]
+        config["rag"]["top_k"] = config["rag"]["max_history_turns"]  # type: ignore[index]
+        config["rag"]["context_length"] = config["rag"]["max_history_chars"]  # type: ignore[index]
         return config
     except Exception as e:
         logger.error(f"获取配置错误: {str(e)}")

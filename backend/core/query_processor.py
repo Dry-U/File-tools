@@ -471,7 +471,7 @@ class QueryProcessor:
 
     def _generate_filename_variants(self, query: str) -> List[str]:
         """生成文件名匹配变体"""
-        variants = []
+        variants: list[str] = []
 
         # 清理查询，去除常见停用词
         cleaned_query = self._clean_query_for_filename(query)

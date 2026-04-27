@@ -47,11 +47,11 @@ import pypdf
 try:
     import pdfplumber
 except ImportError:
-    pdfplumber = None
+    pdfplumber = None  # type: ignore[assignment,no-redef]
 try:
     import fitz  # PyMuPDF
 except ImportError:
-    fitz = None
+    fitz = None  # type: ignore[assignment,no-redef]
 import pandas as pd
 from docx import Document as DocxDocument
 

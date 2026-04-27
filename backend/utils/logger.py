@@ -359,7 +359,7 @@ class EnterpriseLogger:
                 log_json=False,
             )
         else:
-            formatter = CustomFormatter(
+            formatter = CustomFormatter(  # type: ignore[assignment]
                 fmt="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
                 datefmt="%Y-%m-%d %H:%M:%S",
             )
@@ -378,9 +378,9 @@ class EnterpriseLogger:
                     stream=io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
                 )
             except Exception:
-                console_handler = logging.StreamHandler()
+                console_handler = logging.StreamHandler()  # type: ignore[assignment]
         else:
-            console_handler = logging.StreamHandler()
+            console_handler = logging.StreamHandler()  # type: ignore[assignment]
         console_handler.setFormatter(formatter)
         handlers.append(console_handler)
 
@@ -392,27 +392,27 @@ class EnterpriseLogger:
         # 根据配置选择轮转方式
         if logger_config.log_rotation == "size":
             max_bytes = logger_config.log_max_size * 1024 * 1024  # 转换为字节
-            file_handler = RotatingFileHandler(
+            file_handler: RotatingFileHandler = RotatingFileHandler(  # type: ignore[assignment]
                 log_file,
                 maxBytes=max_bytes,
                 backupCount=logger_config.log_backup_count,
                 encoding="utf-8",
             )
         else:
-            file_handler = SafeTimedRotatingFileHandler(
+            file_handler = SafeTimedRotatingFileHandler(  # type: ignore[assignment]
                 log_file,
                 when="midnight",
                 interval=1,
                 backupCount=logger_config.log_backup_count,
                 encoding="utf-8",
             )
-            file_handler.suffix = "%Y-%m-%d.log"
+            file_handler.suffix = "%Y-%m-%d.log"  # type: ignore[attr-defined]
 
         file_handler.setFormatter(formatter)
         handlers.append(file_handler)
 
         # 创建异步日志队列和监听器
-        log_queue = Queue(-1)  # 无限大小的队列
+        log_queue: Queue[Any] = Queue(-1)  # 无限大小的队列
         queue_handler = QueueHandler(log_queue)
         listener = QueueListener(log_queue, *handlers, respect_handler_level=True)
 

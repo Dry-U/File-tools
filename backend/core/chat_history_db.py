@@ -38,7 +38,7 @@ class ChatHistoryDB:
         self._local = threading.local()
 
         # 跟踪所有线程的连接
-        self._all_connections = []
+        self._all_connections: list[sqlite3.Connection] = []
         self._connections_lock = threading.Lock()
 
         # Initialize tables

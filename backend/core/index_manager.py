@@ -10,7 +10,7 @@ import threading
 import time
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 import jieba
 import numpy as np
@@ -124,6 +124,9 @@ class IndexManager:
         self._content_cache = {}  # {path: content}
         self._content_cache_order = []  # 记录访问顺序，用于 LRU 淘汰
         self._content_cache_max_size = 500  # 最大缓存文件数
+
+        # 分块器（可为 None）
+        self.chunker: Optional["TextChunker"] = None
 
     def _init_config(self) -> None:
         """初始化配置参数"""
@@ -2806,9 +2809,9 @@ class IndexManager:
             # 4) 按原顺序组装结果
             out = np.zeros((len(texts), dim), dtype=np.float32)
             for i, sig in enumerate(sigs):
-                vec = self._embed_cache.get(sig)
+                vec = self._embed_cache.get(sig)  # type: ignore[assignment]
                 if vec is None:
-                    vec = new_vectors_map.get(sig)
+                    vec = new_vectors_map.get(sig)  # type: ignore[assignment]
                 if vec is None:
                     vec = np.zeros(dim, dtype=np.float32)
                 out[i] = vec

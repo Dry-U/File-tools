@@ -724,7 +724,7 @@ class FileScanner:
 
     def _collect_files(self) -> List[Path]:
         """收集所有需要扫描的文件路径"""
-        all_files = []
+        all_files: List[Path] = []
         for path in self.scan_paths:
             if self._is_stop_requested():
                 break
@@ -920,7 +920,7 @@ class FileScanner:
         使用os.scandir进行高效目录遍历，配合排除模式过滤。
         scandir-rs虽然快，但由于其内部队列机制与我们的目录排除逻辑不兼容，暂不使用。
         """
-        all_files = []
+        all_files: List[Path] = []
 
         for path in self.scan_paths:
             if self._is_stop_requested():
@@ -2038,7 +2038,7 @@ class FileScanner:
 
     async def _collect_files_async(self) -> List[Path]:
         """异步收集所有需要扫描的文件路径"""
-        all_files = []
+        all_files: List[Path] = []
         for path in self.scan_paths:
             if self._is_stop_requested():
                 break
