@@ -476,9 +476,13 @@ class ConfigValidator:
                 import ctypes
 
                 windll = getattr(ctypes, "windll", None)
-                shell32 = getattr(windll, "shell32", None) if windll is not None else None
+                shell32 = (
+                    getattr(windll, "shell32", None) if windll is not None else None
+                )
                 is_user_admin = (
-                    getattr(shell32, "IsUserAnAdmin", None) if shell32 is not None else None
+                    getattr(shell32, "IsUserAnAdmin", None)
+                    if shell32 is not None
+                    else None
                 )
                 if callable(is_user_admin) and bool(is_user_admin()):
                     result.add_info(

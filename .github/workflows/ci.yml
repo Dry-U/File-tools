@@ -87,14 +87,6 @@ jobs:
           uv sync --index-url https://pypi.org/simple/
           uv run pytest tests/api/ -v --tb=short
 
-      - name: Upload coverage to Codecov
-        if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.12'
-        uses: codecov/codecov-action@v6
-        with:
-          files: ./coverage.xml
-          fail_ci_if_error: true
-          verbose: true
-
   # ==================== macOS 测试 ====================
   test-macos:
     name: Unit Tests (Python ${{ matrix.python-version }} on macOS)

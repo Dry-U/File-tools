@@ -8,13 +8,10 @@ import sys
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
-from typing import TYPE_CHECKING, Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 from watchdog.events import FileSystemEventHandler
 from watchdog.observers import Observer
-
-if TYPE_CHECKING:
-    from backend.core.index_manager import IndexManager
 
 
 class FileMonitor:
