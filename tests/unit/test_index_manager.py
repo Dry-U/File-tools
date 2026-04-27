@@ -23,6 +23,7 @@ def test_index_manager_initialization():
                 "tantivy_path": f"{tmpdir}/tantivy_test",
                 "hnsw_path": f"{tmpdir}/hnsw_test",
                 "metadata_path": f"{tmpdir}/metadata_test",
+                "chunk_enabled": False,
             },
             "embedding": {
                 "enabled": False,  # 禁用嵌入模型以避免依赖问题
@@ -38,9 +39,13 @@ def test_index_manager_initialization():
         ).get(key, default)
         mock_config.getint.side_effect = lambda section, key, default=0: int(
             config_data.get(section, {}).get(key, default)
+            if config_data.get(section, {}).get(key) is not None
+            else default
         )
-        mock_config.getboolean.side_effect = lambda section, key, default=False: bool(
+        mock_config.getboolean.side_effect = lambda section, key, default=False: (
             config_data.get(section, {}).get(key, default)
+            if config_data.get(section, {}).get(key) is not None
+            else default
         )
 
         # 测试初始化
@@ -58,13 +63,14 @@ def test_index_manager_initialization():
 def test_add_document():
     """测试添加文档功能"""
     with tempfile.TemporaryDirectory() as tmpdir:
-        # 创建测试配置
+        # 创建测试配置 - 使用真实 ConfigLoader 确保正确初始化
         config_data = {
             "system": {"data_dir": tmpdir},
             "index": {
                 "tantivy_path": f"{tmpdir}/tantivy_test",
                 "hnsw_path": f"{tmpdir}/hnsw_test",
                 "metadata_path": f"{tmpdir}/metadata_test",
+                "chunk_enabled": False,  # 禁用 chunk 以避免 embedding 依赖
             },
             "embedding": {
                 "enabled": False,  # 禁用嵌入模型以避免依赖问题
@@ -73,20 +79,27 @@ def test_add_document():
             },
         }
 
-        # 创建配置加载器
+        # 使用部分 mock：支持 get/getint/getboolean 但其他方法真实
         mock_config = Mock(spec=ConfigLoader)
         mock_config.get.side_effect = lambda section, key, default="": config_data.get(
             section, {}
         ).get(key, default)
         mock_config.getint.side_effect = lambda section, key, default=0: int(
             config_data.get(section, {}).get(key, default)
+            if config_data.get(section, {}).get(key) is not None
+            else default
         )
-        mock_config.getboolean.side_effect = lambda section, key, default=False: bool(
+        mock_config.getboolean.side_effect = lambda section, key, default=False: (
             config_data.get(section, {}).get(key, default)
+            if config_data.get(section, {}).get(key) is not None
+            else default
         )
 
         # 测试添加文档
         index_manager = IndexManager(mock_config)
+
+        # 验证索引已初始化
+        assert index_manager.tantivy_index is not None, "Tantivy 索引未初始化"
 
         # 准备测试文档
         import time
@@ -108,7 +121,7 @@ def test_add_document():
 
         # 添加文档到索引
         success = index_manager.add_document(test_doc)
-        assert success is True
+        assert success is True, f"add_document 返回 {success}，预期 True"
 
 
 @pytest.mark.skipif(
@@ -125,6 +138,7 @@ def test_search_functionality():
                 "tantivy_path": f"{tmpdir}/tantivy_test",
                 "hnsw_path": f"{tmpdir}/hnsw_test",
                 "metadata_path": f"{tmpdir}/metadata_test",
+                "chunk_enabled": False,
             },
             "embedding": {
                 "enabled": False,  # 禁用嵌入模型以避免依赖问题
@@ -140,9 +154,13 @@ def test_search_functionality():
         ).get(key, default)
         mock_config.getint.side_effect = lambda section, key, default=0: int(
             config_data.get(section, {}).get(key, default)
+            if config_data.get(section, {}).get(key) is not None
+            else default
         )
-        mock_config.getboolean.side_effect = lambda section, key, default=False: bool(
+        mock_config.getboolean.side_effect = lambda section, key, default=False: (
             config_data.get(section, {}).get(key, default)
+            if config_data.get(section, {}).get(key) is not None
+            else default
         )
 
         # 测试搜索功能

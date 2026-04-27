@@ -51,7 +51,7 @@ jobs:
 
       - name: Type check with mypy
         run: |
-          uvx mypy backend/ --ignore-missing-imports --pretty
+          uv run mypy backend/
 
   # ==================== 单元测试 ====================
   test:
