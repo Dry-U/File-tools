@@ -231,17 +231,19 @@ async def add_security_headers(request, call_next):
     # 内容安全策略
     # 注意：Tauri IPC 使用 ipc: 和 http://ipc.localhost，需要在此添加
     # script-src 保留 'unsafe-inline'，因为页面存在 inline event handler
-    response.headers["Content-Security-Policy"] = (
+    csp = (
         "default-src 'self'; "
         "script-src 'self' 'unsafe-inline'; "
         "style-src 'self' 'unsafe-inline'; "
         "font-src 'self'; "
         "img-src 'self' data: static/; "
         # 与 frontend/index.html meta CSP 保持一致：允许连接到本机动态端口
-        "connect-src 'self' ipc: http://ipc.localhost http://127.0.0.1:* http://localhost:*; "
+        "connect-src 'self' ipc: "
+        "http://ipc.localhost http://127.0.0.1:* http://localhost:*; "
         "frame-ancestors 'none'; "
         "form-action 'self'"
     )
+    response.headers["Content-Security-Policy"] = csp
 
     # XSS 保护（对旧版浏览器）
     response.headers["X-XSS-Protection"] = "1; mode=block"

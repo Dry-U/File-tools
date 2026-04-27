@@ -141,10 +141,12 @@ def _detect_index_path_migration_notice(config_loader: ConfigLoader) -> str:
         )
 
         if old_has_data and not current_has_data:
-            return (
-                f"检测到旧索引目录 {old_data_dir} 存在历史数据，而当前索引目录 "
-                f"{expected_data_dir} 为空。可选择迁移旧索引或在“目录管理”执行重建索引。"
+            msg = (
+                f"Detected old index directory {old_data_dir} has historical data, "
+                f"but current index directory {expected_data_dir} is empty. "
+                f"You may migrate the old index or rebuild via Directory Management."
             )
+            return msg
     except Exception:
         return ""
     return ""
@@ -161,12 +163,17 @@ async def update_config(
         if not isinstance(body, dict):
             raise HTTPException(status_code=400, detail="配置数据必须是JSON对象")
 
-        # 向后兼容：将旧字段映射到当前生效字段，避免“保存成功但不生效”
+        # 向后兼容：将旧字段映射到当前生效字段
         rag_payload = body.get("rag")
         if isinstance(rag_payload, dict):
+            # max_history_turns from top_k
             if "max_history_turns" not in rag_payload and "top_k" in rag_payload:
                 rag_payload["max_history_turns"] = rag_payload.get("top_k")
-            if "max_history_chars" not in rag_payload and "context_length" in rag_payload:
+            # max_history_chars from context_length
+            cond1 = "max_history_chars" not in rag_payload
+            cond2 = "context_length" in rag_payload
+            has_ctx = cond1 and cond2
+            if has_ctx:
                 rag_payload["max_history_chars"] = rag_payload.get("context_length")
 
         local_model_payload = body.get("local_model")
@@ -177,8 +184,11 @@ async def update_config(
                 ai_model_payload = body["ai_model"]
             if not isinstance(ai_model_payload.get("local"), dict):
                 ai_model_payload["local"] = {}
-            if "api_url" in local_model_payload and "api_url" not in ai_model_payload["local"]:
-                ai_model_payload["local"]["api_url"] = local_model_payload.get("api_url")
+            if "api_url" in local_model_payload:
+                if "api_url" not in ai_model_payload["local"]:
+                    ai_model_payload["local"]["api_url"] = local_model_payload.get(
+                        "api_url"
+                    )
 
         _preserve_existing_api_keys(config_loader, body)
 
@@ -303,9 +313,12 @@ async def update_config(
                     reload_thread.start()
 
                 if save_warnings:
+                    parts = ["配置已保存，但存在注意事项："]
+                    parts.extend(save_warnings)
+                    warning_msg = "；".join(parts)
                     return {
                         "status": "warning",
-                        "message": "配置已保存，但存在注意事项：" + "；".join(save_warnings),
+                        "message": warning_msg,
                         "updated_sections": updated_sections,
                     }
                 else:

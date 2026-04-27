@@ -643,7 +643,8 @@ class FileScanner:
                                     "batch_add_seconds", time.time() - t_batch_add
                                 )
                                 self._record_perf("batch_add_calls", 1)
-                                self._record_perf("batch_add_docs", len(documents_batch))
+                                batch_size = len(documents_batch)
+                                self._record_perf("batch_add_docs", batch_size)
                                 documents_batch.clear()
                             except Exception as e:
                                 self.logger.error(f"批量索引失败: {e}")

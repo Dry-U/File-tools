@@ -100,8 +100,12 @@ async def rebuild_index(
         with _rebuild_lock:
             _rebuild_progress_state["in_progress"] = False
             _rebuild_progress_state["progress"] = 100
-            _rebuild_progress_state["files_scanned"] = stats.get("total_files_scanned", 0)
-            _rebuild_progress_state["files_indexed"] = stats.get("total_files_indexed", 0)
+            _rebuild_progress_state["files_scanned"] = stats.get(
+                "total_files_scanned", 0
+            )
+            _rebuild_progress_state["files_indexed"] = stats.get(
+                "total_files_indexed", 0
+            )
         logger.info(f"索引重建完成: {stats}")
         return {
             "status": "success",
@@ -286,13 +290,13 @@ async def rebuild_index_stream(
                                 }
                                 yield f"data: {json.dumps(phase_data)}\n\n"
                             else:
+                                base_time = commit_phase_since or current_time
+                                elapsed = max(0, current_time - base_time)
                                 keepalive_data = {
                                     "status": "keepalive",
                                     "phase": "committing",
                                     "progress": current_progress,
-                                    "elapsed_seconds": int(
-                                        max(0, current_time - (commit_phase_since or current_time))
-                                    ),
+                                    "elapsed_seconds": int(elapsed),
                                 }
                                 yield f"data: {json.dumps(keepalive_data)}\n\n"
                         else:

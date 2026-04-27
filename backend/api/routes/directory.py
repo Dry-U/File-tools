@@ -207,7 +207,8 @@ async def add_directory(
             prev_scanner_paths = list(file_scanner.scan_paths)
         had_monitor = False
         if file_monitor and hasattr(file_monitor, "get_monitored_directories"):
-            monitored_dirs = _normalize_path_list(file_monitor.get_monitored_directories())
+            mon_dirs = file_monitor.get_monitored_directories()
+            monitored_dirs = _normalize_path_list(mon_dirs)
             had_monitor = any(_paths_equal(expanded_path, d) for d in monitored_dirs)
 
         # 添加到扫描路径
@@ -292,7 +293,8 @@ async def remove_directory(
             prev_scanner_paths = list(file_scanner.scan_paths)
         had_monitor = False
         if file_monitor and hasattr(file_monitor, "get_monitored_directories"):
-            monitored_dirs = _normalize_path_list(file_monitor.get_monitored_directories())
+            mon_dirs = file_monitor.get_monitored_directories()
+            monitored_dirs = _normalize_path_list(mon_dirs)
             had_monitor = any(_paths_equal(expanded_path, d) for d in monitored_dirs)
 
         # 从扫描路径中移除

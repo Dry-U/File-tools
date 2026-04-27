@@ -209,10 +209,12 @@ class IndexManager:
                 chunk_size=self.chunk_size,
                 chunk_overlap=self.chunk_overlap,
             )
-            self.logger.info(
-                f"文本分块已启用: 策略={self.chunk_strategy}, 大小={self.chunk_size}, "
-                f"max_chunks={self.max_chunks_per_doc}, max_encode_len={self.max_encode_length}"
+            info = (
+                f"文本分块已启用: 策略={self.chunk_strategy}, "
+                f"大小={self.chunk_size}, max_chunks={self.max_chunks_per_doc}, "
+                f"max_encode_len={self.max_encode_length}"
             )
+            self.logger.info(info)
         else:
             self.chunker = None
             self.logger.info("文本分块已禁用")
@@ -265,13 +267,20 @@ class IndexManager:
             signatures.add(sig)
             filtered.append(chunk)
 
-        max_chunks = max_chunks_override if max_chunks_override > 0 else self.max_chunks_per_doc
+        max_chunks = (
+            max_chunks_override if max_chunks_override > 0 else self.max_chunks_per_doc
+        )
         if len(filtered) > max_chunks:
             indices = self._select_chunk_indices(len(filtered), max_chunks)
             sampled = [filtered[i] for i in indices]
-            self.logger.info(
-                f"文档 {doc_path} 分块降采样: 原始 {len(chunks)} -> 去重后 {len(filtered)} -> 入库 {len(sampled)}"
+            orig = len(chunks)
+            deduped = len(filtered)
+            stored = len(sampled)
+            log_msg = (
+                f"文档 {doc_path} 分块降采样: "
+                f"原始 {orig} -> 去重后 {deduped} -> 入库 {stored}"
             )
+            self.logger.info(log_msg)
             filtered = sampled
         elif skipped_too_short or skipped_duplicate:
             self.logger.debug(
@@ -312,7 +321,21 @@ class IndexManager:
         file_type = str(document.get("file_type", "") or "").lower()
         path = str(document.get("path", "") or "")
         ext = Path(path).suffix.lower().lstrip(".") if path else ""
-        if ext in {"pdf", "doc", "docx", "md", "txt", "py", "js", "java", "json", "yaml", "yml", "toml"}:
+        common_types = {
+            "pdf",
+            "doc",
+            "docx",
+            "md",
+            "txt",
+            "py",
+            "js",
+            "java",
+            "json",
+            "yaml",
+            "yml",
+            "toml",
+        }
+        if ext in common_types:
             # 仅作为兜底分类，不覆盖明确的 file_type
             if not file_type or file_type == "unknown":
                 file_type = ext
@@ -861,9 +884,8 @@ class IndexManager:
                         # 行业最佳实践：基于文档数量 + 时间双重触发
                         # 每5秒 或 缓冲区超过500文档 触发commit
                         memory_pressure = buffer_size > 1000
-                        should_commit = (
-                            buffer_size > 0
-                            and (elapsed >= 5 or buffer_size >= 500 or memory_pressure)
+                        should_commit = buffer_size > 0 and (
+                            elapsed >= 5 or buffer_size >= 500 or memory_pressure
                         )
 
                         if should_commit:
@@ -907,9 +929,8 @@ class IndexManager:
                                     )
                                     self._commit_docs_since_last = 0
                                 else:
-                                    self.logger.debug(
-                                        "[COMMIT_THREAD] writer 无新增文档，跳过空 commit"
-                                    )
+                                    msg = "[COMMIT_THREAD] writer 无新增，跳过空 commit"
+                                    self.logger.debug(msg)
                             except Exception as e:
                                 self.logger.error(
                                     f"[COMMIT_THREAD] 后台commit失败: {e}"
@@ -2792,8 +2813,9 @@ class IndexManager:
                     vec = np.zeros(dim, dtype=np.float32)
                 out[i] = vec
 
+            elapsed = time.time() - t0
             self.logger.info(
-                f"[ENCODE] 输出组装完成，shape={out.shape}，总耗时 {time.time() - t0:.3f}s"
+                f"[ENCODE] 输出组装完成，shape={out.shape}，总耗时 {elapsed:.3f}s"
             )
             return out
         except Exception as e:
@@ -2839,9 +2861,9 @@ class IndexManager:
         count = len(pending_items)
 
         try:
-            t1 = time.time()  # 调试时间点
             self.logger.info(
-                f"[VECTOR_FLUSH] 分块写入开始，共 {count} 个向量，块大小={self._vector_batch_size}"
+                f"[VECTOR_FLUSH] 分块写入开始，共 {count} 个向量，"
+                f"块大小={self._vector_batch_size}"
             )
 
             batch_size = max(1, int(self._vector_batch_size))

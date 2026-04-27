@@ -393,7 +393,8 @@ class ConfigLoader:
                 encrypted = self._encrypt_value(value)
                 if encrypted == "enc:REQUIRE_CRYPTOGRAPHY":
                     logger.warning(
-                        f"跳过存储敏感字段 {section}.{dotted_key}：cryptography 库未安装"
+                        f"跳过存储敏感字段 {section}.{dotted_key}："
+                        f"cryptography 库未安装"
                     )
                     # 防止明文落盘：写空值；保存结束后再恢复到内存
                     self._pending_sensitive_restore.append((section, dotted_key, value))
@@ -812,9 +813,22 @@ class ConfigLoader:
                     p = (data_dir / default_name).resolve()
                 return str(p)
 
-            self.set("index", "tantivy_path", _normalize_index_path("tantivy_path", "tantivy_index"))
-            self.set("index", "hnsw_path", _normalize_index_path("hnsw_path", "hnsw_index"))
-            self.set("index", "metadata_path", _normalize_index_path("metadata_path", "metadata"))
+            def _np(path_key, default_name):
+                p = self.get("index", path_key)
+                try:
+                    p = Path(p) if p else None
+                except Exception:
+                    p = None
+                if not p or not p.is_absolute() or str(p).startswith("."):
+                    p = (data_dir / default_name).resolve()
+                return str(p)
+
+            tantivy_path = _np("tantivy_path", "tantivy_index")
+            hnsw_path = _np("hnsw_path", "hnsw_index")
+            meta_path = _np("metadata_path", "metadata")
+            self.set("index", "tantivy_path", tantivy_path)
+            self.set("index", "hnsw_path", hnsw_path)
+            self.set("index", "metadata_path", meta_path)
         except Exception as e:
             logger.warning(f"规范化索引路径失败: {e}")
 
@@ -1279,16 +1293,17 @@ class ConfigLoader:
                     if "." in key:
                         self._set_nested_value(section, key, original_value)
                     else:
-                        if section not in self.config or not isinstance(
-                            self.config[section], dict
-                        ):
+                        is_dict = isinstance(self.config.get(section), dict)
+                        if section not in self.config or not is_dict:
                             self.config[section] = {}
                         self.config[section][key] = original_value
 
                 self._pending_sensitive_restore = []
-                self._last_save_warnings.append(
-                    "未安装 cryptography：已阻止敏感信息写入配置文件（密钥不会持久化）。请安装：uv add cryptography"
+                warning_text = (
+                    "未安装 cryptography："
+                    "已阻止敏感信息写入配置文件（密钥不会持久化）。"
                 )
+                self._last_save_warnings.append(warning_text)
 
             return True
         except Exception as e:

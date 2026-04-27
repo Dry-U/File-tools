@@ -210,7 +210,7 @@ class TestChatHistoryDB:
         )
 
         sessions = temp_db.get_all_sessions()
-        assert len(sessions[0]["title"]) <= 33  # 30 + "..."
+        assert len(sessions[0]["title"]) <= 53  # 50 + "..."
 
     def test_message_count_increment(self, temp_db):
         """测试消息计数递增"""

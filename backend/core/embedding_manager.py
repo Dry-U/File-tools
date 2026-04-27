@@ -140,7 +140,13 @@ class EmbeddingModelManager:
         candidate_paths = [
             Path(cache_dir) / flat_name,
             Path(cache_dir) / f"models--{normalized_name}",
-            Path.home() / ".cache" / "huggingface" / "hub" / f"models--{normalized_name}",
+            (
+                Path.home()
+                / ".cache"
+                / "huggingface"
+                / "hub"
+                / f"models--{normalized_name}"
+            ),
         ]
 
         # FastEmbed / HF 可能将模型放在 snapshots 子目录
