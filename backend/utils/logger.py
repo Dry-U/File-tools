@@ -307,7 +307,8 @@ class SafeQueueHandler(QueueHandler):
                 dropped_count = self._dropped_count
             if should_warn:
                 sys.stderr.write(
-                    f"[{self.logger_name}] log queue full, dropped messages={dropped_count}\n"
+                    f"[{self.logger_name}] log queue full, "
+                    f"dropped messages={dropped_count}\n"
                 )
 
 
@@ -466,7 +467,9 @@ class EnterpriseLogger:
         queue_max_size = 10000
         try:
             if hasattr(config, "getint"):
-                queue_max_size = max(1000, config.getint("system", "log_queue_size", 10000))
+                queue_max_size = max(
+                    1000, config.getint("system", "log_queue_size", 10000)
+                )
             elif isinstance(config, dict):
                 queue_max_size = max(
                     1000,

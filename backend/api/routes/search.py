@@ -338,7 +338,7 @@ async def preview_file(
                         }
                     },
                 )
-        except (OSError, IOError) as e:
+        except (OSError, IOError):
             logger.exception("无法读取文件信息")
             raise HTTPException(
                 status_code=500,

@@ -869,7 +869,9 @@ class IndexManager:
                 try:
                     with self._batch_lock:
                         if not self._batch_mode:
-                            self.logger.debug("[COMMIT_THREAD] 批量模式已关闭，退出线程")
+                            self.logger.debug(
+                                "[COMMIT_THREAD] 批量模式已关闭，退出线程"
+                            )
                             break
                         if self._writer is None:
                             self.logger.warning(

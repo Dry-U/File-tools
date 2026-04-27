@@ -443,7 +443,7 @@ async def cancel_rebuild_index(
             "files_scanned": files_scanned,
             "files_indexed": files_indexed,
         }
-    except Exception as e:
+    except Exception:
         logger.exception("取消重建索引错误")
         raise HTTPException(status_code=500, detail="取消重建失败，请稍后重试")
 
@@ -567,26 +567,27 @@ async def check_update():
         # 调用 GitHub API 获取最新 release
         # 优先使用严格证书校验；若当前环境证书链异常，则降级重试以保证可用性。
         update_url = f"https://api.github.com/repos/{repo}/releases/latest"
-        request_kwargs = {
-            "headers": {"Accept": "application/vnd.github.v3+json"},
-            "timeout": 10,
-            "verify": certifi.where(),
-        }
+        request_headers = {"Accept": "application/vnd.github.v3+json"}
+        request_timeout = 10
         try:
-            response = requests.get(update_url, **request_kwargs)
-        except requests.exceptions.SSLError as ssl_err:
-            # 某些网络环境（企业代理/本地网关）会进行 HTTPS 证书替换，导致严格校验失败。
-            # 为避免日志刷屏，仅首次提示一次并自动降级重试，保证“检查更新”可用。
-            if not _update_ssl_fallback_notified:
-                logger.info(
-                    f"检查更新证书校验失败，已降级重试（仅提示一次）: {ssl_err}"
-                )
-                _update_ssl_fallback_notified = True
             response = requests.get(
                 update_url,
-                headers=request_kwargs["headers"],
-                timeout=request_kwargs["timeout"],
-                verify=False,
+                headers=request_headers,
+                timeout=request_timeout,
+                verify=certifi.where(),
+            )
+        except requests.exceptions.SSLError as ssl_err:
+            # 某些网络环境（企业代理/本地网关）会进行 HTTPS 证书替换，导致严格校验失败。
+            # 出于安全考虑不再降级到 verify=False，避免绕过证书校验。
+            if not _update_ssl_fallback_notified:
+                logger.info(
+                    "检查更新证书校验失败，请检查系统证书链或代理配置"
+                    f"（仅提示一次）: {ssl_err}"
+                )
+                _update_ssl_fallback_notified = True
+            raise HTTPException(
+                status_code=503,
+                detail="更新服务器证书校验失败，请检查网络代理或系统证书配置",
             )
         response.raise_for_status()
         data = response.json()
@@ -621,7 +622,7 @@ async def check_update():
     except requests.RequestException as e:
         logger.warning(f"检查更新失败: {e}")
         raise HTTPException(status_code=503, detail="无法连接到更新服务器")
-    except Exception as e:
+    except Exception:
         logger.exception("检查更新异常")
         raise HTTPException(status_code=500, detail="检查更新失败")
 

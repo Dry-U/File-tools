@@ -246,7 +246,9 @@ async def add_security_headers(request, call_next):
             component="http_middleware",
         )
     )
-    logger.debug(f"[HTTP] request_start method={request.method} path={request.url.path}")
+    logger.debug(
+        f"[HTTP] request_start method={request.method} path={request.url.path}"
+    )
     try:
         response = await call_next(request)
     finally:
@@ -284,7 +286,8 @@ async def add_security_headers(request, call_next):
     elapsed_ms = (time.perf_counter() - request_start) * 1000
     log_message = (
         f"[HTTP] request_done method={request.method} path={request.url.path} "
-        f"status={response.status_code} duration_ms={elapsed_ms:.1f} request_id={request_id}"
+        f"status={response.status_code} "
+        f"duration_ms={elapsed_ms:.1f} request_id={request_id}"
     )
     if elapsed_ms >= SLOW_REQUEST_THRESHOLD_MS:
         logger.warning(f"{log_message} slow_request=true")
