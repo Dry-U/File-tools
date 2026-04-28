@@ -84,7 +84,7 @@ dev = [
     "mypy>=1.0.0",
     "bandit>=1.7.0",
     "pyinstaller>=6.0.0",
-    "httpx>=0.25.0,<1.0.0",
+    "httpx>=0.28.1,<1.0.0",
     "types-pyyaml>=6.0.12.20250915",
     "types-aiofiles>=25.1.0.20251011",
     "types-requests>=2.32.4.20260107",
@@ -104,7 +104,7 @@ dev = [
     "black>=23.0.0",
     "mypy>=1.0.0",
     "bandit>=1.7.0",
-    "httpx>=0.25.0,<1.0.0",
+    "httpx>=0.28.1,<1.0.0",
 ]
 # 快速扫描（使用 Rust 加速）
 fast-scan = [
